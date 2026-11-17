@@ -1,0 +1,3 @@
+sets:
+  smoke: {tags: [smoke]}
+  everything: {journeys: [open-display, android-version, search-settings]}

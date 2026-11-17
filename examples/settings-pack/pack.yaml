@@ -1,0 +1,11 @@
+# Example pack: Android's own Settings app, present on every emulator.
+# Screen rules are written from AOSP Settings' visible texts; check them on your emulator
+# with `journeys doctor` and a first run, and adjust the texts for your Android version.
+name: settings-demo
+app: com.android.settings
+driver: speedrun
+env: [DEMO_SEARCH]          # optional variable used by the search journey
+hooks:
+  note: [hooks/note.sh]     # a tiny example hook: prints its JSON argument
+devices:
+  allow_settings_changes: emulator

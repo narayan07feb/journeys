@@ -1,0 +1,14 @@
+- name: android-version
+  tags: [smoke]
+  steps:
+    - expect: SETTINGS-HOME
+    - goto: SETTINGS-ABOUT
+    - see: "Android version"
+    - hook: {name: note, args: {saw: android-version}}
+
+- name: search-settings
+  tags: [search]
+  steps:
+    - goto: SETTINGS-SEARCH
+    - input: "${DEMO_SEARCH}"
+    - not_see: "Network & internet"

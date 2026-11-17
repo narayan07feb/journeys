@@ -1,0 +1,23 @@
+edges:
+  - from: SETTINGS-HOME
+    to: SETTINGS-DISPLAY
+    do:
+      - scrollUntilVisible: {element: "Display"}
+      - tapOn: "Display"
+  - from: SETTINGS-DISPLAY
+    to: SETTINGS-HOME
+    do: [back]
+  - from: SETTINGS-HOME
+    to: SETTINGS-ABOUT
+    do:
+      - scrollUntilVisible: {element: "About (phone|emulated device|device)"}
+      - tapOn: "About (phone|emulated device|device)"
+  - from: SETTINGS-ABOUT
+    to: SETTINGS-HOME
+    do: [back]
+  - from: SETTINGS-HOME
+    to: SETTINGS-SEARCH
+    do: [{tapOn: "Search settings"}]
+  - from: SETTINGS-SEARCH
+    to: SETTINGS-HOME
+    do: [back]

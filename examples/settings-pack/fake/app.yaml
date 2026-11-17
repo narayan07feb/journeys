@@ -1,0 +1,25 @@
+# A small model of the Settings app for `journeys run --driver fake` and the tests (no phone).
+app: com.android.settings
+start: HOME
+screens:
+  HOME:
+    elements:
+      - {kind: Field, text: "Search settings", to: SEARCH}
+      - {kind: Text, text: "Network & internet"}
+      - {kind: Text, text: "Apps"}
+      - {kind: Text, text: "Display", to: DISPLAY}
+      - {kind: Text, text: "Battery"}
+      - {kind: Text, text: "About emulated device", to: ABOUT}
+  DISPLAY:
+    elements:
+      - {kind: Text, text: "Display"}
+      - {kind: Text, text: "Brightness level"}
+      - {kind: Switch, text: "Dark theme"}
+      - {kind: Text, text: "Screen timeout"}
+  ABOUT:
+    elements:
+      - {kind: Text, text: "About emulated device"}
+      - {kind: Text, text: "Android version"}
+  SEARCH:
+    elements:
+      - {kind: Field, text: "", id: search_src_text, state: [focused]}

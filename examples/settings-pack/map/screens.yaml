@@ -1,0 +1,20 @@
+screens:
+  SETTINGS-HOME:
+    title: Settings home
+    match:
+      all: [{text: "Network & internet"}]
+      any: [{text: "Display"}, {text: "Apps"}, {text: "Battery"}]
+  SETTINGS-DISPLAY:
+    title: Display
+    match:
+      all: [{text: "/^Brightness( level)?$/"}]
+      any: [{text: "Dark theme"}, {text: "Screen timeout"}]
+  SETTINGS-ABOUT:
+    title: About phone
+    match:
+      all: [{text: "Android version"}]
+  SETTINGS-SEARCH:
+    title: Search
+    match:
+      all: [{kind: Field}]
+      none: [{text: "Network & internet"}]

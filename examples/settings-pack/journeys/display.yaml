@@ -1,0 +1,7 @@
+name: open-display
+tags: [smoke]
+steps:
+  - expect: SETTINGS-HOME
+  - goto: SETTINGS-DISPLAY
+  - see: "Dark theme"
+  - goto: SETTINGS-HOME
