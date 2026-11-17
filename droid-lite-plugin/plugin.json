@@ -1,0 +1,14 @@
+{
+  "name": "Journeys",
+  "dir": "..",
+  "list": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "list"],
+  "run": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "run", "{id}"],
+  "watch": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "watch"],
+  "views": [
+    {"name": "Failures", "run": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "failures"]},
+    {"name": "Proposals", "run": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "proposals"]}
+  ],
+  "actions": [
+    {"name": "Doctor", "run": ["sh", "{plugin}/../bin/journeys", "--droid-lite", "doctor"]}
+  ]
+}

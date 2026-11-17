@@ -1,0 +1,16 @@
+#!/bin/sh
+# Runs Journeys from this repo with its own Python environment (created by `uv sync`).
+# Usage: bin/journeys <journeys args>   or   bin/journeys --droid-lite <plugin command>
+here=$(cd "$(dirname "$0")/.." && pwd)
+mod=journeys
+if [ "$1" = "--droid-lite" ]; then mod=journeys.droidlite; shift; fi
+if [ -x "$here/.venv/bin/python" ]; then
+  exec "$here/.venv/bin/python" -m "$mod" "$@"
+fi
+for uv in uv "$HOME/.local/bin/uv" /opt/homebrew/bin/uv; do
+  if command -v "$uv" >/dev/null 2>&1; then
+    exec "$uv" run -q --project "$here" python -m "$mod" "$@"
+  fi
+done
+echo '{"label": "journeys", "status": "failed", "message": "no .venv and no uv: run `uv sync` in the Journeys repo"}'
+exit 1
