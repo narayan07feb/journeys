@@ -131,3 +131,12 @@ def test_dynamic_screen_found_again_by_heading(tappable_pack_dir, tmp_path):
     rep = tap_all(Pack.load(tappable_pack_dir), Dealing(app), store, store.new_run())
     assert any(s["screen"].startswith("NEW:YOUR-TURN") for s in rep.screens)
     assert rep.unreachable == []
+
+
+def test_in_app_back_to_a_known_screen_is_not_a_dead_end(t):
+    app, driver, store, walk = t
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "Done", "to": "HOME", "replace": True})
+    rep, run = walk()
+    assert rep.dead_ends == []
+    about = next(s for s in rep.screens if s["screen"] == "SETTINGS-ABOUT")
+    assert {"tap": {"tapOn": "Done"}, "result": "SETTINGS-HOME"} in about["options"]

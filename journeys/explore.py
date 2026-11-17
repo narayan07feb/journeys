@@ -111,8 +111,13 @@ class TapAll:
                 continue
             key, known = self._key(after)
             options.append({"tap": tap, "result": key})
-            if not self._seen(key):
-                self.found.append(Found(key, after, here.route + [tap], known))
+            if self._seen(key):
+                # A screen already found (an in-app Back or Leave to the menu): navigation, not a
+                # dead end. Back is tested once per screen, when it is first found.
+                if not self._reach(here):
+                    break
+                continue
+            self.found.append(Found(key, after, here.route + [tap], known))
             self.driver.do(["back"])
             if not (self.driver.app_alive() and same_screen(base, self.driver.look())):
                 self.report.dead_ends.append({"screen": key, "from": here.key, "tap": tap})
