@@ -1,0 +1,8 @@
+# local working brief (not part of the project)
+BRIEF.md
+third_party/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
