@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from .base import CommandResult, Driver, DriverError, Element, Screen
+from .base import CommandResult, Driver, DriverError, Element, Screen, changes_allowed
 
 _LINE = re.compile(r'^(@\d+)\s+(\S+)(.*)$')
 _TOKEN = re.compile(r'\s*(?:"((?:[^"\\]|\\.)*)"|#(\S+)|(\w+)="(?:[^"\\]|\\.)*"|(\S+))')
@@ -64,12 +64,14 @@ def find_speedrun(repo_root: Path | None = None) -> str | None:
 
 
 class SpeedrunDriver(Driver):
-    def __init__(self, binary: str | None, home: Path, timeout_s: int = 120, animations: str = "normal"):
+    def __init__(self, binary: str | None, home: Path, timeout_s: int = 120, animations: str = "normal",
+                 allow_changes="emulator"):
         if not binary:
             raise DriverError("speedrun not found: run `journeys setup`, or set JOURNEYS_SPEEDRUN")
         if animations not in ("off", "fast", "normal", "default"):
             raise DriverError(f"animations is off, fast, normal or default, not {animations}")
         self.bin, self.home, self.timeout, self.animations = binary, Path(home), timeout_s, animations
+        self.allow_changes = allow_changes  # pack.yaml devices.allow_settings_changes
         self.home.mkdir(parents=True, exist_ok=True)
         self.serial: str | None = None
         self.app = ""
@@ -96,8 +98,27 @@ class SpeedrunDriver(Driver):
         except (OSError, subprocess.TimeoutExpired) as e:
             raise DriverError(f"adb {args[0]}: {e}") from None
 
+    def _guard_shared_device(self) -> None:
+        """Speedrun's session start changes a device in ways a shared phone must not see: it turns on
+        its accessibility service on Android 13+, deletes other speedrun-agent builds from
+        /data/local/tmp and force-stops a running Maestro driver. Refuse instead."""
+        sh = lambda cmd: self._adb("shell", cmd).stdout.decode(errors="replace").strip()  # read-only
+        why = []
+        sdk = sh("getprop ro.build.version.sdk")
+        if sdk.isdigit() and int(sdk) >= 33:
+            why.append(f"Android SDK {sdk}: Speedrun turns on its accessibility service for the session")
+        if apks := sh("ls /data/local/tmp/speedrun-agent-*.apk 2>/dev/null"):
+            why.append(f"Speedrun deletes other agent builds: {' '.join(apks.split())}")
+        if sh("pidof dev.mobile.maestro dev.mobile.maestro.test"):
+            why.append("a Maestro driver is running; Speedrun would stop it")
+        if why:
+            raise DriverError("this device is not allowed to change (pack.yaml devices.allow_settings_changes): "
+                              + "; ".join(why))
+
     def start(self, app_id: str, serial: str | None = None) -> None:
         self.app, self.serial = app_id, serial
+        if not changes_allowed(self.allow_changes, self, serial):
+            self._guard_shared_device()
         # "normal" by default: Speedrun writes the animation scales at 1, which a shared device keeps
         # anyway; "off" (Speedrun's own default) is faster but changes a device setting for the run.
         args = ["session", "start", "--app", app_id, "--platform", "android", "--animations", self.animations]
@@ -143,8 +164,9 @@ class SpeedrunDriver(Driver):
         return p.stdout.decode(errors="replace")[-4000:] if p.returncode == 0 else ""
 
     def is_emulator(self) -> bool:
-        p = self._adb("shell", "getprop", "ro.kernel.qemu")
-        return p.stdout.strip() == b"1" or (self.serial or "").startswith("emulator-")
+        if (self.serial or "").startswith("emulator-"):
+            return True
+        return self._adb("shell", "getprop", "ro.kernel.qemu").stdout.strip() == b"1"
 
     def global_setting(self, name: str, value: str | None = None) -> str:
         old = self._adb("shell", "settings", "get", "global", name).stdout.decode().strip()

@@ -31,7 +31,9 @@ events:
 build:   [[./gradlew, assembleDebug]]
 install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-debug.apk]]
 devices:
-  allow_settings_changes: emulator  # where --dka may change a setting: emulator, any, or a list of serials
+  allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
+                                    # Elsewhere --dka is refused, and Speedrun does not start when it
+                                    # would change the phone (Android 13+, other agent builds, a Maestro driver)
   animations: normal                # Speedrun's --animations: normal (default) leaves the scales at 1
 tap_all:
   allowed: true                     # false: tap-all and explore-on-failure never tap in this app

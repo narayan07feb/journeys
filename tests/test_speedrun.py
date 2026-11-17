@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from journeys.drivers import speedrun
+from journeys.drivers.base import DriverError
 from journeys.drivers.speedrun import SpeedrunDriver, parse_look
 
 LOOK = '''android 1080x2400, 9 elements
@@ -86,3 +89,29 @@ def test_foreground_app_from_dumpsys(tmp_path, monkeypatch):
     assert d.foreground_app() == "com.android.settings"
     monkeypatch.setattr(d, "_adb", lambda *a: sp.CompletedProcess(a, 0, b"nothing", b""))
     assert d.foreground_app() is None
+
+
+def test_shared_device_guard_refuses_what_speedrun_would_change(tmp_path, monkeypatch):
+    """On a real phone the pack does not allow to change, start stops before `session start`."""
+    import subprocess as sp
+    phone = {"getprop ro.kernel.qemu": b"", "getprop ro.build.version.sdk": b"36",
+             "ls /data/local/tmp/speedrun-agent-*.apk 2>/dev/null": b"/data/local/tmp/speedrun-agent-ab12.apk\n",
+             "pidof dev.mobile.maestro dev.mobile.maestro.test": b"4242"}
+    adb = lambda *a: sp.CompletedProcess(a, 0, phone.get(" ".join(a[1:]), b""), b"")
+    started = []
+    d = SpeedrunDriver("/bin/true", tmp_path / "h")
+    monkeypatch.setattr(d, "_adb", adb)
+    monkeypatch.setattr(d, "_sr", lambda *a, **k: started.append(a) or sp.CompletedProcess(a, 0, "", ""))
+    with pytest.raises(DriverError) as e:
+        d.start("com.example", "192.168.0.5:5555")
+    assert "SDK 36" in str(e.value) and "speedrun-agent-ab12.apk" in str(e.value) and "Maestro" in str(e.value)
+    assert started == []
+    phone.update({"getprop ro.build.version.sdk": b"30", "ls /data/local/tmp/speedrun-agent-*.apk 2>/dev/null": b"",
+                  "pidof dev.mobile.maestro dev.mobile.maestro.test": b""})
+    d.start("com.example", "192.168.0.5:5555")  # Android 11, nothing to change: allowed
+    assert started
+    started.clear()
+    phone["getprop ro.build.version.sdk"] = b"36"
+    d.allow_changes = ["192.168.0.5:5555"]  # a listed serial: no guard
+    d.start("com.example", "192.168.0.5:5555")
+    assert started

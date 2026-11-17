@@ -77,3 +77,12 @@ class Driver(ABC):
     def global_setting(self, name: str, value: str | None = None) -> str:
         """Read an Android global setting; with value, set it and return the old one."""
         raise DriverError("this driver cannot change device settings")
+
+
+def changes_allowed(rule, driver: Driver, serial: str | None) -> bool:
+    """pack.yaml devices.allow_settings_changes: "any", "emulator" (default) or a list of serials."""
+    if rule == "any":
+        return True
+    if rule == "emulator":
+        return driver.is_emulator()
+    return isinstance(rule, list) and serial in rule

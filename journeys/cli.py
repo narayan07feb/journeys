@@ -22,7 +22,8 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
         binary = find_speedrun()
         if binary or not shutil.which("maestro"):
             return SpeedrunDriver(binary, store.root / "speedrun-home",
-                                  animations=str(pack.devices.get("animations", "normal")))
+                                  animations=str(pack.devices.get("animations", "normal")),
+                                  allow_changes=pack.devices.get("allow_settings_changes", "emulator"))
         print("speedrun not found: falling back to maestro (slower)", file=sys.stderr)
         kind = "maestro"
     if kind == "maestro":

@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
-from .drivers.base import Driver, DriverError, Screen
+from .drivers.base import Driver, DriverError, Screen, changes_allowed
 from .heal import fingerprint, heading, left_app, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
 from .results import Run, Store
@@ -127,12 +127,7 @@ class TapAll:
 
 
 def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:
-    rule = pack.devices.get("allow_settings_changes", "emulator")
-    if rule == "any":
-        return True
-    if rule == "emulator":
-        return driver.is_emulator()
-    return isinstance(rule, list) and serial in rule
+    return changes_allowed(pack.devices.get("allow_settings_changes", "emulator"), driver, serial)
 
 
 def tap_all(pack: Pack, driver: Driver, store: Store, run: Run, *, serial: str | None = None,
