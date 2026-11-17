@@ -74,5 +74,15 @@ esac
     d.stop()
     text = log.read_text()
     assert f"HOME={tmp_path / 'srhome'}" in text and str(Path.home()) + " " not in text
-    assert "session start --app com.example --platform android --device emulator-5554" in text
+    assert "session start --app com.example --platform android --animations normal --device emulator-5554" in text
     assert "- tapOn: Hi\n- back\n" in text and "session stop" in text
+
+
+def test_foreground_app_from_dumpsys(tmp_path, monkeypatch):
+    import subprocess as sp
+    d = SpeedrunDriver("/bin/true", tmp_path / "h")
+    out = b"  mCurrentFocus=Window{1a2b3c u0 com.android.settings/com.android.settings.Settings}\n"
+    monkeypatch.setattr(d, "_adb", lambda *a: sp.CompletedProcess(a, 0, out, b""))
+    assert d.foreground_app() == "com.android.settings"
+    monkeypatch.setattr(d, "_adb", lambda *a: sp.CompletedProcess(a, 0, b"nothing", b""))
+    assert d.foreground_app() is None

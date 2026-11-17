@@ -7,8 +7,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
-from .appmap import AppMap
+from .appmap import AppMap, Rule
 from .journey import Journey, load_journeys
+
+# Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
+# that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
+DEFAULT_DENY = [Rule(text=t) for t in (
+    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (data|storage|cache))\b/",
+    r"/(?i)\b(wi-?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging|developer options)\b/",
+    r"/(?i)\b(sign ?out|log ?out|pay|buy|purchase|subscribe|send|call|share|rate us|report)\b/",
+)]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 
@@ -30,6 +38,8 @@ class Pack:
     hooks: dict[str, list[str]] = field(default_factory=dict)
     events: list[str] | None = None
     devices: dict = field(default_factory=dict)
+    tap_allowed: bool = True
+    deny: list[Rule] = field(default_factory=lambda: list(DEFAULT_DENY))
     map: AppMap = field(default_factory=AppMap)
     journeys: dict[str, Journey] = field(default_factory=dict)
     sets: dict[str, dict] = field(default_factory=dict)
@@ -51,6 +61,13 @@ class Pack:
             dict(raw.get("hooks") or {}), (raw.get("events") or {}).get("check"),
             dict(raw.get("devices") or {}),
         )
+        taps = raw.get("tap_all") or {}
+        p.tap_allowed = bool(taps.get("allowed", True))
+        for r in taps.get("deny") or []:
+            try:
+                p.deny.append(Rule.parse(r))
+            except (ValueError, re.error) as e:
+                p.errors.append(f"{pf}: tap_all.deny: {e}")
         if p.driver not in ("speedrun", "maestro"):
             p.errors.append(f"{pf}: driver is speedrun or maestro, not {p.driver}")
         p.map = AppMap.load(root / "map")

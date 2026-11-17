@@ -10,7 +10,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from .drivers.base import Driver, DriverError, Screen
-from .heal import TAPPABLE, fingerprint, heading, same_screen, screen_name, selector
+from .heal import fingerprint, heading, left_app, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
 from .results import Run, Store
 
@@ -32,6 +32,7 @@ class TapAllReport:
     dead_ends: list[dict] = field(default_factory=list)
     new_screens: list[str] = field(default_factory=list)
     unreachable: list[str] = field(default_factory=list)
+    left_app: list[dict] = field(default_factory=list)
 
 
 class TapAll:
@@ -79,8 +80,7 @@ class TapAll:
             return
         base = self.driver.look()
         options = []
-        targets = [e for e in base.elements if e.kind in TAPPABLE and (e.text or e.id)][:self.max_taps]
-        for el in targets:
+        for el in tap_targets(base, self.pack.deny, self.max_taps):
             tap = {"tapOn": selector(el)}
             res = self.driver.do([tap])
             if not res.ok:
@@ -94,6 +94,13 @@ class TapAll:
                 })
                 self.report.crashes.append({"screen": here.key, "tap": tap, "failure": fid})
                 options.append({"tap": tap, "result": "crash", "failure": fid})
+                if not self._reach(here):
+                    break
+                continue
+            other = left_app(self.driver, self.pack.app)
+            if other:  # a system screen or another app: never walked; come back
+                self.report.left_app.append({"screen": here.key, "tap": tap, "package": other})
+                options.append({"tap": tap, "result": f"left the app for {other}"})
                 if not self._reach(here):
                     break
                 continue
@@ -125,6 +132,8 @@ def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:
 def tap_all(pack: Pack, driver: Driver, store: Store, run: Run, *, serial: str | None = None,
             dka: bool = False, **limits) -> TapAllReport:
     """With dka, turn on "don't keep activities" for the walk and put the old value back after."""
+    if not pack.tap_allowed:
+        raise DriverError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     old = None
     if dka:
         if not dka_allowed(pack, driver, serial):

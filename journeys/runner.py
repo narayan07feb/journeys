@@ -254,7 +254,9 @@ class Runner:
             head = heading(self.driver.look())  # before explore moves away
         except DriverError:
             return
-        options = explore(self.driver, self.pack.map)
+        if not self.pack.tap_allowed:
+            return
+        options = explore(self.driver, self.pack.map, self.pack.app, self.pack.deny)
         failure = self.store.update_failure(fid, options=options)
         target = step.arg if step.kind in ("expect", "goto") else None
         here = failure.get("screen")

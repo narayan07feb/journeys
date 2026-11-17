@@ -87,6 +87,11 @@ class FakeDriver(Driver):
     def stop(self) -> None:
         pass
 
+    def foreground_app(self) -> str | None:
+        if not (self.alive and self.stack):
+            return "launcher"
+        return self.app["screens"][self.stack[-1]].get("package", self.app["app"])
+
     def crash_log(self) -> str:
         return "FATAL EXCEPTION: main (fake)" if self.crashed else ""
 

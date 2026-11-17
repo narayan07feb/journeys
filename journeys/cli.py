@@ -21,7 +21,8 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
         from .drivers.speedrun import SpeedrunDriver, find_speedrun
         binary = find_speedrun()
         if binary or not shutil.which("maestro"):
-            return SpeedrunDriver(binary, store.root / "speedrun-home")
+            return SpeedrunDriver(binary, store.root / "speedrun-home",
+                                  animations=str(pack.devices.get("animations", "normal")))
         print("speedrun not found: falling back to maestro (slower)", file=sys.stderr)
         kind = "maestro"
     if kind == "maestro":
@@ -114,6 +115,8 @@ def cmd_tap_all(args) -> int:
         print(f"dead end  {d['from']} -> {d['screen']}  {d['tap']}")
     for n in rep.new_screens:
         print(f"new     {n}")
+    for x in rep.left_app:
+        print(f"left app  {x['screen']}  {x['tap']} -> {x['package']}")
     for u in rep.unreachable:
         print(f"unreachable  {u}")
     return 1 if rep.crashes else 0
@@ -132,7 +135,7 @@ def cmd_run(args) -> int:
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     driver.start(pack.app, args.serial)
     try:
-        outs = Runner(pack, driver, store, run, serial=args.serial).run_all(journeys)
+        outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys)
     finally:
         driver.stop()
     for o in outs:
@@ -274,6 +277,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
+    s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps: read-only checks")
     s.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("tap-all", help="walk the app and tap every option once")

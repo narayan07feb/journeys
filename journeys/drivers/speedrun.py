@@ -64,10 +64,12 @@ def find_speedrun(repo_root: Path | None = None) -> str | None:
 
 
 class SpeedrunDriver(Driver):
-    def __init__(self, binary: str | None, home: Path, timeout_s: int = 120):
+    def __init__(self, binary: str | None, home: Path, timeout_s: int = 120, animations: str = "normal"):
         if not binary:
             raise DriverError("speedrun not found: run `journeys setup`, or set JOURNEYS_SPEEDRUN")
-        self.bin, self.home, self.timeout = binary, Path(home), timeout_s
+        if animations not in ("off", "fast", "normal", "default"):
+            raise DriverError(f"animations is off, fast, normal or default, not {animations}")
+        self.bin, self.home, self.timeout, self.animations = binary, Path(home), timeout_s, animations
         self.home.mkdir(parents=True, exist_ok=True)
         self.serial: str | None = None
         self.app = ""
@@ -96,7 +98,9 @@ class SpeedrunDriver(Driver):
 
     def start(self, app_id: str, serial: str | None = None) -> None:
         self.app, self.serial = app_id, serial
-        args = ["session", "start", "--app", app_id, "--platform", "android"]
+        # "normal" by default: Speedrun writes the animation scales at 1, which a shared device keeps
+        # anyway; "off" (Speedrun's own default) is faster but changes a device setting for the run.
+        args = ["session", "start", "--app", app_id, "--platform", "android", "--animations", self.animations]
         if serial:
             args += ["--device", serial]
         p = self._sr(*args)
@@ -128,6 +132,11 @@ class SpeedrunDriver(Driver):
 
     def app_alive(self) -> bool:
         return self._adb("shell", "pidof", self.app).returncode == 0
+
+    def foreground_app(self) -> str | None:
+        out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")  # read-only
+        m = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", out) or re.search(r"mFocusedApp=.*? ([\w.]+)/", out)
+        return m.group(1) if m else None
 
     def crash_log(self) -> str:
         p = self._adb("logcat", "-d", "-b", "crash", "-t", "60")  # read-only: no -c, no -G

@@ -63,6 +63,10 @@ class Driver(ABC):
     @abstractmethod
     def stop(self) -> None: ...
 
+    def foreground_app(self) -> str | None:
+        """The package on screen, or None when the driver cannot tell."""
+        return None
+
     def crash_log(self) -> str:
         """Recent crash lines, read-only (never clears any buffer). Optional."""
         return ""

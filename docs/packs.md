@@ -32,7 +32,15 @@ build:   [[./gradlew, assembleDebug]]
 install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-debug.apk]]
 devices:
   allow_settings_changes: emulator  # where --dka may change a setting: emulator, any, or a list of serials
+  animations: normal                # Speedrun's --animations: normal (default) leaves the scales at 1
+tap_all:
+  allowed: true                     # false: tap-all and explore-on-failure never tap in this app
+  deny: [{text: "/(?i)delete account/"}, {id: logout_button}]   # never tapped (rules as for screens)
 ```
+
+Tap-all and explore always skip a built-in deny list (reset, erase, uninstall, Wi-Fi, airplane mode,
+Bluetooth, sign out, pay, buy, send, share, ...); `deny` adds to it. After each tap, when another app
+or a system screen is in front, they go back and never tap inside it.
 
 Hooks and the event checker run in the pack folder with `JOURNEYS_APP`, `JOURNEYS_SERIAL` and
 `JOURNEYS_PACK` in their environment. Exit 0 means it worked.

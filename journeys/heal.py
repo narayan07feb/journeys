@@ -46,16 +46,28 @@ def screen_name(text: str) -> str:
     return "-".join(words[:4]) or "UNNAMED"
 
 
-def explore(driver: Driver, amap: AppMap, limit: int = 12) -> list[dict]:
-    """Tap each option on the current screen once, see where it leads, go back.
+def tap_targets(screen: Screen, deny: list, limit: int) -> list:
+    """The elements tap-all and explore may tap: tappable kinds, with a text or id, not denied."""
+    return [e for e in screen.elements
+            if e.kind in TAPPABLE and (e.text or e.id) and not any(r.matches(e) for r in deny)][:limit]
 
-    Stops early when the app dies or `back` does not return to the screen."""
+
+def left_app(driver: Driver, app: str) -> str | None:
+    """The other package on screen after a tap (a system screen, another app), else None."""
+    fg = driver.foreground_app()
+    return fg if fg and fg != app else None
+
+
+def explore(driver: Driver, amap: AppMap, app: str, deny: list, limit: int = 12) -> list[dict]:
+    """Tap each allowed option on the current screen once, see where it leads, go back.
+
+    Stops early when the app dies, leaves for another app, or `back` does not return."""
     try:
         base = driver.look()
     except DriverError:
         return []
     options = []
-    for el in [e for e in base.elements if e.kind in TAPPABLE and (e.text or e.id)][:limit]:
+    for el in tap_targets(base, deny, limit):
         tap = {"tapOn": selector(el)}
         res = driver.do([tap])
         if not res.ok:
@@ -63,6 +75,11 @@ def explore(driver: Driver, amap: AppMap, limit: int = 12) -> list[dict]:
             continue
         if not driver.app_alive():
             options.append({"tap": tap, "leads_to": "CRASH"})
+            break
+        other = left_app(driver, app)
+        if other:
+            options.append({"tap": tap, "leads_to": None, "note": f"left the app for {other}; explore stopped"})
+            driver.do(["back"])
             break
         after = driver.look()
         if same_screen(base, after):

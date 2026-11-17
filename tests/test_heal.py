@@ -9,7 +9,8 @@ from journeys.runner import Runner
 
 
 @pytest.fixture
-def h(pack_dir, tmp_path):
+def h(tappable_pack_dir, tmp_path):
+    pack_dir = tappable_pack_dir
     app = yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text())
     store = Store(tmp_path / "state")
 
@@ -120,3 +121,13 @@ def test_crash_during_explore_stops_it(h):
     out = run("open-display")
     opts = store.failure(out.failure)["options"]
     assert opts[-1]["leads_to"] == "CRASH" and len(opts) == 2
+
+
+def test_no_explore_when_pack_forbids_taps(pack_dir, tmp_path):
+    app = yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text())
+    _display_tap_to(app, "ABOUT")
+    pack, store, driver = Pack.load(pack_dir), Store(tmp_path / "s"), FakeDriver(app)
+    (out,) = Runner(pack, driver, store, store.new_run(), variables={}, sleep=lambda s: None).run_all(
+        pack.select("open-display"))
+    assert out.status == "failed" and "options" not in store.failure(out.failure)
+    assert sum(1 for c in driver.log if c == {"tapOn": "Network & internet"}) == 0
