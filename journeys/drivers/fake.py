@@ -8,6 +8,7 @@
           - {kind: Text, text: Home}
           - {kind: Button, text: Next, id: next, to: SECOND}   # a tap opens SECOND
           - {kind: Button, text: Boom, to: CRASH}              # a tap kills the app
+          - {kind: Button, text: Skip, to: X, replace: true}   # opens X and closes this screen
       SECOND:
         elements: [{kind: Text, text: Second}]
         back: HOME                                             # default: the screen before
@@ -132,6 +133,8 @@ class FakeDriver(Driver):
             if to == CRASH:
                 self.alive, self.stack = False, []
             elif to:
+                if el.get("replace"):  # the tap closes this screen (an interstitial's finish())
+                    self.stack.pop()
                 self.stack.append(to)
         elif name in ("assertVisible", "scrollUntilVisible"):
             if self._find(arg) is None:

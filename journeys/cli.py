@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from .drivers.base import Driver, DriverError
+from .heal import PromoteError
 from .pack import Pack, PackError
 from .results import Store, default_state_dir
 from .runner import Runner
@@ -99,6 +100,8 @@ def cmd_run(args) -> int:
         driver.stop()
     for o in outs:
         line = f"{o.status:7} {o.name}"
+        if o.changes:
+            line += f"  (changes: {', '.join(o.changes)})"
         if o.failure:
             line += f"  {o.failure}: {o.message}"
         print(line)
@@ -118,6 +121,35 @@ def cmd_failures(args) -> int:
         return 0
     for f in store.failures()[-args.last:]:
         print(f"{f['id']}  {f['journey']} step {f['step']} ({f['step_text']}): {f['message']}")
+    return 0
+
+
+def cmd_proposals(args) -> int:
+    store = _store(args, _load(args))
+    if args.id:
+        p = store.proposal(args.id)
+        if not p:
+            print(f"no proposal {args.id}", file=sys.stderr)
+            return 1
+        print(json.dumps(p, indent=2))
+        return 0
+    for p in store.proposals():
+        if args.all or p["status"] == "proposed":
+            print(f"{p['id']}  {p['status']:9} {p['summary']}")
+    return 0
+
+
+def cmd_promote(args) -> int:
+    from .heal import promote
+    pack = _load(args)
+    print(promote(pack, _store(args, pack), args.id, args.name))
+    return 0
+
+
+def cmd_reject(args) -> int:
+    from .heal import reject
+    reject(_store(args, _load(args)), args.id, args.why)
+    print(f"{args.id} rejected")
     return 0
 
 
@@ -150,6 +182,18 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id", nargs="?")
     s.add_argument("--last", type=int, default=20)
     s.set_defaults(fn=cmd_failures)
+    s = sub.add_parser("proposals", help="list open proposals, or show one")
+    s.add_argument("id", nargs="?")
+    s.add_argument("--all", action="store_true", help="also promoted and rejected ones")
+    s.set_defaults(fn=cmd_proposals)
+    s = sub.add_parser("promote", help="write a proposal into the pack's files")
+    s.add_argument("id")
+    s.add_argument("--name", help="new-screen proposals: the screen's name")
+    s.set_defaults(fn=cmd_promote)
+    s = sub.add_parser("reject", help="reject a proposal")
+    s.add_argument("id")
+    s.add_argument("--why", required=True)
+    s.set_defaults(fn=cmd_reject)
     return p
 
 
@@ -157,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return args.fn(args)
-    except (PackError, DriverError, RuntimeError) as e:
+    except (PackError, DriverError, RuntimeError, PromoteError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from .drivers.base import Driver, DriverError
+from .heal import explore, heading, screen_name
 from .journey import Journey, Step
 from .pack import Pack, substitute
 from .results import Run, Store
@@ -36,6 +37,7 @@ class JourneyOutcome:
     steps: list[StepOutcome] = field(default_factory=list)
     failure: str | None = None
     message: str = ""
+    changes: list[str] = field(default_factory=list)  # proposals made by detours
 
 
 class Runner:
@@ -43,12 +45,16 @@ class Runner:
         self, pack: Pack, driver: Driver, store: Store, run: Run, *,
         serial: str | None = None, variables: dict[str, str] | None = None,
         settle_tries: int = 3, sleep: Callable[[float], None] = time.sleep,
-        on_update: Callable[[JourneyOutcome], None] | None = None,
+        on_update: Callable[[JourneyOutcome], None] | None = None, heal: bool = True,
     ):
         self.pack, self.driver, self.store, self.run = pack, driver, store, run
         self.serial = serial
         self.vars = pack.variables() if variables is None else variables
         self.settle_tries, self.sleep, self.on_update = settle_tries, sleep, on_update
+        self.heal = heal
+        self._journey: Journey | None = None
+        self._step_now: Step | None = None
+        self._out: JourneyOutcome | None = None
 
     def run_all(self, journeys: list[Journey]) -> list[JourneyOutcome]:
         outs = [self.journey(j) for j in journeys]
@@ -59,12 +65,14 @@ class Runner:
 
     def journey(self, j: Journey) -> JourneyOutcome:
         out = JourneyOutcome(j.name)
+        self._journey, self._out = j, out
         self.run.data["journeys"].append(asdict(out))
         steps = j.steps
         if j.launch:
             steps = [Step("do", [{"launchApp": {"clearState": True}} if j.clear_state else "launchApp"], j.line)] + steps
         for i, step in enumerate(steps):
             t0 = time.monotonic()
+            self._step_now = step
             try:
                 screen = self._step(step)
                 out.steps.append(StepOutcome(i, step.describe(), "passed", _ms(t0), screen=screen))
@@ -75,6 +83,8 @@ class Runner:
                 out.steps.append(StepOutcome(i, step.describe(), "failed", _ms(t0), msg))
                 out.status, out.message = "failed", msg
                 out.failure = self._record_failure(j, i, step, msg)
+                if self.heal:
+                    self._explore_failure(out.failure, step)
                 break
             self._publish(out)
         else:
@@ -130,23 +140,60 @@ class Runner:
 
     def _expect(self, want: str) -> str:
         got = self._settled_on(want)
-        if got != want:
-            raise StepFailed(f"expected screen {want}, on {got or 'an unknown screen'}")
-        return got
+        if got == want:
+            return got
+        if self.heal and got and self.pack.map.path(got, want) is not None:
+            self._walk(got, want)
+            j, step = self._journey, self._step_now
+            self._propose(f"{j.name}: on {got} where {want} was expected; reached it by the map",
+                          {"kind": "expect-to-goto", "file": str(j.file), "line": step.line, "screen": want})
+            return want
+        raise StepFailed(f"expected screen {want}, on {got or 'an unknown screen'}")
 
     def _goto(self, want: str) -> str:
         here = self.current()
         if here is None:
             raise StepFailed(f"goto {want}: on an unknown screen")
-        path = self.pack.map.path(here, want)
-        if path is None:
+        if self.pack.map.path(here, want) is None:
             raise StepFailed(f"goto {want}: the map has no path from {here}")
-        for edge in path:
-            self._do(edge.do)
-            got = self._settled_on(edge.dst)
-            if got != edge.dst:
-                raise StepFailed(f"edge {edge.src} -> {edge.dst} landed on {got or 'an unknown screen'}")
+        self._walk(here, want)
         return want
+
+    def _walk(self, here: str, want: str) -> None:
+        """Follow map edges to `want`. An edge that lands on another known screen with a way on is
+        a detour: carry on from there. Its proposal is saved only once `want` is reached."""
+        pending, broken = [], {}
+        while here != want:
+            for edge in self.pack.map.path(here, want) or []:
+                if (edge.src, edge.dst) in broken:
+                    raise StepFailed(f"edge {edge.src} -> {edge.dst} landed on "
+                                     f"{broken[edge.src, edge.dst]} (again, after a detour)")
+                self._do(edge.do)
+                got = self._settled_on(edge.dst)
+                if got == edge.dst:
+                    here = got
+                    continue
+                if self.heal and got and self.pack.map.path(got, want) is not None:
+                    broken[edge.src, edge.dst] = got
+                    pending.append((f"edge {edge.src} -> {edge.dst} now lands on {got}",
+                                    {"kind": "edge-to", "src": edge.src, "old": edge.dst, "new": got}))
+                    here = got
+                    break
+                raise StepFailed(f"edge {edge.src} -> {edge.dst} landed on {got or 'an unknown screen'}")
+        for summary, change in pending:
+            self._propose(summary, change)
+
+    def _propose(self, summary: str, change: dict, **extra) -> str:
+        for p in self.store.proposals():  # the same change from an earlier run: reuse it
+            if p["status"] == "proposed" and p["change"] == change:
+                pid = p["id"]
+                break
+        else:
+            pid = self.store.add_proposal({"summary": summary, "change": change, "run": self.run.id,
+                                           "journey": self._journey.name if self._journey else None, **extra})
+        if self._out is not None and pid not in self._out.changes:
+            self._out.changes.append(pid)
+        return pid
 
     def _env(self) -> dict[str, str]:
         return {**os.environ, "JOURNEYS_APP": self.pack.app, "JOURNEYS_SERIAL": self.serial or "",
@@ -199,6 +246,34 @@ class Runner:
             "file": str(j.file), "line": step.line or j.line, "message": message,
             "screen": name, "listing": listing, "screenshot": str(shot) if shot else None,
         })
+
+    def _explore_failure(self, fid: str, step: Step) -> None:
+        if not self._alive():
+            return
+        try:
+            head = heading(self.driver.look())  # before explore moves away
+        except DriverError:
+            return
+        options = explore(self.driver, self.pack.map)
+        failure = self.store.update_failure(fid, options=options)
+        target = step.arg if step.kind in ("expect", "goto") else None
+        here = failure.get("screen")
+        if here is None:
+            if not head:
+                return
+            name = screen_name(head)
+            edges = [{"from": name, "to": o["leads_to"], "do": [o["tap"]]}
+                     for o in options if o.get("leads_to") and o["leads_to"] != "CRASH"]
+            pid = self._propose(f"new screen {name} (heading {head!r}) at {self._journey.name}",
+                                {"kind": "new-screen", "name": name, "match": {"all": [{"text": head}]},
+                                 "edges": edges}, failure=fid)
+        else:
+            hit = next((o for o in options if target and o.get("leads_to") == target), None)
+            if not hit:
+                return
+            pid = self._propose(f"{here}: {hit['tap']} reaches {target}",
+                                {"kind": "new-edge", "src": here, "dst": target, "do": [hit["tap"]]}, failure=fid)
+        self.store.update_failure(fid, proposal=pid)
 
     def _publish(self, out: JourneyOutcome) -> None:
         self.run.data["journeys"][-1] = asdict(out)

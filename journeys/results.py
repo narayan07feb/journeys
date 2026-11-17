@@ -64,16 +64,49 @@ class Store:
     def run(self, run_id: str) -> dict | None:
         return read_json(self.root / "runs" / run_id / "run.json", None)
 
-    # failures (proposals use the same shape later)
+    # failures (F-n) and proposals (P-n): lists of records in one JSON file each
+    def _items(self, kind: str) -> list[dict]:
+        return read_json(self.root / f"{kind}.json", [])
+
+    def _add(self, kind: str, prefix: str, item: dict) -> str:
+        new_id = self.next_id(prefix)
+        items = self._items(kind)
+        items.append({"id": new_id, "time": time.time(), **item})
+        write_json(self.root / f"{kind}.json", items)
+        return new_id
+
+    def _get(self, kind: str, item_id: str) -> dict | None:
+        return next((f for f in self._items(kind) if f["id"] == item_id), None)
+
+    def _update(self, kind: str, item_id: str, **fields) -> dict:
+        items = self._items(kind)
+        for it in items:
+            if it["id"] == item_id:
+                it.update(fields)
+                write_json(self.root / f"{kind}.json", items)
+                return it
+        raise KeyError(item_id)
+
     def add_failure(self, failure: dict) -> str:
-        fid = self.next_id("F")
-        items = self.failures()
-        items.append({"id": fid, "time": time.time(), **failure})
-        write_json(self.root / "failures.json", items)
-        return fid
+        return self._add("failures", "F", failure)
 
     def failures(self) -> list[dict]:
-        return read_json(self.root / "failures.json", [])
+        return self._items("failures")
 
     def failure(self, fid: str) -> dict | None:
-        return next((f for f in self.failures() if f["id"] == fid), None)
+        return self._get("failures", fid)
+
+    def update_failure(self, fid: str, **fields) -> dict:
+        return self._update("failures", fid, **fields)
+
+    def add_proposal(self, proposal: dict) -> str:
+        return self._add("proposals", "P", {"status": "proposed", **proposal})
+
+    def proposals(self) -> list[dict]:
+        return self._items("proposals")
+
+    def proposal(self, pid: str) -> dict | None:
+        return self._get("proposals", pid)
+
+    def update_proposal(self, pid: str, **fields) -> dict:
+        return self._update("proposals", pid, **fields)

@@ -38,11 +38,13 @@ def test_journeys_pass_and_run_is_saved(env):
 
 def test_wrong_screen_fails_with_failure_record(env):
     pack, app, driver, store, run, go = env
-    # The Display tap now opens About instead: goto must notice the edge landed elsewhere.
+    # The Display tap now opens About. The runner detours (About -> Home), meets the same broken
+    # edge again, and stops; no proposal is kept for a walk that never arrived.
     for e in app["screens"]["HOME"]["elements"]:
         if e["text"] == "Display":
             e["to"] = "ABOUT"
-    (out,) = go("open-display")
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None, heal=False)
+    (out,) = r.run_all(pack.select("open-display"))
     assert out.status == "failed"
     assert "edge SETTINGS-HOME -> SETTINGS-DISPLAY landed on SETTINGS-ABOUT" in out.message
     f = store.failure(out.failure)
@@ -50,6 +52,9 @@ def test_wrong_screen_fails_with_failure_record(env):
     assert "Android version" in f["listing"] and f["screenshot"].endswith(".txt")
     assert f["file"].endswith("display.yaml") and f["line"] == 5
     assert store.run(run.id)["status"] == "failed"
+    (out,) = go("open-display")  # with healing
+    assert "landed on SETTINGS-ABOUT (again, after a detour)" in out.message
+    assert out.changes == [] and store.proposals() == []
 
 
 def test_missing_element_and_crash(env):
@@ -71,7 +76,7 @@ def test_expect_retries_then_fails(env):
     pack, app, driver, store, run, go = env
     app["start"] = "ABOUT"
     sleeps = []
-    r = Runner(pack, driver, store, run, variables={}, sleep=sleeps.append, settle_tries=3)
+    r = Runner(pack, driver, store, run, variables={}, sleep=sleeps.append, settle_tries=3, heal=False)
     (out,) = r.run_all(pack.select("open-display"))
     assert out.status == "failed" and "expected screen SETTINGS-HOME, on SETTINGS-ABOUT" in out.message
     assert sleeps == [0.5, 0.5]
