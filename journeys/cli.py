@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,7 +15,10 @@ from .results import Store, default_state_dir
 from .runner import Runner
 
 
-def make_driver(kind: str, pack: Pack, args) -> Driver:
+def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
+    if kind == "speedrun":
+        from .drivers.speedrun import SpeedrunDriver, find_speedrun
+        return SpeedrunDriver(find_speedrun(), store.root / "speedrun-home")
     if kind == "fake":
         app = Path(args.fake_app) if args.fake_app else pack.root / "fake" / "app.yaml"
         if not app.exists():
@@ -44,7 +48,15 @@ def cmd_doctor(args) -> int:
     except PackError as e:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
-    rows.append(("OK" if shutil.which("adb") else "WARN", "adb on PATH" if shutil.which("adb") else "adb not on PATH"))
+    from .drivers.speedrun import find_speedrun
+    sr = find_speedrun()
+    rows.append(("OK", f"speedrun {sr}") if sr else ("WARN", "speedrun not found: run `journeys setup`"))
+    adb = shutil.which("adb")
+    rows.append(("OK", f"adb {adb}") if adb else ("WARN", "adb not on PATH"))
+    if adb:
+        out = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=30).stdout
+        devices = [ln.split()[0] for ln in out.splitlines()[1:] if ln.strip().endswith("device")]
+        rows.append(("OK", f"devices: {', '.join(devices)}") if devices else ("WARN", "no device on adb"))
     for level, text in rows:
         print(f"{level:4} {text}")
     return 1 if any(level == "FAIL" for level, _ in rows) else 0
@@ -73,8 +85,11 @@ def cmd_run(args) -> int:
             print(f"FAIL {e}", file=sys.stderr)
         return 2
     journeys = pack.select(args.target)
-    driver = make_driver(args.driver or pack.driver, pack, args)
+    kind = args.driver or pack.driver
+    if kind != "fake" and not args.serial:
+        raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
     store = _store(args, pack)
+    driver = make_driver(args.driver or pack.driver, pack, args, store)
     run = store.new_run(pack=pack.name, target=args.target, driver=args.driver or pack.driver, serial=args.serial)
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     driver.start(pack.app, args.serial)
@@ -106,12 +121,22 @@ def cmd_failures(args) -> int:
     return 0
 
 
+def cmd_setup(args) -> int:
+    from .setup import install
+    dest = Path(__file__).resolve().parents[1] / "third_party" / "speedrun"
+    print(f"speedrun installed: {install(dest, args.version)}")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="journeys", description="End-to-end journeys for Android apps.")
     p.add_argument("--pack", default=os.environ.get("JOURNEYS_PACK"), help="pack folder (or JOURNEYS_PACK)")
     p.add_argument("--state", help="state folder (default ~/.local/state/journeys/<pack>, or JOURNEYS_STATE)")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="check the pack and the tools").set_defaults(fn=cmd_doctor)
+    s = sub.add_parser("setup", help="install upstream Speedrun into third_party/")
+    s.add_argument("--version", help="release tag, e.g. v0.4.14 (default: latest)")
+    s.set_defaults(fn=cmd_setup)
     s = sub.add_parser("list", help="list sets and journeys")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_list)
@@ -132,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return args.fn(args)
-    except (PackError, DriverError) as e:
+    except (PackError, DriverError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 

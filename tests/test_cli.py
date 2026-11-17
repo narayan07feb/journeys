@@ -6,8 +6,9 @@ from journeys.cli import main
 def test_doctor_list_run(pack_dir, tmp_path, capsys, monkeypatch):
     base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
     assert main(base + ["doctor"]) == 0
+    assert "OK   pack settings-demo" in capsys.readouterr().out
     assert main(base + ["list", "--json"]) == 0
-    listed = json.loads(capsys.readouterr().out.split("\n", 3)[-1])
+    listed = json.loads(capsys.readouterr().out)
     assert listed["sets"]["smoke"] == ["android-version", "open-display"]
     assert main(base + ["run", "smoke", "--driver", "fake"]) == 0
     assert "2/2 passed" in capsys.readouterr().out
@@ -30,3 +31,9 @@ def test_broken_pack_refuses_to_run(pack_dir, tmp_path, capsys):
 def test_no_pack(capsys, monkeypatch):
     monkeypatch.delenv("JOURNEYS_PACK", raising=False)
     assert main(["list"]) == 2
+
+
+def test_real_driver_needs_serial(pack_dir, tmp_path, capsys):
+    base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
+    assert main(base + ["run", "smoke"]) == 2
+    assert "--serial" in capsys.readouterr().err
