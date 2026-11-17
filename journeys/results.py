@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -50,8 +51,14 @@ class Store:
         write_json(path, counters)
         return f"{prefix}-{counters[prefix]}"
 
-    def new_run(self, **meta) -> Run:
-        run_id = time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
+    @staticmethod
+    def make_run_id() -> str:
+        return time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
+
+    def new_run(self, run_id: str | None = None, **meta) -> Run:
+        run_id = run_id or self.make_run_id()
+        if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", run_id):
+            raise ValueError(f"bad run id {run_id!r}")
         run = Run(self, run_id, {"id": run_id, "started": time.time(), "status": "running", "journeys": [], **meta})
         run.dir.mkdir(parents=True)
         run.save()

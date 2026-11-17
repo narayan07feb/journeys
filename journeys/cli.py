@@ -127,7 +127,8 @@ def cmd_run(args) -> int:
         return 2
     journeys = pack.select(args.target)
     store, driver = _open(args, pack)
-    run = store.new_run(pack=pack.name, target=args.target, driver=args.driver or pack.driver, serial=args.serial)
+    run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver or pack.driver,
+                        serial=args.serial)
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     driver.start(pack.app, args.serial)
     try:
@@ -220,6 +221,14 @@ def cmd_watch(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    from .mcp_server import Server, serve_stdio
+    if not args.pack:
+        raise PackError("no pack: pass --pack <folder> or set JOURNEYS_PACK")
+    serve_stdio(Server(args.pack, args.state))
+    return 0
+
+
 def cmd_setup(args) -> int:
     from .setup import install
     dest = Path(__file__).resolve().parents[1] / "third_party" / "speedrun"
@@ -244,6 +253,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
+    s.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("tap-all", help="walk the app and tap every option once")
     s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
@@ -265,6 +275,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(fn=cmd_serve)
     sub.add_parser("watch", help="print the live state as JSON lines").set_defaults(fn=cmd_watch)
+    sub.add_parser("mcp", help="serve the MCP tools on stdin/stdout").set_defaults(fn=cmd_mcp)
     s = sub.add_parser("proposals", help="list open proposals, or show one")
     s.add_argument("id", nargs="?")
     s.add_argument("--all", action="store_true", help="also promoted and rejected ones")
