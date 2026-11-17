@@ -5,7 +5,7 @@ Journeys is a generic, open-source end-to-end test tool for Android apps. It dri
 A company keeps its own app map and journeys in a private **pack**; the public repo has the core
 and one example pack for a public demo app.
 
-Status: plan, 17 Nov 2026. Working name; the owner may rename it.
+Status: M0 to M7 built on 17 Nov 2026 (fake-driver tests); device checks wait for the owner. Working name; the owner may rename it.
 
 ## 1. Clean-room rule
 
@@ -136,7 +136,7 @@ steps:
   from env), `hook`, `event`.
 - `event` calls the pack's event checker command (for example one that reads logcat or an
   analytics debug endpoint) and passes when it prints `{"fired": true}`.
-- Sets: `sets.yaml` maps a set name to journeys or tags. `journeys regression` runs every set.
+- Sets: `sets.yaml` maps a set name to journeys or tags. `journeys run all` runs every journey.
 
 ### 3.4 Self-healing
 

@@ -221,6 +221,27 @@ def cmd_watch(args) -> int:
     return 0
 
 
+def cmd_steps(args) -> int:
+    """Run the pack's build or install commands in the pack folder; {serial} becomes --serial."""
+    pack = _load(args)
+    serial = getattr(args, "serial", None)  # build has no --serial
+    steps = pack.build if args.cmd == "build" else pack.install
+    if not steps:
+        print(f"pack.yaml has no {args.cmd} steps")
+        return 0
+    if args.cmd == "install" and not serial:
+        raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
+    env = {**os.environ, "JOURNEYS_SERIAL": serial or "", "JOURNEYS_APP": pack.app}
+    for argv in steps:
+        argv = [str(a).replace("{serial}", serial or "") for a in argv]
+        print("$ " + " ".join(argv), flush=True)
+        code = subprocess.run(argv, cwd=pack.root, env=env).returncode
+        if code != 0:
+            print(f"{args.cmd} step failed with exit {code}", file=sys.stderr)
+            return 1
+    return 0
+
+
 def cmd_mcp(args) -> int:
     from .mcp_server import Server, serve_stdio
     if not args.pack:
@@ -276,6 +297,10 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_serve)
     sub.add_parser("watch", help="print the live state as JSON lines").set_defaults(fn=cmd_watch)
     sub.add_parser("mcp", help="serve the MCP tools on stdin/stdout").set_defaults(fn=cmd_mcp)
+    sub.add_parser("build", help="run the pack's build steps").set_defaults(fn=cmd_steps)
+    s = sub.add_parser("install", help="run the pack's install steps on a device")
+    s.add_argument("--serial", help="adb serial of the device ({serial} in the steps)")
+    s.set_defaults(fn=cmd_steps)
     s = sub.add_parser("proposals", help="list open proposals, or show one")
     s.add_argument("id", nargs="?")
     s.add_argument("--all", action="store_true", help="also promoted and rejected ones")

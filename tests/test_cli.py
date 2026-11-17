@@ -54,3 +54,16 @@ def test_proposal_commands(pack_dir, tmp_path, capsys):
     assert main(base + ["reject", "P-1", "--why", "test"]) == 0
     assert main(base + ["promote", "P-1"]) == 2
     assert "already rejected" in capsys.readouterr().err
+
+
+def test_build_and_install_steps(pack_dir, tmp_path, capsys):
+    (pack_dir / "pack.yaml").write_text(
+        (pack_dir / "pack.yaml").read_text()
+        + "build:\n  - [sh, -c, 'echo built > out.txt']\n"
+        + "install:\n  - [sh, -c, 'echo {serial} $JOURNEYS_SERIAL >> out.txt']\n  - [sh, -c, 'exit 4']\n"
+    )
+    base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
+    assert main(base + ["build"]) == 0
+    assert main(base + ["install"]) == 2  # needs a serial
+    assert main(base + ["install", "--serial", "emu-1"]) == 1  # second step fails
+    assert (pack_dir / "out.txt").read_text() == "built\nemu-1 emu-1\n"
