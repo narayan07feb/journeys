@@ -6,7 +6,6 @@ import os
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Callable
 
 from .drivers.base import Driver, DriverError
