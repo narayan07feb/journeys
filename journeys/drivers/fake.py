@@ -49,7 +49,10 @@ class FakeDriver(Driver):
         self.app = app
         self.stack: list[str] = []
         self.alive = False
+        self.crashed = False
         self.log: list = []
+        self.settings: dict[str, str] = {}
+        self.emulator = True
 
     @classmethod
     def from_file(cls, path: Path) -> "FakeDriver":
@@ -84,6 +87,18 @@ class FakeDriver(Driver):
     def stop(self) -> None:
         pass
 
+    def crash_log(self) -> str:
+        return "FATAL EXCEPTION: main (fake)" if self.crashed else ""
+
+    def is_emulator(self) -> bool:
+        return self.emulator
+
+    def global_setting(self, name: str, value: str | None = None) -> str:
+        old = self.settings.get(name, "null")
+        if value is not None:
+            self.settings[name] = value
+        return old
+
     # internals
     def _raw(self) -> list[dict]:
         return self.app["screens"][self.stack[-1]].get("elements", [])
@@ -116,7 +131,7 @@ class FakeDriver(Driver):
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)
         if name == "launchApp":
-            self.alive, self.stack = True, [self.app["start"]]
+            self.alive, self.stack, self.crashed = True, [self.app["start"]], False
         elif name == "stopApp":
             self.alive, self.stack = False, []
         elif name == "back" or (name == "pressKey" and str(arg).lower() == "back"):
@@ -130,8 +145,10 @@ class FakeDriver(Driver):
             if el is None:
                 return CommandResult(False, f"Element not found: {arg}")
             to = el.get("to")
+            if el.get("dka_crash") and self.settings.get("always_finish_activities") == "1":
+                to = CRASH  # this tap only breaks when activities are not kept
             if to == CRASH:
-                self.alive, self.stack = False, []
+                self.alive, self.stack, self.crashed = False, [], True
             elif to:
                 if el.get("replace"):  # the tap closes this screen (an interstitial's finish())
                     self.stack.pop()

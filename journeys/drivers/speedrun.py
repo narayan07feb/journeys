@@ -129,6 +129,21 @@ class SpeedrunDriver(Driver):
     def app_alive(self) -> bool:
         return self._adb("shell", "pidof", self.app).returncode == 0
 
+    def crash_log(self) -> str:
+        p = self._adb("logcat", "-d", "-b", "crash", "-t", "60")  # read-only: no -c, no -G
+        return p.stdout.decode(errors="replace")[-4000:] if p.returncode == 0 else ""
+
+    def is_emulator(self) -> bool:
+        p = self._adb("shell", "getprop", "ro.kernel.qemu")
+        return p.stdout.strip() == b"1" or (self.serial or "").startswith("emulator-")
+
+    def global_setting(self, name: str, value: str | None = None) -> str:
+        old = self._adb("shell", "settings", "get", "global", name).stdout.decode().strip()
+        if value is not None:
+            if self._adb("shell", "settings", "put", "global", name, value).returncode != 0:
+                raise DriverError(f"could not set {name}")
+        return old
+
     def stop(self) -> None:
         if self.started:
             self._sr("session", "stop")

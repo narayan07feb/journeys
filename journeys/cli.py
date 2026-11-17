@@ -79,6 +79,39 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _open(args, pack: Pack) -> tuple[Store, Driver]:
+    kind = args.driver or pack.driver
+    if kind != "fake" and not args.serial:
+        raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
+    store = _store(args, pack)
+    return store, make_driver(kind, pack, args, store)
+
+
+def cmd_tap_all(args) -> int:
+    from .explore import tap_all
+    pack = _load(args)
+    store, driver = _open(args, pack)
+    run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver or pack.driver,
+                        serial=args.serial, dka=args.dka)
+    driver.start(pack.app, args.serial)
+    try:
+        rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
+                      max_screens=args.max_screens, max_taps=args.max_taps)
+    finally:
+        driver.stop()
+    print(f"run {run.id}: {len(rep.screens)} screens walked, {len(rep.crashes)} crashes, "
+          f"{len(rep.dead_ends)} dead ends, {len(rep.new_screens)} new screens")
+    for c in rep.crashes:
+        print(f"crash   {c['failure']}  {c['screen']}  {c['tap']}")
+    for d in rep.dead_ends:
+        print(f"dead end  {d['from']} -> {d['screen']}  {d['tap']}")
+    for n in rep.new_screens:
+        print(f"new     {n}")
+    for u in rep.unreachable:
+        print(f"unreachable  {u}")
+    return 1 if rep.crashes else 0
+
+
 def cmd_run(args) -> int:
     pack = _load(args)
     if pack.errors:
@@ -86,11 +119,7 @@ def cmd_run(args) -> int:
             print(f"FAIL {e}", file=sys.stderr)
         return 2
     journeys = pack.select(args.target)
-    kind = args.driver or pack.driver
-    if kind != "fake" and not args.serial:
-        raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
-    store = _store(args, pack)
-    driver = make_driver(args.driver or pack.driver, pack, args, store)
+    store, driver = _open(args, pack)
     run = store.new_run(pack=pack.name, target=args.target, driver=args.driver or pack.driver, serial=args.serial)
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     driver.start(pack.app, args.serial)
@@ -178,6 +207,14 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.set_defaults(fn=cmd_run)
+    s = sub.add_parser("tap-all", help="walk the app and tap every option once")
+    s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
+    s.add_argument("--serial", help="adb serial of the device")
+    s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
+    s.add_argument("--dka", action="store_true", help="turn on don't-keep-activities for the walk")
+    s.add_argument("--max-screens", type=int, default=20)
+    s.add_argument("--max-taps", type=int, default=15)
+    s.set_defaults(fn=cmd_tap_all)
     s = sub.add_parser("failures", help="list failures, or show one")
     s.add_argument("id", nargs="?")
     s.add_argument("--last", type=int, default=20)

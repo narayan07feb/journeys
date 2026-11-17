@@ -19,7 +19,7 @@ from .drivers.base import Driver, DriverError, Screen
 from .pack import Pack
 from .results import Store
 
-TAPPABLE = {"Button", "Text", "Switch", "CheckBox", "Image", "View", "Tab", "Link", "Radio"}
+TAPPABLE = {"Button", "Field", "Text", "Switch", "CheckBox", "Image", "View", "Tab", "Link", "Radio"}
 
 
 def fingerprint(screen: Screen) -> frozenset:

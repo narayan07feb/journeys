@@ -62,3 +62,14 @@ class Driver(ABC):
 
     @abstractmethod
     def stop(self) -> None: ...
+
+    def crash_log(self) -> str:
+        """Recent crash lines, read-only (never clears any buffer). Optional."""
+        return ""
+
+    def is_emulator(self) -> bool:
+        return False
+
+    def global_setting(self, name: str, value: str | None = None) -> str:
+        """Read an Android global setting; with value, set it and return the old one."""
+        raise DriverError("this driver cannot change device settings")
