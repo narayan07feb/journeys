@@ -1,20 +1,24 @@
+# On a real phone Speedrun reads a Settings row as one button whose label joins its texts
+# ("Network & internet, Wi-Fi, mobile, data usage, and hotspot"), so the rules match the start
+# of a label with a /regex/. A landscape phone shows only the first rows of a screen.
 screens:
   SETTINGS-HOME:
     title: Settings home
     match:
-      all: [{text: "Network & internet"}]
-      any: [{text: "Display"}, {text: "Apps"}, {text: "Battery"}]
+      all: [{text: "/^Network & internet/"}]
+      any: [{id: search_action_bar}, {text: "/^(Display|Apps|Battery)/"}]
   SETTINGS-DISPLAY:
     title: Display
     match:
-      all: [{text: "/^Brightness( level)?$/"}]
-      any: [{text: "Dark theme"}, {text: "Screen timeout"}]
+      all: [{text: "/^Brightness/"}]
+      any: [{text: "/^Dark theme/"}, {text: "/^Screen timeout/"}, {text: "/^Adaptive brightness/"}]
   SETTINGS-ABOUT:
     title: About phone
     match:
-      all: [{text: "Android version"}]
+      any: [{text: "/^Android version/"}, {text: "/^Device name/"}, {text: "/^Build number/"}]
+      none: [{text: "/^Network & internet/"}]
   SETTINGS-SEARCH:
     title: Search
     match:
       all: [{kind: Field}]
-      none: [{text: "Network & internet"}]
+      none: [{text: "/^Network & internet/"}]

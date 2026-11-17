@@ -1,17 +1,18 @@
+# Taps use flow selectors: text is a regex that must match a whole text, hence the ".*".
 edges:
   - from: SETTINGS-HOME
     to: SETTINGS-DISPLAY
     do:
-      - scrollUntilVisible: {element: "Display"}
-      - tapOn: "Display"
+      - scrollUntilVisible: {element: "Display.*"}
+      - tapOn: "Display.*"
   - from: SETTINGS-DISPLAY
     to: SETTINGS-HOME
     do: [back]
   - from: SETTINGS-HOME
     to: SETTINGS-ABOUT
     do:
-      - scrollUntilVisible: {element: "About (phone|emulated device|device)"}
-      - tapOn: "About (phone|emulated device|device)"
+      - scrollUntilVisible: {element: "About (phone|emulated device|device).*"}
+      - tapOn: "About (phone|emulated device|device).*"
   - from: SETTINGS-ABOUT
     to: SETTINGS-HOME
     do: [back]

@@ -47,8 +47,9 @@ class TapAll:
         name = self.pack.map.identify(screen).name
         if name:
             return name, True
-        for f in self.found:
-            if not f.known and same_screen(f.screen, screen):
+        head = heading(screen)
+        for f in self.found:  # a game table or a feed changes every time: the same heading is enough
+            if not f.known and (same_screen(f.screen, screen) or (head and heading(f.screen) == head)):
                 return f.key, False
         digest = hashlib.sha1(repr(sorted(fingerprint(screen))).encode()).hexdigest()[:4]
         return f"NEW:{screen_name(heading(screen))}:{digest}", False

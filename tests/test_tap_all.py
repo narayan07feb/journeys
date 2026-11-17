@@ -49,7 +49,7 @@ def test_crash_dead_end_and_new_screen(t):
     assert any(n.startswith("NEW:NO-WAY-OUT:") for n in rep.new_screens)
     assert [d["screen"].split(":")[1] for d in rep.dead_ends] == ["NO-WAY-OUT"]
     legal = next(s for s in rep.screens if s["screen"].startswith("NEW:LEGAL"))
-    assert legal["route"] == [{"tapOn": "About emulated device"}, {"tapOn": "Legal"}]
+    assert legal["route"] == [{"tapOn": "About phone.*"}, {"tapOn": "Legal"}]
     assert store.run(run.id)["status"] == "failed"
 
 
@@ -97,9 +97,9 @@ def test_deny_list_and_leaving_the_app(t):
 def test_pack_deny_rules(t, tappable_pack_dir):
     app, driver, store, walk = t
     f = tappable_pack_dir / "pack.yaml"
-    f.write_text(f.read_text() + "  deny: [{text: Battery}]\n")
+    f.write_text(f.read_text() + "  deny: [{text: /^Battery/}]\n")
     walk()
-    assert {"tapOn": "Battery"} not in driver.log and {"tapOn": "Apps"} in driver.log
+    assert {"tapOn": "Battery.*"} not in driver.log and {"tapOn": "Apps.*"} in driver.log
 
 
 def test_settings_example_refuses_taps(pack_dir, tmp_path):
@@ -108,3 +108,26 @@ def test_settings_example_refuses_taps(pack_dir, tmp_path):
     store = Store(tmp_path / "s")
     with pytest.raises(DriverError, match="allowed: false"):
         tap_all(pack, FakeDriver(yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text())), store, store.new_run())
+
+
+def test_dynamic_screen_found_again_by_heading(tappable_pack_dir, tmp_path):
+    """A game table differs after each launch (a new deal): the same heading is the same screen."""
+    app = yaml.safe_load((tappable_pack_dir / "fake" / "app.yaml").read_text())
+    app["screens"]["HOME"]["elements"].append({"kind": "Button", "text": "Play now", "to": "TABLE"})
+    app["screens"]["TABLE"] = {"elements": [
+        {"kind": "Text", "text": "Your turn"}, {"kind": "Text", "text": "Red 7"}, {"kind": "Text", "text": "Green 1"}]}
+
+    class Dealing(FakeDriver):
+        deals = 0
+
+        def _one(self, cmd):
+            if cmd == "launchApp":
+                self.deals += 1
+                app["screens"]["TABLE"]["elements"][1:] = [
+                    {"kind": "Text", "text": f"Red {self.deals}"}, {"kind": "Text", "text": f"Blue {self.deals}"}]
+            return super()._one(cmd)
+
+    store = Store(tmp_path / "s")
+    rep = tap_all(Pack.load(tappable_pack_dir), Dealing(app), store, store.new_run())
+    assert any(s["screen"].startswith("NEW:YOUR-TURN") for s in rep.screens)
+    assert rep.unreachable == []

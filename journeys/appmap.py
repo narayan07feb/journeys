@@ -34,8 +34,8 @@ class Rule:
         return rule
 
     def matches(self, el: Element) -> bool:
-        if self.id is not None and el.id != self.id:
-            return False
+        if self.id is not None and el.id != self.id and not el.id.endswith(f":id/{self.id}"):
+            return False  # Android ids read as "<package>:id/<name>"; the short name is enough
         if self.kind is not None and el.kind != self.kind:
             return False
         if self.text is not None:

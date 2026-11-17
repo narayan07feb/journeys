@@ -26,7 +26,7 @@ def h(tappable_pack_dir, tmp_path):
 
 def _display_tap_to(app, target):
     for e in app["screens"]["HOME"]["elements"]:
-        if e["text"] == "Display":
+        if e["text"].startswith("Display"):
             e["to"] = target
 
 
@@ -99,7 +99,7 @@ def test_missing_option_on_known_screen_gives_new_edge(h):
     pack_dir, app, store, run = h
     # Display moved off Home: Home has only "Screen" now, which opens Display.
     els = app["screens"]["HOME"]["elements"]
-    app["screens"]["HOME"]["elements"] = [e for e in els if e["text"] != "Display"] + [
+    app["screens"]["HOME"]["elements"] = [e for e in els if not e["text"].startswith("Display")] + [
         {"kind": "Button", "text": "Screen", "to": "DISPLAY"}]
     out = run("open-display")
     assert out.status == "failed" and "Element not found" in out.message

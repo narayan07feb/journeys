@@ -1,25 +1,26 @@
 # A small model of the Settings app for `journeys run --driver fake` and the tests (no phone).
+# Labels and ids look as Speedrun reads them on a real phone (Android 11, 17 Nov 2026).
 app: com.android.settings
 start: HOME
 screens:
   HOME:
     elements:
-      - {kind: Field, text: "Search settings", to: SEARCH}
-      - {kind: Text, text: "Network & internet"}
-      - {kind: Text, text: "Apps"}
-      - {kind: Text, text: "Display", to: DISPLAY}
-      - {kind: Text, text: "Battery"}
-      - {kind: Text, text: "About emulated device", to: ABOUT}
+      - {kind: Button, text: "Search settings", id: "com.android.settings:id/search_action_bar", to: SEARCH}
+      - {kind: Button, text: "Network & internet, Wi‑Fi, mobile, data usage, and hotspot"}
+      - {kind: Button, text: "Apps, Assistant, recent apps, default apps"}
+      - {kind: Button, text: "Display, Wallpaper, sleep, font size", to: DISPLAY}
+      - {kind: Button, text: "Battery, 80% - More than 2 days remaining"}
+      - {kind: Button, text: "About phone, Android phone", to: ABOUT}
   DISPLAY:
     elements:
       - {kind: Text, text: "Display"}
-      - {kind: Text, text: "Brightness level"}
-      - {kind: Switch, text: "Dark theme"}
-      - {kind: Text, text: "Screen timeout"}
+      - {kind: Button, text: "Brightness level, 40%"}
+      - {kind: Button, text: "Dark theme, Will never turn on automatically"}
+      - {kind: Button, text: "Screen timeout, After 30 seconds of inactivity"}
   ABOUT:
     elements:
-      - {kind: Text, text: "About emulated device"}
-      - {kind: Text, text: "Android version"}
+      - {kind: Button, text: "Device name, Android phone"}
+      - {kind: Button, text: "Android version, 11"}
   SEARCH:
     elements:
       - {kind: Field, text: "", id: search_src_text, state: [focused]}

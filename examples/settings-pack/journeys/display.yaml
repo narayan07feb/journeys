@@ -3,5 +3,5 @@ tags: [smoke]
 steps:
   - expect: SETTINGS-HOME
   - goto: SETTINGS-DISPLAY
-  - see: "Dark theme"
+  - do: [{scrollUntilVisible: {element: "Dark theme.*"}}]
   - goto: SETTINGS-HOME

@@ -3,7 +3,7 @@
   steps:
     - expect: SETTINGS-HOME
     - goto: SETTINGS-ABOUT
-    - see: "Android version"
+    - do: [{scrollUntilVisible: {element: "Android version.*"}}]
     - hook: {name: note, args: {saw: android-version}}
 
 - name: search-settings
@@ -11,4 +11,4 @@
   steps:
     - goto: SETTINGS-SEARCH
     - input: "${DEMO_SEARCH}"
-    - not_see: "Network & internet"
+    - not_see: "Network & internet.*"

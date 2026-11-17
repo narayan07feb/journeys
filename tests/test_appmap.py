@@ -65,3 +65,20 @@ def test_load_reports_errors(tmp_path: Path):
     assert "screen A" in text and "screen B has no all/any rule" in text
     assert "unknown screen Z" in text and "needs from, to and do" in text
     assert ":2:" in text or ":4:" in text  # errors carry a line
+
+
+def test_rule_id_matches_full_android_id():
+    el = Element("@1", "Button", "", "com.android.settings:id/search_action_bar")
+    assert Rule(id="search_action_bar").matches(el)
+    assert Rule(id="com.android.settings:id/search_action_bar").matches(el)
+    assert not Rule(id="action_bar").matches(el)
+
+
+def test_selector_for_real_labels():
+    from journeys.heal import selector
+    sel = lambda t, i="": selector(Element("@1", "Button", t, i))
+    assert sel("Play now") == "Play now"
+    assert sel("Wild +4 (x)") == r"Wild \+4 \(x\)"
+    assert sel("Daily table, Must play") == "Daily table.*"
+    assert sel("Skip: next (with two p…") == r"Skip: next \(with two p.*"
+    assert sel("x", "com.a:id/go") == {"id": "com.a:id/go"}

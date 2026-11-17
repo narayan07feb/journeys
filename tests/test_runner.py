@@ -40,7 +40,7 @@ def test_wrong_screen_fails_with_failure_record(env):
     # The Display tap now opens About. The runner detours (About -> Home), meets the same broken
     # edge again, and stops; no proposal is kept for a walk that never arrived.
     for e in app["screens"]["HOME"]["elements"]:
-        if e["text"] == "Display":
+        if e["text"].startswith("Display"):
             e["to"] = "ABOUT"
     r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None, heal=False)
     (out,) = r.run_all(pack.select("open-display"))
@@ -59,13 +59,13 @@ def test_wrong_screen_fails_with_failure_record(env):
 def test_missing_element_and_crash(env):
     pack, app, driver, store, run, go = env
     app["screens"]["DISPLAY"]["elements"] = [
-        e for e in app["screens"]["DISPLAY"]["elements"] if e["text"] != "Dark theme"
+        e for e in app["screens"]["DISPLAY"]["elements"] if not e["text"].startswith("Dark theme")
     ]
     (out,) = go("open-display")
     assert out.status == "failed" and "Element not found" in out.message
     # A tap that kills the app: the message says the app is gone.
     for e in app["screens"]["HOME"]["elements"]:
-        if e["text"] == "Display":
+        if e["text"].startswith("Display"):
             e["to"] = "CRASH"
     (out,) = go("open-display")
     assert "the app is not running" in out.message
