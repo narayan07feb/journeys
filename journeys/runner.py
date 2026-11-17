@@ -12,7 +12,7 @@ from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
 from .pack import Pack, substitute
-from .results import Run, Store
+from .results import Run, Store, write_json
 
 
 class StepFailed(Exception):
@@ -69,6 +69,7 @@ class Runner:
         steps = j.steps
         if j.launch:
             steps = [Step("do", [{"launchApp": {"clearState": True}} if j.clear_state else "launchApp"], j.line)] + steps
+        self._total = len(steps)
         for i, step in enumerate(steps):
             t0 = time.monotonic()
             self._step_now = step
@@ -277,6 +278,13 @@ class Runner:
     def _publish(self, out: JourneyOutcome) -> None:
         self.run.data["journeys"][-1] = asdict(out)
         self.run.save()
+        last = out.steps[-1] if out.steps else None
+        write_json(self.store.root / "live.json", {
+            "run": self.run.id, "journey": out.name, "status": out.status,
+            "step": f"{len(out.steps)} of {self._total}", "text": last.text if last else "",
+            "screen": next((s.screen for s in reversed(out.steps) if s.screen), None),
+            "message": out.message, "updated": time.time(),
+        })
         if self.on_update:
             self.on_update(out)
 

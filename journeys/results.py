@@ -58,8 +58,26 @@ class Store:
         return run
 
     def runs(self) -> list[dict]:
-        out = [read_json(p, None) for p in sorted((self.root / "runs").glob("*/run.json"))]
-        return [r for r in out if r]
+        out = [read_json(p, None) for p in (self.root / "runs").glob("*/run.json")]
+        return sorted((r for r in out if r), key=lambda r: r.get("started", 0))
+
+    def history(self, last: int = 10) -> dict[str, dict]:
+        """Per journey: its last results (oldest first) and whether it is flaky.
+
+        Flaky: in its last `last` finished results it both passed and failed, and changed between
+        them at least twice (pass, fail, pass), so one real break that stays broken is not flaky."""
+        seq: dict[str, list[str]] = {}
+        for r in self.runs():
+            for j in r.get("journeys", []):
+                if j.get("status") in ("passed", "failed"):
+                    seq.setdefault(j["name"], []).append(j["status"])
+        out = {}
+        for name, results in seq.items():
+            tail = results[-last:]
+            flips = sum(a != b for a, b in zip(tail, tail[1:]))
+            out[name] = {"results": tail, "passed": tail.count("passed"), "failed": tail.count("failed"),
+                         "flaky": flips >= 2}
+        return out
 
     def run(self, run_id: str) -> dict | None:
         return read_json(self.root / "runs" / run_id / "run.json", None)

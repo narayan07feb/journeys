@@ -19,7 +19,14 @@ from .runner import Runner
 def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
     if kind == "speedrun":
         from .drivers.speedrun import SpeedrunDriver, find_speedrun
-        return SpeedrunDriver(find_speedrun(), store.root / "speedrun-home")
+        binary = find_speedrun()
+        if binary or not shutil.which("maestro"):
+            return SpeedrunDriver(binary, store.root / "speedrun-home")
+        print("speedrun not found: falling back to maestro (slower)", file=sys.stderr)
+        kind = "maestro"
+    if kind == "maestro":
+        from .drivers.maestro import MaestroDriver
+        return MaestroDriver()
     if kind == "fake":
         app = Path(args.fake_app) if args.fake_app else pack.root / "fake" / "app.yaml"
         if not app.exists():
@@ -182,6 +189,37 @@ def cmd_reject(args) -> int:
     return 0
 
 
+def cmd_history(args) -> int:
+    hist = _store(args, _load(args)).history(args.last)
+    if args.json:
+        print(json.dumps(hist, indent=2))
+        return 0
+    for name, h in sorted(hist.items()):
+        marks = "".join("." if r == "passed" else "F" for r in h["results"])
+        print(f"{name:30} {marks:12} {h['passed']}/{len(h['results'])} passed{'  FLAKY' if h['flaky'] else ''}")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    from .live import serve
+    srv = serve(_store(args, _load(args)), args.port)
+    print(f"live page: http://127.0.0.1:{srv.server_address[1]}/  (Ctrl-C stops it)")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+    return 0
+
+
+def cmd_watch(args) -> int:
+    from .live import panel, watch
+    for live in watch(_store(args, _load(args))):
+        print(json.dumps(panel(live)), flush=True)
+    return 0
+
+
 def cmd_setup(args) -> int:
     from .setup import install
     dest = Path(__file__).resolve().parents[1] / "third_party" / "speedrun"
@@ -219,6 +257,14 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id", nargs="?")
     s.add_argument("--last", type=int, default=20)
     s.set_defaults(fn=cmd_failures)
+    s = sub.add_parser("history", help="recent results per journey, with flaky ones marked")
+    s.add_argument("--last", type=int, default=10)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_history)
+    s = sub.add_parser("serve", help="local live page on 127.0.0.1")
+    s.add_argument("--port", type=int, default=8765)
+    s.set_defaults(fn=cmd_serve)
+    sub.add_parser("watch", help="print the live state as JSON lines").set_defaults(fn=cmd_watch)
     s = sub.add_parser("proposals", help="list open proposals, or show one")
     s.add_argument("id", nargs="?")
     s.add_argument("--all", action="store_true", help="also promoted and rejected ones")
