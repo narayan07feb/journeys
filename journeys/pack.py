@@ -40,6 +40,7 @@ class Pack:
     hooks: dict[str, list[str]] = field(default_factory=dict)
     events: list[str] | None = None
     devices: dict = field(default_factory=dict)
+    project: Path | None = None   # the app's project folder, for framework detection
     tap_allowed: bool = True
     deny: list[Rule] = field(default_factory=lambda: list(DEFAULT_DENY))
     map: AppMap = field(default_factory=AppMap)
@@ -63,6 +64,8 @@ class Pack:
             dict(raw.get("hooks") or {}), (raw.get("events") or {}).get("check"),
             dict(raw.get("devices") or {}),
         )
+        if raw.get("project"):
+            p.project = (root / str(raw["project"])).resolve()
         taps = raw.get("tap_all") or {}
         p.tap_allowed = bool(taps.get("allowed", True))
         for r in taps.get("deny") or []:

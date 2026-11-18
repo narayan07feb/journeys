@@ -65,6 +65,12 @@ def cmd_doctor(args) -> int:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
     wanted = pack.driver if "pack" in locals() else None
+    if wanted and pack.project:
+        from .detect import pick, scan
+        found, _ = scan(pack.project)
+        detected, why = pick(found)
+        rows.append(("OK" if detected == wanted else "WARN",
+                     f"project {pack.project}: {why}" + ("" if detected == wanted else f"; the pack says {wanted}")))
     for kind, missing in availability().items():
         if kind != "fake":
             level = "OK" if not missing else "FAIL" if kind == wanted else "WARN"
@@ -262,6 +268,20 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+def cmd_init(args) -> int:
+    from .detect import init_pack
+    if not args.pack:
+        raise PackError("pass --pack <new folder> for the new pack")
+    dest = Path(args.pack).expanduser()
+    project = Path(args.project).expanduser() if args.project else None
+    try:
+        lines = init_pack(dest, project, args.name or dest.name, args.app)
+    except (FileExistsError, ValueError) as e:
+        raise PackError(str(e)) from None
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_setup(args) -> int:
     from .setup import install
     dest = Path(__file__).resolve().parents[1] / "third_party" / "speedrun"
@@ -275,6 +295,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--state", help="state folder (default ~/.local/state/journeys/<pack>, or JOURNEYS_STATE)")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="check the pack and the tools").set_defaults(fn=cmd_doctor)
+    s = sub.add_parser("init", help="start a new pack; the driver follows the project's test framework")
+    s.add_argument("--project", help="the app's project folder (its test framework picks the driver)")
+    s.add_argument("--app", help="the app's package (default: applicationId from the project)")
+    s.add_argument("--name", help="pack name (default: the folder name)")
+    s.set_defaults(fn=cmd_init)
     s = sub.add_parser("setup", help="install upstream Speedrun into third_party/")
     s.add_argument("--version", help="release tag, e.g. v0.4.14 (default: latest)")
     s.set_defaults(fn=cmd_setup)
