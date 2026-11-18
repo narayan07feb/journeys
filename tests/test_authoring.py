@@ -633,3 +633,23 @@ def test_tap_all_masks_env_values_and_a_refused_dka_leaves_no_run(tappable_pack_
     p.write_text(p.read_text().replace("allow_settings_changes: emulator", "allow_settings_changes: []"))
     assert cli(tappable_pack_dir, "tap-all", "--driver", "fake", "--dka") == 2
     assert len(list(state.rglob("run.json"))) == runs
+
+
+def test_a_short_common_secret_does_not_break_statuses(pack_dir, monkeypatch, capsys):
+    monkeypatch.setenv("DEMO_SEARCH", "pass")
+    assert cli(pack_dir, "run", "all", "--driver", "fake") == 0
+    (run,) = (pack_dir / "s").rglob("run.json")
+    data = yaml.safe_load(run.read_text())
+    assert data["status"] == "passed" and all(j["status"] == "passed" for j in data["journeys"])
+    capsys.readouterr()
+    assert cli(pack_dir, "history") == 0 and "passed" in capsys.readouterr().out
+
+
+def test_tap_limits_below_1_are_refused_and_a_pack_needs_a_driver(tappable_pack_dir, capsys):
+    for flag in ("--max-taps", "--max-screens"):
+        with pytest.raises(SystemExit):
+            cli(tappable_pack_dir, "tap-all", "--driver", "fake", flag, "0")
+    f = tappable_pack_dir / "pack.yaml"
+    f.write_text("\n".join(ln for ln in f.read_text().splitlines() if not ln.startswith("driver:")) + "\n")
+    capsys.readouterr()
+    assert cli(tappable_pack_dir, "validate") == 1 and "driver is required" in capsys.readouterr().out

@@ -51,7 +51,7 @@ screens:
 - A rule is `{text: ...}`, `{id: ...}`, `{kind: ...}` or a mix of them. A bare string means `{text: ...}`.
 - Rule text: `"Exact"`, or `"/regex/"`. In rules a regex may match PART of a text (use `^`, `$`).
 - `id`: the full id (`com.example.shop:id/checkout`) or its name (`checkout`).
-- `kind`: Text, Button, Field, Switch, CheckBox, Image, View.
+- `kind`: Text, Button, Field, Switch, CheckBox, Image, View, Tab, Link, Radio.
 - The screen with the most matching rules wins. A tie is "unknown".
 
 ## Edges (map/edges.yaml)
@@ -148,7 +148,7 @@ screens:
     elements: [{kind: Text, text: "Your cart"}]
 ```
 
-`kind`: Text, Button, Field, Switch, CheckBox, Image, View. `state`: checked, selected, focused,
+`kind`: Text, Button, Field, Switch, CheckBox, Image, View, Tab, Link, Radio. `state`: checked, selected, focused,
 disabled. Selectors match `text` and `id` as on a device.
 
 ## Commands

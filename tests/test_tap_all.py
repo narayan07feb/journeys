@@ -211,3 +211,26 @@ def test_camel_case_ids_zero_width_labels_and_siblings_of_denied_ones():
     assert [e.text for e in tap_targets(Screen(els), DEFAULT_DENY, 20)] == ["Help"]
     for text in ("Terminate session", "Cancel plan", "Opt out", "Install", "Clear"):
         assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_after_leaving_the_app_the_walk_comes_back_for_the_rest(t):
+    app, driver, store, walk = t
+    app["screens"]["HOME"]["elements"].insert(1, {"kind": "Button", "text": "Help", "to": "BROWSER"})
+    app["screens"]["BROWSER"] = {"package": "com.android.chrome", "elements": [{"kind": "Text", "text": "Help center"}]}
+    rep, run = walk()
+    assert rep.left_app and "SETTINGS-DISPLAY" in {s["screen"] for s in rep.screens}
+
+
+def test_a_lost_link_mid_walk_ends_the_run_as_failed(t):
+    app, driver, store, walk = t
+    real = driver._one
+
+    def lost(cmd):
+        if isinstance(cmd, dict) and "tapOn" in cmd:
+            raise DriverError("adb link lost")
+        return real(cmd)
+    driver._one = lost
+    with pytest.raises(DriverError):
+        walk()
+    (run,) = store.runs()
+    assert run["status"] == "failed" and "link lost" in run["error"]

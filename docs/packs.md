@@ -143,7 +143,8 @@ Promote edits the files in place and re-checks the pack. Review the diff in the 
 ## Secrets
 
 Journeys masks `env:` values (as •••) in the text and JSON it writes to the state folder. Screenshots
-are pictures and are not masked: a typed value can show in one. The driver's own
+are pictures and are not masked: a typed value can show in one. Values shorter than 3 characters (a short PIN) are not
+masked either: too many ordinary words contain them. The driver's own
 tool keeps its own logs outside that: Maestro under `~/.maestro`, Speedrun under
 `<state>/speedrun-home`. Those logs can hold a typed value, such as a password. Use test accounts, and
 clear or protect those folders on a shared machine.

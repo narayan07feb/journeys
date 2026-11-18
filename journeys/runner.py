@@ -58,7 +58,12 @@ class Runner:
         self._out: JourneyOutcome | None = None
 
     def run_all(self, journeys: list[Journey]) -> list[JourneyOutcome]:
-        outs = [self.journey(j) for j in journeys]
+        try:
+            outs = [self.journey(j) for j in journeys]
+        except BaseException as e:  # a lost link or Ctrl-C: the run ends as failed, never stays "running"
+            self.run.data.update(status="failed", ended=time.time(), error=self._mask(str(e)) or type(e).__name__)
+            self.run.save()
+            raise
         failed = any(o.status == "failed" for o in outs)
         self.run.data.update(status="failed" if failed else "passed", ended=time.time())
         self.run.save()
@@ -86,7 +91,10 @@ class Runner:
                 out.status, out.message = "failed", msg
                 out.failure = self._record_failure(j, i, step, msg)
                 if self.heal:
-                    self._explore_failure(out.failure, step)
+                    try:
+                        self._explore_failure(out.failure, step)
+                    except DriverError as ex:  # the failure stands; explore just could not finish
+                        self.store.update_failure(out.failure, explore_error=str(ex))
                 break
             self._publish(out)
         else:

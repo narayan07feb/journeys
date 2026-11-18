@@ -24,15 +24,22 @@ def set_secrets(values) -> None:
     _SECRETS[:] = sorted({str(v) for v in values if len(str(v)) >= 3}, key=len, reverse=True)
 
 
+# Fields Journeys itself fills with words it reads back (status, ids, names): a secret like "pass"
+# must not turn "passed" into "•••ed". Typed values never land in them.
+_PLAIN = {"status", "kind", "id", "failure", "failures", "changes", "proposal", "run", "target", "driver",
+          "serial", "pack", "journey", "file", "line", "index", "started", "ended", "dka", "result"}
+
+
 def mask(obj):
-    """obj with each secret, raw or regex-escaped, replaced by •••, in every string inside it."""
+    """obj with each secret, raw or regex-escaped, replaced by •••, in every string inside it, except
+    keys and the _PLAIN fields."""
     if isinstance(obj, str):
         from .actions import escape
         for s in _SECRETS:
             obj = obj.replace(s, "•••").replace(escape(s), "•••")
         return obj
     if isinstance(obj, dict):
-        return {mask(k): mask(v) for k, v in obj.items()}
+        return {k: v if k in _PLAIN and not isinstance(v, (dict, list)) else mask(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [mask(v) for v in obj]
     return obj

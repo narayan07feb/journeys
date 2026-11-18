@@ -115,6 +115,13 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _at_least_1(text: str) -> int:
+    n = int(text)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"{n}: at least 1 (0 would test nothing and still pass)")
+    return n
+
+
 def _refuse_errors(pack: Pack) -> None:
     errors = pack.run_errors()
     if errors:
@@ -478,8 +485,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.add_argument("--dka", action="store_true", help="turn on don't-keep-activities for the walk")
-    s.add_argument("--max-screens", type=int, default=20)
-    s.add_argument("--max-taps", type=int, default=15)
+    s.add_argument("--max-screens", type=_at_least_1, default=20)
+    s.add_argument("--max-taps", type=_at_least_1, default=15)
     s.set_defaults(fn=cmd_tap_all)
     s = sub.add_parser("failures", help="list failures, or show one")
     s.add_argument("id", nargs="?")

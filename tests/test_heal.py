@@ -1,6 +1,7 @@
 import pytest
 import yaml
 
+from journeys.drivers.base import DriverError
 from journeys.drivers.fake import FakeDriver
 from journeys.heal import PromoteError, promote, reject
 from journeys.pack import Pack
@@ -144,3 +145,32 @@ def test_explore_stops_when_a_tap_leaves_the_app(h):
     opts = store.failure(out.failure)["options"]
     assert "left the app for com.android.chrome" in opts[-1]["note"]
     assert opts[-1]["tap"] == {"tap": "Help"} and len(opts) == 2  # Skip is never tapped after it
+
+
+def test_a_lost_link_during_explore_keeps_the_failure_and_ends_the_run(h, monkeypatch):
+    pack_dir, app, store, run = h
+    _display_tap_to(app, "NOWHERE")  # the journey fails on an unknown screen, then explore taps
+    app["screens"]["NOWHERE"] = {"elements": [{"kind": "Text", "text": "Nowhere"}, {"kind": "Button", "text": "Go"}]}
+    real = FakeDriver._one
+
+    def lost(self, cmd):
+        if isinstance(cmd, dict) and cmd.get("tapOn") == "Go":
+            raise DriverError("adb link lost")
+        return real(self, cmd)
+    monkeypatch.setattr(FakeDriver, "_one", lost)
+    out = run("open-display")
+    assert out.status == "failed" and "link lost" in store.failure(out.failure)["explore_error"]
+    (r,) = store.runs()
+    assert r["status"] == "failed"
+
+
+def test_anything_that_stops_a_run_ends_it_as_failed(h, monkeypatch):
+    pack_dir, app, store, run = h
+
+    def stop(self, j):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(Runner, "journey", stop)
+    with pytest.raises(KeyboardInterrupt):
+        run("open-display")
+    (r,) = store.runs()
+    assert r["status"] == "failed" and r["error"] == "KeyboardInterrupt"

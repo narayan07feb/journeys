@@ -68,13 +68,18 @@ class TapAll:
             self.run.data.update(status="failed", error=res.message)
             self.run.save()
             raise DriverError(f"tap-all: the app did not start: {res.message}")
-        first = self.driver.look()
-        key, known = self._key(first)
-        self.found.append(Found(key, first, [], known))
         i = 0
-        while i < len(self.found) and i < self.max_screens:
-            self._visit(self.found[i])
-            i += 1
+        try:
+            first = self.driver.look()
+            key, known = self._key(first)
+            self.found.append(Found(key, first, [], known))
+            while i < len(self.found) and i < self.max_screens:
+                self._visit(self.found[i])
+                i += 1
+        except DriverError as e:  # a lost link: keep what was walked, end the run as failed
+            self.run.data.update(status="failed", error=str(e), tap_all=self.report.__dict__)
+            self.run.save()
+            raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
         clean = not (self.report.crashes or self.report.unreachable)  # a screen it could not reach again is not clean
         self.run.data.update(status="passed" if clean else "failed", tap_all=self.report.__dict__)
