@@ -45,6 +45,9 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             errors.append(f"{path}: a journey is a map with a name")
             continue
         start = item.get("start") or {}
+        if not isinstance(start, dict) or set(start) - {"launch", "clear_state", yamlio.LINE}:
+            errors.append(f"{yamlio.where(path, item)}: start is a map of launch and clear_state, not {start!r}")
+            start = {}
         steps, ok = [], True
         for s in item.get("steps") or []:
             body = {k: v for k, v in s.items() if k != yamlio.LINE} if isinstance(s, dict) else {}
@@ -56,11 +59,10 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
                     hint = (f" ({word} is another tool's word: write `{neutral}: ...`)" if neutral in ("see", "not_see")
                             else f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)")
                 errors.append(f"{yamlio.where(path, s)}: a step is one of {', '.join(KINDS)}{hint}")
-                ok = False
-                continue
+                continue  # the journey still loads, so its other steps are checked too (its file has errors)
             kind, arg = next(iter(body.items()))
             steps.append(Step(kind, yamlio.strip_lines(arg), s.get(yamlio.LINE, 0)))
-        if not steps:
+        if not item.get("steps"):
             errors.append(f"{yamlio.where(path, item)}: journey {item['name']} has no steps")
             ok = False
         if ok:

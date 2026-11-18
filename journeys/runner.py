@@ -104,6 +104,12 @@ class Runner:
             self._do(to_commands({"see": arg}))
         elif step.kind == "not_see":
             self._do(to_commands({"not_see": arg}))
+            try:
+                fg = self.driver.foreground_app()
+            except DriverError:
+                fg = None
+            if fg not in (None, self.pack.app) and "permissioncontroller" not in fg:
+                raise StepFailed(f"not_see {arg}: {self.pack.app} is not on screen ({fg} is), so it proves nothing")
         elif step.kind == "do":
             self._do(to_commands(arg))
         elif step.kind == "input":

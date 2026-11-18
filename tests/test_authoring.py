@@ -74,13 +74,13 @@ def test_export_to_maestro_and_import_back(pack_dir, tmp_path, capsys):
     assert not [e for e in Pack.load(pack_dir).errors if "login" in e]
 
 
-def test_review_round_1_fixes(pack_dir, tmp_path, capsys):
+def test_drafts_are_safe_and_import_survives_odd_flows(pack_dir, tmp_path, capsys):
     d = pack_dir / "drafts"
     d.mkdir()
     # `new` never writes over a draft file, even one that does not load
-    (d / "unloadable.yaml").write_text("name: unloadable\nsteps:\n  - hook\n")  # does not load at all
+    (d / "unloadable.yaml").write_text("name: unloadable\nsteps: [\n")  # not even YAML: does not load
     assert "unloadable" not in Pack.load(pack_dir).drafts
-    assert cli(pack_dir, "new", "unloadable") == 2 and "- hook" in (d / "unloadable.yaml").read_text()
+    assert cli(pack_dir, "new", "unloadable") == 2 and "steps: [" in (d / "unloadable.yaml").read_text()
     (d / "unloadable.yaml").unlink()
     (d / "broken.yaml").write_text("name: broken\nsteps:\n  - do: [{tapOn: X}]\n")
     # an unfinished draft never stops journeys and sets; it stops only its own draft run
@@ -125,7 +125,7 @@ def test_export_then_import_is_a_round_trip(pack_dir, tmp_path):
                               {"not_see": "Gone"}]
 
 
-def test_review_round_2_fixes(pack_dir, tmp_path, capsys):
+def test_selectors_step_words_and_launch_arguments_are_checked(pack_dir, tmp_path, capsys):
     d = pack_dir / "drafts"
     d.mkdir()
     (d / "a.yaml").write_text("name: a\nsteps:\n  - see: {text: Nope, index: -1}\n  - see: {text: X, index: x}\n"
@@ -155,7 +155,7 @@ def test_journeys_differing_only_in_start_are_not_duplicates(pack_dir):
     promote_journey(Pack.load(pack_dir), "fresh")
 
 
-def test_review_round_3_fixes(pack_dir, tmp_path, capsys):
+def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_dir, tmp_path, capsys):
     from journeys.detect import init_pack
     from journeys.heal import apply
     # a pack made by init takes promoted proposals without breaking its YAML
@@ -190,3 +190,42 @@ def test_review_round_3_fixes(pack_dir, tmp_path, capsys):
                  "stop takes no value", "empty regex", "type takes a non-empty text"):
         assert want in out, want
     assert "odd.yaml:9" not in out  # a number is fine as input
+
+
+def test_validate_reports_bad_start_kinds_screens_and_every_step_error(pack_dir, capsys):
+    sf = pack_dir / "map" / "screens.yaml"
+    sf.write_text(sf.read_text() + "  ODD:\n    match: {all: [{kind: Foo}]}\n  F: bad\n")
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "s.yaml").write_text("name: s\nstart: foo\nsteps:\n  - tapOn: X\n  - do: [{erase: true}]\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    for want in ("start is a map of launch and clear_state", "kind is one of", "a screen is a map",
+                 "s.yaml:4: a step is one of", "s.yaml:5: erase takes a number"):
+        assert want in out, want
+
+
+def test_not_see_fails_when_the_app_is_not_on_screen(pack_dir, capsys):
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "gone.yaml").write_text("name: gone\nsteps:\n  - expect: SETTINGS-HOME\n  - do: [stop]\n  - not_see: Display\n")
+    assert cli(pack_dir, "run", "gone", "--draft", "--driver", "fake") == 1
+    assert "is not on screen" in capsys.readouterr().out
+
+
+def test_reserved_names_appid_note_export_note_and_no_empty_run(pack_dir, tmp_path, capsys):
+    from journeys.actions import to_selector
+    assert to_selector("/@3/") == r"\@3"
+    assert cli(pack_dir, "new", "all") == 2 and cli(pack_dir, "new", "smoke") == 2
+    fl = tmp_path / "fl"
+    fl.mkdir()
+    (fl / "all.yaml").write_text("appId: com.other.app\n---\n- tapOn: Ok\n")
+    assert cli(pack_dir, "import", "maestro", str(fl)) == 0
+    out = capsys.readouterr().out
+    assert "all-flow.yaml" in out and "the flow is for com.other.app" in out
+    assert cli(pack_dir, "export", "maestro", "search-settings") == 0
+    assert "uses ${NAME}" in capsys.readouterr().err
+    app = tmp_path / "other.yaml"
+    app.write_text("app: com.other\nstart: A\nscreens: {A: {elements: []}}\n")
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake", "--fake-app", str(app)) == 2
+    assert not list((pack_dir / "s").glob("runs/*"))  # a refused start leaves no run behind

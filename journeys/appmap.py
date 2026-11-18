@@ -11,6 +11,7 @@ from .actions import ActionError, to_commands
 from .drivers.base import Element, Screen
 
 _RULE_KEYS = {"text", "id", "kind"}
+KINDS = ("Text", "Button", "Field", "Switch", "CheckBox", "Image", "View")  # as drivers report them
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class Rule:
         if extra or not raw:
             raise ValueError(f"a rule takes {sorted(_RULE_KEYS)}, got {sorted(raw)}")
         rule = cls(**{k: str(v) for k, v in raw.items()})
+        if rule.kind is not None and rule.kind not in KINDS:
+            raise ValueError(f"kind is one of {', '.join(KINDS)}, not {rule.kind}")
         if rule.text and _is_regex(rule.text):
             re.compile(rule.text[1:-1])  # raises re.error early, at load time
         return rule
@@ -102,6 +105,8 @@ class AppMap:
                     continue
                 try:
                     raw = raw or {}
+                    if not isinstance(raw, dict) or not isinstance(raw.get("match") or {}, dict):
+                        raise ValueError("a screen is a map with title and match: {all, any, none}")
                     match = raw.get("match") or {}
                     m.screens[name] = ScreenDef(
                         name,

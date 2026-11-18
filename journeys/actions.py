@@ -50,7 +50,7 @@ def _text(t) -> str:
             re.compile(t[1:-1])
         except re.error as e:
             raise ActionError(f"bad regex {t}: {e}") from None
-        return t[1:-1]
+        return "\\" + t[1:-1] if re.fullmatch(r"@\d+", t[1:-1]) else t[1:-1]  # never an element ref
     return "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t)  # "@3" is text, not a ref
 
 
@@ -98,7 +98,7 @@ def to_command(action):
             raise ActionError(f"type takes a non-empty text, not {arg!r}")
         return {"inputText": str(arg)}
     if word == "erase":
-        if not isinstance(arg, int) or arg < 1:
+        if not isinstance(arg, int) or isinstance(arg, bool) or arg < 1:
             raise ActionError(f"erase takes a number of characters, not {arg!r}")
         return {"eraseText": arg}
     if word == "press":

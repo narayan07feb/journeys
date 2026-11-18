@@ -23,6 +23,8 @@ _NO_OP = {"waitForAnimationToEnd"}
 PERMISSION_DIALOG = re.compile(r"(com\.android|com\.google\.android)\.permissioncontroller/\S*GrantPermissionsActivity")
 OTHER_DRIVERS = r"maestro|uiautomator|speedrun|instrument|orchestrator|\.test$"
 _FOCUS = re.compile(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)")
+_FOCUSED_APP = re.compile(r"mFocusedApp=.*? ([\w.]+/[\w.$]+)")
+_PERMISSION_PKGS = ("com.android.permissioncontroller", "com.google.android.permissioncontroller")
 
 
 _CHAR_REF = re.compile(r"&#(x[0-9a-fA-F]+|[0-9]+);")
@@ -34,8 +36,9 @@ def _bad_char(ref: str) -> bool:
     return n < 32 and n not in (9, 10, 13)
 
 
-def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
-    """Elements a user sees or acts on, in screen order, and the centre of each (for taps)."""
+def parse_dump(xml: str, keep: tuple[str, ...] | None = None) -> tuple[Screen, list[tuple[int, int]]]:
+    """Elements a user sees or acts on, in screen order, and the centre of each (for taps).
+    With keep, only nodes of those packages (another app's texts must not pass for ours)."""
     start, end = xml.find("<hierarchy"), xml.rfind("</hierarchy>")
     if start < 0 or end < 0:
         raise DriverError(f"uiautomator dump gave no screen: {xml.strip()[-200:]}")
@@ -48,6 +51,8 @@ def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
     centres: list[tuple[int, int]] = []
     for n in root.iter("node"):
         a = n.attrib
+        if keep and a.get("package") and a["package"] not in keep:
+            continue
         label = a.get("text") or a.get("content-desc") or ""
         clickable = a.get("clickable") == "true" or a.get("checkable") == "true"
         rid = a.get("resource-id", "")
@@ -103,7 +108,9 @@ class UiAutomatorDriver(AdbDriver):
             f = "/data/local/tmp/journeys-window.xml"
             out = self._adb("exec-out", f"uiautomator dump {f} >/dev/null && cat {f}; rm -f {f}").stdout.decode(
                 errors="replace")
-        screen, self._centres = parse_dump(out)
+        screen, self._centres = parse_dump(out, keep=(self.app, *_PERMISSION_PKGS) if self.app else None)
+        m = re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', out)  # the window, as rotated now
+        self._size = (int(m.group(1)), int(m.group(2))) if m else self._size
         return screen
 
     def do(self, commands: list) -> CommandResult:
@@ -135,17 +142,35 @@ class UiAutomatorDriver(AdbDriver):
                     return i
             self.sleep(self.poll_s)
 
-    def _screen_size(self) -> tuple[int, int]:
-        if not self._size:
-            m = re.search(r"(\d+)x(\d+)", (self._sh("wm size").strip().splitlines() or [""])[-1])
-            self._size = (int(m.group(1)), int(m.group(2))) if m else (1080, 1920)
-        return self._size
+    def _window(self) -> str:
+        """The focused window ("pkg/Activity"), read-only. Focus is briefly empty while an activity
+        changes, so wait for it up to wait_s."""
+        end = self.clock() + self.wait_s
+        while True:
+            out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
+            m = _FOCUS.search(out) or _FOCUSED_APP.search(out)
+            if m or self.clock() >= end:
+                return m.group(1) if m else ""
+            self.sleep(self.poll_s)
 
-    def _swipe(self, direction: str) -> None:
-        w, h = self._screen_size()
+    def _ours(self, window: str) -> bool:
+        return window.split("/")[0] == self.app or bool(PERMISSION_DIALOG.fullmatch(window))
+
+    def _input(self, cmd: str, what: str) -> CommandResult | None:
+        """Send one `input ...` command, but only while the pack's app (or Android's permission-grant
+        dialog) has the focus: checked right before each send, never to another app."""
+        window = self._window()
+        if not self._ours(window):
+            return CommandResult(False, f"{what}: the focused window is {window or 'unknown'}, not {self.app}; "
+                                        "this driver sends input only to the pack's app")
+        self._sh(cmd)
+        return None
+
+    def _swipe(self, direction: str) -> CommandResult | None:
+        w, h = self._size or (1080, 1920)
         x, top, bottom = w // 2, h * 3 // 10, h * 7 // 10
         y1, y2 = (bottom, top) if direction.upper() == "DOWN" else (top, bottom)
-        self._sh(f"input swipe {x} {y1} {x} {y2} 300")
+        return self._input(f"input swipe {x} {y1} {x} {y2} 300", "scroll")
 
     def _launch(self, arg) -> CommandResult:
         opts = arg if isinstance(arg, dict) else {}
@@ -161,31 +186,12 @@ class UiAutomatorDriver(AdbDriver):
         if "/" not in comp:
             return CommandResult(False, f"launchApp: no launcher activity for {app}")
         self._sh(f"am start -W -n {shlex.quote(comp)}")
-        end = self.clock() + self.wait_s
-        while self.foreground_app() != app:
-            if self.clock() >= end:
-                return CommandResult(False, f"launchApp: {app} is not on screen after {self.wait_s:.0f} s")
-            self.sleep(self.poll_s)
+        if not self._ours(self._window()):
+            return CommandResult(False, f"launchApp: {app} is not on screen after {self.wait_s:.0f} s")
         return CommandResult(True)
-
-    def _not_in_app(self, what: str) -> CommandResult | None:
-        """Input goes only to the pack's app (or Android's permission-grant dialog), never to
-        another app, a crash dialog or the launcher. Read-only check of the focused window."""
-        out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
-        m = _FOCUS.search(out)
-        window = m.group(1) if m else ""
-        if window.split("/")[0] == self.app or PERMISSION_DIALOG.fullmatch(window):
-            return None
-        return CommandResult(False, f"{what}: the focused window is {window or 'unknown'}, not {self.app}; "
-                                    "this driver sends input only to the pack's app")
 
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)
-        if name in ("back", "pressKey", "tapOn", "inputText", "eraseText", "hideKeyboard", "scroll",
-                    "scrollUntilVisible") and not (name == "pressKey" and str(arg).lower() == "home"):
-            refused = self._not_in_app(name)
-            if refused:
-                return refused
         if name == "launchApp":
             return self._launch(arg)
         if name == "stopApp":
@@ -196,41 +202,49 @@ class UiAutomatorDriver(AdbDriver):
             key = "back" if name == "back" else str(arg).lower()
             if key not in _KEYS:
                 return CommandResult(False, f"pressKey {arg}: not one of {', '.join(_KEYS)}")
-            self._sh(f"input keyevent {_KEYS[key]}")
+            return self._input(f"input keyevent {_KEYS[key]}", name) or CommandResult(True)
         elif name == "tapOn":
             i = self._wait_for(arg)
             if i is None:
                 return CommandResult(False, f"Element not found: {arg}")
-            w, h = self._screen_size()
+            w, h = self._size or (10 ** 5, 10 ** 5)
             x, y = self._centres[i]
-            self._sh(f"input tap {min(max(x, 1), w - 1)} {min(max(y, 1), h - 1)}")  # a row cut by the screen edge
+            # a row cut by the screen edge: tap its visible part
+            return self._input(f"input tap {min(max(x, 1), w - 1)} {min(max(y, 1), h - 1)}", "tapOn") \
+                or CommandResult(True)
         elif name == "inputText":
             text = str(arg)
             if not text.isascii() or "%s" in text:
                 return CommandResult(False, f"inputText {text!r}: adb `input text` types plain ASCII only "
                                             "(no '%s'); use another driver for this text")
-            self._sh(f"input text {shlex.quote(text.replace(' ', '%s'))}")  # `input text` reads %s as a space
+            # `input text` reads %s as a space
+            return self._input(f"input text {shlex.quote(text.replace(' ', '%s'))}", name) or CommandResult(True)
         elif name == "eraseText":
             n = int(arg if not isinstance(arg, dict) else arg.get("charactersToErase", 50)) if arg else 50
-            self._sh("input keyevent 123 " + " ".join(["67"] * n))  # MOVE_END first, then DEL: the field's last characters
+            # MOVE_END first, then DEL: the field's last characters
+            return self._input("input keyevent 123 " + " ".join(["67"] * n), name) or CommandResult(True)
         elif name == "hideKeyboard":
             if "mInputShown=true" in self._sh("dumpsys input_method"):
-                self._sh("input keyevent 4")
-        elif name == "assertVisible":
-            if self._wait_for(arg) is None:
+                return self._input("input keyevent 4", name) or CommandResult(True)
+        elif name in ("assertVisible", "assertNotVisible"):
+            if not self._ours(self._window()):  # another app on screen proves nothing about ours
+                return CommandResult(False, f"{name} {arg}: {self.app} is not on screen")
+            if name == "assertVisible" and self._wait_for(arg) is None:
                 return CommandResult(False, f"Element not found: {arg}")
-        elif name == "assertNotVisible":
-            if self._wait_for(arg, present=False) is not None:
+            if name == "assertNotVisible" and self._wait_for(arg, present=False) is not None:
                 return CommandResult(False, f"Element is visible: {arg}")
         elif name == "scroll":
-            self._swipe("DOWN")
+            self.look()  # the screen size comes from the dump
+            return self._swipe("DOWN") or CommandResult(True)
         elif name == "scrollUntilVisible":
             opts = arg if isinstance(arg, dict) else {"element": arg}
             before = self.look()
             for _ in range(int(opts.get("maxScrolls", 10))):
                 if find(before.elements, opts["element"]) is not None:
                     return CommandResult(True)
-                self._swipe(str(opts.get("direction", "DOWN")))
+                refused = self._swipe(str(opts.get("direction", "DOWN")))
+                if refused:
+                    return refused
                 after = self.look()
                 if after.listing() == before.listing():
                     break  # the end of the list: nothing moved

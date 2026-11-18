@@ -83,6 +83,9 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
         else:
             here = None
             notes.append(f"{at}: {s.kind} steps run only in Journeys (pack hooks and event checks); left out")
+    if "${" in yaml.safe_dump(cmds):
+        notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
+                     "or replace it in the flow")
     body = yaml.safe_dump(cmds, sort_keys=False, allow_unicode=True)
     return f"# Exported from Journeys journey {j.name} (pack {pack.name}).\nappId: {pack.app}\n---\n{body}", notes
 
@@ -124,8 +127,11 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
         raise ActionError(f"{path.name}: not a Maestro flow (no command list)")
     commands = docs[-1]
     head = docs[0] if isinstance(docs[0], dict) else {}
+    early: list[str] = []
+    if app and head.get("appId") not in (None, app):
+        early.append(f"{path.name}: the flow is for {head['appId']}, the pack is for {app}; check the draft")
     app = app or head.get("appId")
-    notes, steps, actions = [], [], []
+    notes, steps, actions = early, [], []
     start = {"launch": False}
 
     def flush():

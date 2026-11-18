@@ -138,13 +138,10 @@ def test_uiautomator_taps_only_in_the_pack_app_and_survives_odd_output(tmp_path)
     d = hooked("uiautomator", phone, tmp_path)
     d.app = "com.example.app"  # the pack's app is not on screen
     phone.app.do(["launchApp"])
+    assert d.look().elements == []  # another app's texts never pass for the pack's
     res = d.do([{"tapOn": "Next"}])
-    assert not res.ok and "com.other.app" in res.message
-    assert not any(c.startswith("input tap") for c in phone.shell_log)
-    import subprocess
-    d2 = hooked("uiautomator", Phone(APP), tmp_path)
-    d2._adb = lambda *a, **k: subprocess.CompletedProcess(a, 0, b"", b"")
-    assert d2._screen_size() == (1080, 1920)
+    assert not res.ok and not any(c.startswith("input tap") for c in phone.shell_log)
+    assert not d.do([{"assertNotVisible": "Next"}]).ok  # nothing proven while another app shows
 
 
 LONG = {"app": "com.example.app", "start": "LIST", "screens": {"LIST": {"elements": [
@@ -188,8 +185,8 @@ def test_uiautomator_waits_and_retries_a_bad_dump(tmp_path):
 
 
 @pytest.mark.parametrize("cmd", [{"tapOn": "Next"}, "back", {"pressKey": "Enter"}, {"inputText": "hunter2"},
-                                 {"eraseText": 3}, "scroll", "hideKeyboard",
-                                 {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
+                                 {"eraseText": 3}, "scroll",
+                                 {"scrollUntilVisible": {"element": "Not here", "direction": "DOWN"}}])
 def test_uiautomator_sends_no_input_to_another_window(cmd, tmp_path):
     phone = Phone(APP)
     d = hooked("uiautomator", phone, tmp_path)
@@ -214,7 +211,7 @@ def test_uiautomator_shell_commands_are_an_allowlist(tmp_path):
           {"tapOn": "Row 7"}, "back", {"pressKey": "Enter"}, {"inputText": "a b"}, {"eraseText": 2}, "hideKeyboard",
           "scroll", "stopApp"])
     d.app_alive(), d.foreground_app(), d.is_emulator()
-    allowed = re.compile(r"(ps -A -o NAME|dumpsys (window|input_method)|wm size|pidof com\.example\.app|"
+    allowed = re.compile(r"(ps -A -o NAME|dumpsys (window|input_method)|pidof com\.example\.app|"
                          r"getprop ro\.kernel\.qemu|cmd package resolve-activity --brief -c "
                          r"android\.intent\.category\.LAUNCHER com\.example\.app|am start -W -n \S+|"
                          r"am force-stop com\.example\.app|pm clear com\.example\.app|input (tap|swipe|keyevent|text) .*)")
@@ -232,3 +229,45 @@ def test_uiautomator_refuses_next_to_espresso_and_parses_control_chars(tmp_path)
     assert "Welcome" in [e.text for e in parse_dump(xml)[0].elements]
     with pytest.raises(DriverError, match="not valid XML"):
         parse_dump("<hierarchy><node></hierarchy>")
+
+
+def test_uiautomator_checks_focus_right_before_each_input(tmp_path):
+    """Focus moves to another app while the driver waits for the element: no tap goes out."""
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    real = phone.adb
+    looks = {"n": 0}
+
+    def adb(*args, timeout=60):
+        if args[:2] == ("exec-out", "uiautomator"):
+            looks["n"] += 1
+            phone.focus = "com.other.app/.Dialog"  # a dialog takes focus once the wait starts
+        return real(*args)
+    d._adb = adb
+    res = d.do([{"tapOn": "Next"}])
+    assert not res.ok and "com.other.app" in res.message and looks["n"] >= 1
+    assert not [c for c in phone.shell_log if c.startswith("input")]
+
+
+def test_uiautomator_waits_for_a_brief_null_focus_and_reads_the_rotated_size(tmp_path):
+    from journeys.drivers.uiautomator import UiAutomatorDriver
+    phone = Phone(APP)
+    t = [0.0]
+    d = UiAutomatorDriver(wait_s=2, poll_s=0.5, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    nulls = {"left": 2}
+
+    def adb(*args, timeout=60):
+        if args[1:] == ("dumpsys", "window") and nulls["left"]:
+            nulls["left"] -= 1
+            return phone.adb("shell", "nonsense")  # no focus line, as during an activity change
+        if args[:2] == ("exec-out", "uiautomator"):
+            return phone.adb(*args).__class__(args, 0, phone.dump_xml().replace("[0,0][1080,2400]", "[0,0][2400,1080]")
+                                              .replace("[0,200][1080,290]", "[2200,200][2800,290]").encode(), b"")
+        return phone.adb(*args)
+    d._adb = adb
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    assert d.do([{"tapOn": "Next"}]).ok and t[0] > 0  # waited out the null focus
+    assert "input tap 2399 245" in phone.shell_log  # clamped to the rotated width, not 1080

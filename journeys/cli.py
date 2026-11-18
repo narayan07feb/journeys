@@ -149,10 +149,10 @@ def cmd_run(args) -> int:
             print(f"FAIL {e}", file=sys.stderr)
         return 2
     store, driver = _open(args, pack)
+    driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
     run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver or pack.driver,
                         serial=args.serial)
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
-    driver.start(pack.app, args.serial)
     try:
         outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys)
     finally:
@@ -341,6 +341,9 @@ def cmd_import(args) -> int:
             print(f"SKIP {f}: {e}")
             continue
         dest = pack.root / "drafts" / f"{draft['name']}.yaml"
+        if draft["name"] == "all" or draft["name"] in pack.sets:
+            draft["name"] += "-flow"  # `all` and set names cannot name a journey
+            dest = pack.root / "drafts" / f"{draft['name']}.yaml"
         if draft["name"] in pack.journeys or draft["name"] in pack.drafts or dest.exists():
             print(f"SKIP {f}: a journey or draft named {draft['name']} exists")
             continue

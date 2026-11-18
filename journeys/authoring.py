@@ -14,6 +14,8 @@ _NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 def new_draft(pack: Pack, name: str, start: str | None) -> str:
     if not _NAME.fullmatch(name):
         raise PackError(f"journey names are lowercase words with dashes, not {name!r}")
+    if name == "all" or name in pack.sets:
+        raise PackError(f"{name} is taken: `all` and set names cannot name a journey")
     if name in pack.journeys or name in pack.drafts:
         raise PackError(f"journey {name} already exists")
     start = start or next(iter(pack.map.screens), None)
