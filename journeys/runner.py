@@ -8,6 +8,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
+from .actions import ActionError, from_commands, to_commands
 from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
@@ -68,7 +69,7 @@ class Runner:
         self.run.data["journeys"].append(asdict(out))
         steps = j.steps
         if j.launch:
-            steps = [Step("do", [{"launchApp": {"clearState": True}} if j.clear_state else "launchApp"], j.line)] + steps
+            steps = [Step("do", [{"launch": {"clear_state": True}} if j.clear_state else "launch"], j.line)] + steps
         self._total = len(steps)
         for i, step in enumerate(steps):
             t0 = time.monotonic()
@@ -76,7 +77,7 @@ class Runner:
             try:
                 screen = self._step(step)
                 out.steps.append(StepOutcome(i, step.describe(), "passed", _ms(t0), screen=screen))
-            except (StepFailed, DriverError) as e:
+            except (StepFailed, DriverError, ActionError) as e:
                 msg = str(e)
                 if not self._alive():
                     msg += " (the app is not running: crash?)"
@@ -100,11 +101,11 @@ class Runner:
         if step.kind == "goto":
             return self._goto(arg)
         if step.kind == "see":
-            self._do([{"assertVisible": arg}])
+            self._do(to_commands({"see": arg}))
         elif step.kind == "not_see":
-            self._do([{"assertNotVisible": arg}])
+            self._do(to_commands({"not_see": arg}))
         elif step.kind == "do":
-            self._do(arg if isinstance(arg, list) else [arg])
+            self._do(to_commands(arg))
         elif step.kind == "input":
             self._do([{"inputText": str(arg)}])
         elif step.kind == "hook":
@@ -120,6 +121,7 @@ class Runner:
             raise StepFailed(f"env var {e.args[0]} is not set") from None
 
     def _do(self, commands: list) -> None:
+        """Commands in the drivers' form (see actions.py); pack actions go through to_commands first."""
         res = self.driver.do(commands)
         if not res.ok:
             raise StepFailed(res.message or "command failed")
@@ -168,7 +170,7 @@ class Runner:
                 if (edge.src, edge.dst) in broken:
                     raise StepFailed(f"edge {edge.src} -> {edge.dst} landed on "
                                      f"{broken[edge.src, edge.dst]} (again, after a detour)")
-                self._do(edge.do)
+                self._do(to_commands(edge.do))
                 got = self._settled_on(edge.dst)
                 if got == edge.dst:
                     here = got
@@ -264,7 +266,7 @@ class Runner:
             if not head:
                 return
             name = screen_name(head)
-            edges = [{"from": name, "to": o["leads_to"], "do": [o["tap"]]}
+            edges = [{"from": name, "to": o["leads_to"], "do": from_commands([o["tap"]])}
                      for o in options if o.get("leads_to") and o["leads_to"] != "CRASH"]
             pid = self._propose(f"new screen {name} (heading {head!r}) at {self._journey.name}",
                                 {"kind": "new-screen", "name": name, "match": {"all": [{"text": head}]},
@@ -274,7 +276,7 @@ class Runner:
             if not hit:
                 return
             pid = self._propose(f"{here}: {hit['tap']} reaches {target}",
-                                {"kind": "new-edge", "src": here, "dst": target, "do": [hit["tap"]]}, failure=fid)
+                                {"kind": "new-edge", "src": here, "dst": target, "do": from_commands([hit["tap"]])}, failure=fid)
         self.store.update_failure(fid, proposal=pid)
 
     def _publish(self, out: JourneyOutcome) -> None:

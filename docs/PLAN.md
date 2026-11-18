@@ -107,7 +107,7 @@ Edges say which action leads where:
 edges:
   - from: SETTINGS-HOME
     to: SETTINGS-DISPLAY
-    do: [{scrollUntilVisible: {element: "Display"}}, {tapOn: "Display"}]
+    do: [{scroll_to: "Display"}, {tap: "Display"}]
   - from: SETTINGS-DISPLAY
     to: SETTINGS-HOME
     do: [back]
@@ -126,7 +126,7 @@ steps:
   - expect: SETTINGS-HOME
   - goto: SETTINGS-DISPLAY            # follows map edges
   - see: "Brightness level"           # text shown
-  - do: [{tapOn: "Dark theme"}]       # raw flow commands
+  - do: [{tap: "Dark theme"}]         # neutral actions (docs/packs.md)
   - hook: set_flag {flag: dark, on: true}   # pack script
   - event: {name: theme_changed}      # pack event checker
   - expect: SETTINGS-DISPLAY

@@ -58,7 +58,7 @@ def test_edge_detour_through_known_screen(h):
     with open(pack_dir / "map" / "screens.yaml", "a") as f:
         f.write("  WHATS-NEW:\n    match:\n      all: [{text: \"What's new\"}]\n")
     with open(pack_dir / "map" / "edges.yaml", "a") as f:
-        f.write("  - from: WHATS-NEW\n    to: SETTINGS-DISPLAY\n    do: [{tapOn: \"Got it\"}]\n")
+        f.write("  - from: WHATS-NEW\n    to: SETTINGS-DISPLAY\n    do: [{tap: \"Got it\"}]\n")
     out = run("open-display")
     assert out.status == "passed" and out.changes == ["P-1"]
     assert store.proposal("P-1")["change"] == {
@@ -105,7 +105,7 @@ def test_missing_option_on_known_screen_gives_new_edge(h):
     assert out.status == "failed" and "Element not found" in out.message
     p = store.proposal(store.failure(out.failure)["proposal"])
     assert p["change"] == {"kind": "new-edge", "src": "SETTINGS-HOME", "dst": "SETTINGS-DISPLAY",
-                           "do": [{"tapOn": "Screen"}]}
+                           "do": [{"tap": "Screen"}]}
     reject(store, p["id"], "the real fix is to edit the old edge")
     assert store.proposal(p["id"])["status"] == "rejected"
     with pytest.raises(PromoteError):

@@ -1,24 +1,25 @@
-# Taps use flow selectors: text is a regex that must match a whole text, hence the ".*".
+# Selectors: "Exact text", or "/regex/" that must match the whole text. A real phone joins a
+# row's texts into one label ("Display, Dark theme, font size"), hence the "/Display.*/".
 edges:
   - from: SETTINGS-HOME
     to: SETTINGS-DISPLAY
     do:
-      - scrollUntilVisible: {element: "Display.*"}
-      - tapOn: "Display.*"
+      - scroll_to: "/Display.*/"
+      - tap: "/Display.*/"
   - from: SETTINGS-DISPLAY
     to: SETTINGS-HOME
     do: [back]
   - from: SETTINGS-HOME
     to: SETTINGS-ABOUT
     do:
-      - scrollUntilVisible: {element: "About (phone|emulated device|device).*"}
-      - tapOn: "About (phone|emulated device|device).*"
+      - scroll_to: "/About (phone|emulated device|device).*/"
+      - tap: "/About (phone|emulated device|device).*/"
   - from: SETTINGS-ABOUT
     to: SETTINGS-HOME
     do: [back]
   - from: SETTINGS-HOME
     to: SETTINGS-SEARCH
-    do: [{tapOn: "Search settings"}]
+    do: [{tap: "Search settings"}]
   - from: SETTINGS-SEARCH
     to: SETTINGS-HOME
     do: [back]

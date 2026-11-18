@@ -61,7 +61,7 @@ screens:
 
 A rule has `text` (exact, or `/regex/`), `id` and `kind` (Text, Button, Field, Switch, ...).
 When several screens match, the one with the most matching rules wins; a tie is "unknown".
-Speedrun shows an id only when it is the only one on the screen, and cuts texts at 80 characters.
+Some drivers join a row's texts into one label or cut long texts: match those with a `/regex/`.
 
 ## Edges
 
@@ -69,8 +69,26 @@ Speedrun shows an id only when it is the only one on the screen, and cuts texts 
 edges:
   - from: CART
     to: CHECKOUT
-    do: [{tapOn: "Checkout"}]        # Maestro / Speedrun flow commands
+    do: [{tap: "Checkout"}]          # actions: the neutral words below
 ```
+
+Actions (the same words in edges and in `do:` steps, for every driver):
+
+| Action | Does |
+|---|---|
+| `{tap: SEL}` | Tap the element. |
+| `{type: "text"}` | Type into the focused field. |
+| `{erase: 10}` | Delete characters in the focused field. |
+| `{press: enter}` | Press a key: enter, back, home, tab, delete, search. |
+| `{scroll_to: SEL}` | Scroll down until the element shows; `{scroll_to: {element: SEL, direction: up}}`. |
+| `scroll` | Scroll down once. |
+| `{see: SEL}`, `{not_see: SEL}` | Check the element is (not) on screen. |
+| `back`, `hide_keyboard`, `wait_idle` | |
+| `launch`, `{launch: {clear_state: true}}`, `stop` | Start or stop the pack's app. |
+
+A selector (SEL) is `"Exact text"`, `"/regex/"` (must match the whole text), `{id: name}`, or
+`{text: ..., id: ..., index: 1}` (index 0 is the first match). Words from a test framework
+(`tapOn`, `inputText`, ...) are a pack error that names the word to use.
 
 `goto` takes the shortest path of edges.
 
@@ -88,7 +106,7 @@ steps:
   - goto: CHECKOUT                # walk the map
   - see: "Total"                  # text shown (not_see: text not shown)
   - input: "${APP_USER}"          # type
-  - do: [{tapOn: "Pay"}]          # any flow commands
+  - do: [{tap: "Pay"}]            # actions (table above)
   - event: {name: purchase}       # the pack's checker says it fired
 ```
 

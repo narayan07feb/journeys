@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from . import yamlio
+from .actions import escape
 from .appmap import AppMap
 from .drivers.base import Driver, DriverError, Screen
 from .pack import Pack
@@ -33,14 +34,6 @@ def same_screen(a: Screen, b: Screen) -> bool:
     return len(fa & fb) / max(len(fa | fb), 1) >= 0.8
 
 
-_META = re.compile(r"([.^$*+?{}\[\]\\|()])")
-
-
-def _escape(text: str) -> str:
-    """Escape only regex characters (re.escape also escapes spaces, which some engines refuse)."""
-    return _META.sub(r"\\\1", text)
-
-
 def selector(el) -> dict | str:
     """A selector that finds this element again. Flow selectors read text as a regex that must match
     the whole text, so the text is escaped. A row whose label joins its children's texts ("Wi-Fi,
@@ -49,10 +42,10 @@ def selector(el) -> dict | str:
         return {"id": el.id}
     text = el.text
     if text.endswith("…"):
-        return _escape(text[:-1].split(", ")[0]) + ".*"
+        return escape(text[:-1].split(", ")[0]) + ".*"
     if ", " in text:
-        return _escape(text.split(", ")[0]) + ".*"
-    return _escape(text)
+        return escape(text.split(", ")[0]) + ".*"
+    return escape(text)
 
 
 def heading(screen: Screen) -> str:

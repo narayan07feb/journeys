@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
+from .actions import ActionError, to_commands
 from .drivers.base import Element, Screen
 
 _RULE_KEYS = {"text", "id", "kind"}
@@ -114,9 +115,13 @@ class AppMap:
         if ef.exists():
             for raw in (yamlio.load(ef) or {}).get("edges") or []:
                 try:
-                    m.edges.append(Edge(raw["from"], raw["to"], yamlio.strip_lines(list(raw["do"]))))
+                    do = yamlio.strip_lines(raw["do"])
+                    m.edges.append(Edge(raw["from"], raw["to"], do if isinstance(do, list) else [do]))
+                    to_commands(m.edges[-1].do)
                 except (KeyError, TypeError) as e:
                     m.errors.append(f"{yamlio.where(ef, raw)}: an edge needs from, to and do ({e})")
+                except ActionError as e:
+                    m.errors.append(f"{yamlio.where(ef, raw)}: edge {raw['from']} -> {raw['to']}: {e}")
         for e in m.edges:
             for end in (e.src, e.dst):
                 if end not in m.screens:

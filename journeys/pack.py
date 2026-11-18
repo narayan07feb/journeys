@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
+from .actions import ActionError, to_commands, to_selector
 from .appmap import AppMap, Rule
 from .drivers import DRIVERS
 from .journey import Journey, load_journeys
@@ -93,6 +94,13 @@ class Pack:
                 at = f"{j.file}:{s.line}"
                 if s.kind in ("expect", "goto") and s.arg not in self.map.screens:
                     self.errors.append(f"{at}: {s.kind} names unknown screen {s.arg}")
+                try:
+                    if s.kind == "do":
+                        to_commands(s.arg)
+                    elif s.kind in ("see", "not_see"):
+                        to_selector(s.arg)
+                except ActionError as e:
+                    self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
                     name = s.arg if isinstance(s.arg, str) else (s.arg or {}).get("name")
                     if name not in self.hooks:
