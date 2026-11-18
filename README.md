@@ -6,7 +6,7 @@ with the tool it already uses:
 
 | Driver | Needs | |
 |---|---|---|
-| `uiautomator` (default) | adb | The phone's own `uiautomator dump` and `input`. Installs nothing, changes no setting. |
+| `uiautomator` (default) | adb | The phone's own `uiautomator dump` and `input`. Installs nothing, changes no setting; input goes only to the pack's app. |
 | `maestro` | `maestro` on PATH | Each step runs as a Maestro flow. |
 | `speedrun` | `journeys setup` | Upstream [Speedrun](https://github.com/hubastard/speedrun); fast; changes some device state (docs/packs.md). |
 | `fake` | nothing | A small model of the app, for tests without a device. |
@@ -51,7 +51,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 |---|---|
 | `doctor` | Check the pack, the drivers, adb and devices. |
 | `validate` | Check the pack, every journey and draft (file:line). |
-| `look --serial S` | The screen on the device now and its map screen (read-only). |
+| `look --serial S` | The screen on the device now and its map screen (read-only with uiautomator). |
 | `new NAME --start SCREEN` / `promote-journey NAME` | Start a draft / move it into `journeys/`. |
 | `import maestro FLOWS` / `export maestro NAME` | Maestro flows to drafts / a journey to a flow. |
 | `init --project APP` | A new pack whose driver follows the project's tests. |

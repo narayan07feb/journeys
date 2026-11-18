@@ -82,7 +82,11 @@ class TapAll:
         base = self.driver.look()
         options = []
         for el in tap_targets(base, self.pack.deny, self.max_taps):
-            tap = {"tapOn": selector(el, base)}
+            sel = selector(el, base)
+            if sel is None:  # no selector finds only this element: tapping could hit another one
+                options.append({"tap": None, "result": "skipped", "note": f"no unique selector for {el.line()}"})
+                continue
+            tap = {"tapOn": sel}
             res = self.driver.do([tap])
             if not res.ok:
                 options.append({"tap": tap, "result": "failed", "note": res.message[:200]})

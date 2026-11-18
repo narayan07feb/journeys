@@ -57,7 +57,7 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
         if not isinstance(item.get("steps") or [], list):
             errors.append(f"{yamlio.where(path, item)}: steps is a list of steps")
             continue
-        for s in item.get("steps") or []:
+        for n, s in enumerate(item.get("steps") or [], 1):
             body = {k: v for k, v in s.items() if k != yamlio.LINE} if isinstance(s, dict) else {}
             if len(body) != 1 or next(iter(body)) not in KINDS:
                 word = next(iter(body), "") if len(body) == 1 else ""
@@ -70,7 +70,8 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
                         hint = f" ({word} is another tool's word: write `do: [{neutral}]`)"
                     else:
                         hint = f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)"
-                errors.append(f"{yamlio.where(path, s)}: a step is one of {', '.join(KINDS)}{hint}")
+                at = yamlio.where(path, s) if isinstance(s, dict) else f"{yamlio.where(path, item)} step {n}"
+                errors.append(f"{at}: a step is one of {', '.join(KINDS)}{hint}")
                 continue  # the journey still loads, so its other steps are checked too (its file has errors)
             kind, arg = next(iter(body.items()))
             steps.append(Step(kind, yamlio.strip_lines(arg), s.get(yamlio.LINE, 0)))

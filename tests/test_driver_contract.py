@@ -290,8 +290,9 @@ def test_uiautomator_sends_nothing_to_system_windows(focus, tmp_path):
     phone.focus = focus
     assert not d.do([{"pressKey": "Enter"}]).ok and not d.do([{"inputText": "1234"}]).ok
     assert not [c for c in phone.shell_log if c.startswith("input")]
-    phone.focus = "null"  # nothing focused, the app's task behind: the app still counts
-    assert d.do([{"pressKey": "Enter"}]).ok
+    phone.focus = "null"  # nothing focused (screen off, locking): the app behind does not count
+    assert not d.do([{"pressKey": "Enter"}]).ok
+    assert not [c for c in phone.shell_log if c.startswith("input")]
 
 
 def test_focused_window_rules():

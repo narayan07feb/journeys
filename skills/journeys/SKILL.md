@@ -20,7 +20,9 @@ Read `references/format.md` before you write a step. It has the exact format and
    that is missing needs a rule first (format.md, "Screens"); a way between screens needs an edge.
    To see a screen's real texts and ids: with that screen open on the device (ask the user to
    open it, or let a draft run stop there), run `journeys --pack P look --serial <serial>`. It
-   prints each element (kind, "text", #id) and which map screen it matches, and changes nothing.
+   prints each element (kind, "text", #id) and which map screen it matches. With the uiautomator
+   driver it changes nothing (maestro and speedrun first set up their own driver on the device), and
+   it lists only the pack's app: with another app in front the list is empty.
 3. Start a draft: `journeys --pack P new <name> --start <SCREEN>`. It writes `drafts/<name>.yaml`.
 4. Write the steps (format.md, "Journeys"): `expect` and `goto` for screens, `see`/`not_see` for
    checks, `do:` with action words for taps and typing, `input` for text from env vars.

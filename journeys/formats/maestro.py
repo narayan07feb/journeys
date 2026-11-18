@@ -68,6 +68,8 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
         else:
             here = None
             notes.append(f"{at}: {s.kind} steps run only in Journeys (pack hooks and event checks); left out")
+    if any(isinstance(c, dict) and c.get("pressKey") in ("Search", "Tab") for c in cmds):
+        notes.append("press search/tab: check that your Maestro version has this key")
     if "${" in yaml.safe_dump(cmds):
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")
@@ -94,7 +96,8 @@ def _neutral_sel(arg):
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
         if "text" in arg:
             _plain(arg["text"], "selector text")
-        if "id" in arg and _REGEX_CHARS.search(_plain(arg["id"], "id")):
+        rid = _plain(arg["id"], "id") if "id" in arg else ""
+        if rid and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
             raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
         return from_selector(arg)
     raise ActionError(f"selector {arg!r} has keys with no neutral form")
@@ -116,6 +119,9 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
     if app and head.get("appId") not in (None, app):
         early.append(f"{path.name}: the flow is for {head['appId']}, the pack is for {app}; check the draft")
     app = app or head.get("appId")
+    for key in head:
+        if key not in ("appId", "name"):
+            early.append(f"{path.name}: header {key} has no neutral form; left out (check the draft)")
     notes, steps, actions = early, [], []
     start = {"launch": False}
 
@@ -134,10 +140,12 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
         na, ns = len(actions), len(steps)
         try:
             if name in ("launchApp", "stopApp"):
-                opts = arg if isinstance(arg, dict) else {}
-                if arg is not None and not isinstance(arg, dict) or set(opts) - {"appId", "clearState"} \
-                        or opts.get("appId") not in (None, app) or (name == "stopApp" and "clearState" in opts):
-                    raise ActionError(f"{name} {arg!r}: only the pack's app, with clearState for launchApp")
+                opts = {"appId": arg} if isinstance(arg, str) else arg if isinstance(arg, dict) else {}
+                allowed = {"appId", "clearState"} if name == "launchApp" else {"appId"}
+                if (arg is not None and not isinstance(arg, (str, dict))) or set(opts) - allowed \
+                        or opts.get("appId") not in (None, app):
+                    raise ActionError(f"{name} {arg!r}: only the pack's app"
+                                      + (", with clearState" if name == "launchApp" else ""))
                 clear = opts.get("clearState", False)
                 if not isinstance(clear, bool):
                     raise ActionError(f"{name} clearState {clear!r} is not true or false")

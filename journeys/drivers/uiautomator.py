@@ -2,7 +2,8 @@
 `input` to tap, type, swipe and press keys, `am` to start and stop the pack's app.
 
 It installs nothing and writes no device setting. The only file it writes and deletes is its own
-/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It sends input (taps,
+/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It stops and starts only
+the pack's app; `launch` with clear_state runs `pm clear` on that app (its data only). It sends input (taps,
 keys, text, swipes) only while the pack's app (or Android's permission-grant dialog) has the focus. It types plain ASCII only. It does not start when another
 UI test driver (Maestro, Speedrun, an instrumentation) already runs on the device: two UiAutomation
 users on one device break each other.
@@ -142,10 +143,12 @@ class UiAutomatorDriver(AdbDriver):
 
     def _window(self) -> str:
         """The focused window ("pkg/Activity"), read-only. Focus is briefly empty while an activity
-        changes, so wait for it up to wait_s."""
+        changes, so wait up to wait_s for a real one. No focus at all (screen off, locking) is never
+        the app: input waits, then is refused."""
         end = self.clock() + self.wait_s
         while True:
-            w = focused_window(self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace"))
+            out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
+            w = None if "mCurrentFocus=null" in out else focused_window(out)
             if w or self.clock() >= end:
                 return w or ""
             self.sleep(self.poll_s)

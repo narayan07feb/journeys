@@ -109,7 +109,8 @@ steps:                         # required; each step is ONE of:
   `goto`) before it so `validate` can check that a path exists.
 - `see` and `not_see` check the current screen, whatever it is; they wait a moment for the element.
 - After `do`, `input` or `hook` the screen is unknown again until the next `expect`/`goto`.
-- `${NAME}` works in any step text for names declared in `env:` or `accounts:`.
+- `${NAME}` works in any step text for names declared in `env:` or `accounts:`; an undeclared
+  name is a validate error.
 
 ## Sets (sets.yaml)
 
@@ -158,7 +159,7 @@ disabled. Selectors match `text` and `id` as on a device.
 | `journeys --pack P import maestro FLOWS...` | Maestro flows to drafts (what has no neutral word is listed). |
 | `journeys --pack P export maestro NAME [-o F]` | A journey as a Maestro flow. |
 | `journeys --pack NEW init --project APP [--app ID]` | A new pack; the driver follows the project's framework. |
-| `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. Read-only. |
+| `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. Read-only with uiautomator; only the pack's app is listed. |
 | `journeys --pack P doctor` | Tools, drivers and devices. |
 
 Global options go before the command: `--pack P` (or `$JOURNEYS_PACK`), `--state S` (results;

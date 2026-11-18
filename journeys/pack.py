@@ -21,6 +21,18 @@ DEFAULT_DENY = [Rule(text=t) for t in (
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
+_JOURNEY_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _names(obj) -> list[str]:
+    """Every ${NAME} in a step's or edge's values."""
+    if isinstance(obj, str):
+        return _VAR.findall(obj)
+    if isinstance(obj, dict):
+        return [n for v in obj.values() for n in _names(v)]
+    if isinstance(obj, list):
+        return [n for v in obj for n in _names(v)]
+    return []
 
 
 class PackError(Exception):
@@ -101,10 +113,20 @@ class Pack:
         return p
 
     def _check(self) -> None:
+        declared = self.declared()
+        for e in self.map.edges:
+            for name in sorted(set(_names(e.do)) - declared):
+                self.errors.append(f"map/edges.yaml: edge {e.src} -> {e.dst} uses ${{{name}}}, which pack.yaml does "
+                                   "not declare (env: or accounts:)")
         for j in [*self.journeys.values(), *self.drafts.values()]:
+            if j.name == "all" or j.name in self.sets or not _JOURNEY_NAME.fullmatch(j.name):
+                self.errors.append(f"{j.file}:{j.line}: journey name {j.name!r}: lowercase words with dashes, "
+                                   "not `all` or a set's name")
             here = None  # the screen the journey is on, as far as the file says
             for s in j.steps:
                 at = f"{j.file}:{s.line}"
+                for name in sorted(set(_names(s.arg)) - declared):
+                    self.errors.append(f"{at}: ${{{name}}} is not declared in pack.yaml (env: or accounts:)")
                 if (s.kind in ("expect", "goto") and not isinstance(s.arg, str)) or (
                         s.kind == "input" and (not isinstance(s.arg, (str, int)) or isinstance(s.arg, bool) or s.arg == "")):
                     self.errors.append(f"{at}: {s.kind} takes one text, not {s.arg!r}")
@@ -196,7 +218,7 @@ class Pack:
 def substitute(obj, variables: dict[str, str], declared: set[str]):
     """Replace ${NAME} for the pack's declared names; raise KeyError for a declared one that is not set.
 
-    Undeclared ${...} stay as written, for the driver's own flow variables."""
+    Undeclared ${...} stay as written; `validate` refuses them in a pack."""
     if isinstance(obj, str):
         def rep(m):
             name = m.group(1)

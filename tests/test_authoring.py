@@ -287,3 +287,31 @@ def test_look_hints_tags_maestro_parent_and_export_never_overwrites(pack_dir, tm
     out_file.write_text("the team's own flow\n")
     assert cli(pack_dir, "export", "maestro", "open-display", "-o", str(out_file)) == 2
     assert out_file.read_text() == "the team's own flow\n"
+
+
+def test_names_variables_empty_do_and_import_header(pack_dir, tmp_path, capsys):
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "a.yaml").write_text("name: all\nsteps:\n  - see: Hi\n")
+    (d / "b.yaml").write_text("name: smoke\nsteps:\n  - see: Hi\n")
+    (d / "c.yaml").write_text("name: b 7\nsteps:\n  - input: \"${NOPE}\"\n  - do: []\n  - do: [{type: \"${main.user}\"}]\n")
+    (d / "e.yaml").write_text("name: e\nsteps: [1, 2]\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert out.count("journey name") == 3 and "${NOPE} is not declared" in out
+    assert "do needs at least one action" in out and "${main.user} is not declared" in out
+    assert "step 1:" in out and "step 2:" in out
+    from journeys.formats.maestro import import_flow
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\nonFlowStart: [{runFlow: login.yaml}]\nenv: {USER: bob}\n---\n"
+                 "- launchApp: com.android.settings\n- tapOn: {id: \"com.android.settings:id/search_action_bar\"}\n"
+                 "- stopApp: com.android.settings\n- stopApp: {clearState: true}\n")
+    draft, notes = import_flow(f, "com.android.settings")
+    assert draft["start"]["launch"] and draft["steps"] == [
+        {"do": [{"tap": {"id": "com.android.settings:id/search_action_bar"}}, "stop"]}]
+    assert any("header onFlowStart" in n for n in notes) and any("header env" in n for n in notes)
+    assert any("command 4" in n and "clearState" not in n.split(":", 1)[1].split("only")[1] for n in notes)
+    from journeys.formats.maestro import export
+    (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: search}]\n")
+    _, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
+    assert any("search/tab" in n for n in notes)

@@ -152,5 +152,18 @@ def test_tap_targets_skip_label_less_elements_and_name_repeated_ids():
                 Element("@6", "Button", "Delete account"), Element("@7", "Button", "Save", "com.a:id/save")])
     targets = tap_targets(s, DEFAULT_DENY, 15)
     assert [e.ref for e in targets] == ["@2", "@3", "@7"]
-    assert [selector(e, s) for e in targets] == ["Row A", "Row B", {"id": "com.a:id/save"}]
-    assert selector(s.elements[4], s) == {"id": "com.a:id/icon", "index": 1}
+    from journeys.drivers.base import find
+    for e in targets + [s.elements[4]]:  # every selector finds that element again, and only it
+        assert find(s.elements, selector(e, s)) == s.elements.index(e)
+    assert selector(s.elements[2], s) == "Row B" and selector(s.elements[4], s) == {"id": "com.a:id/icon", "index": 1}
+
+
+def test_a_prefix_selector_never_lands_on_a_denied_sibling(pack_dir):
+    from journeys.drivers.base import Element, Screen, find
+    from journeys.heal import selector
+    s = Screen([Element("@1", "Button", "Close account, permanent"), Element("@2", "Button", "Close, window"),
+                Element("@3", "Button", "@1"), Element("@4", "Button", "Ok")])
+    assert find(s.elements, selector(s.elements[1], s)) == 1  # not "Close.*", which hits @1 first
+    assert find(s.elements, selector(s.elements[2], s)) == 2  # the text "@1" is not the ref @1
+    twins = Screen([Element("@1", "Button", "Same"), Element("@2", "Button", "Same")])
+    assert selector(twins.elements[1], twins) == {"text": "Same", "index": 1}

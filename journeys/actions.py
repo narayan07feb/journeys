@@ -131,6 +131,8 @@ def to_command(action):
 def to_commands(actions) -> list:
     if not isinstance(actions, list):
         actions = [actions]
+    if not actions:
+        raise ActionError("do needs at least one action")
     return [to_command(a) for a in actions]
 
 

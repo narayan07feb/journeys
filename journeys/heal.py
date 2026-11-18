@@ -16,7 +16,7 @@ import yaml
 from . import yamlio
 from .actions import ActionError, escape, from_commands, to_commands
 from .appmap import AppMap
-from .drivers.base import Driver, DriverError, Screen
+from .drivers.base import Driver, DriverError, Screen, find, id_matches
 from .pack import Pack
 from .results import Store
 
@@ -34,22 +34,33 @@ def same_screen(a: Screen, b: Screen) -> bool:
     return len(fa & fb) / max(len(fa | fb), 1) >= 0.8
 
 
-def selector(el, screen: Screen | None = None) -> dict | str:
-    """A selector that finds this element again. Flow selectors read text as a regex that must match
-    the whole text, so the text is escaped. A row whose label joins its children's texts ("Wi-Fi,
-    Connected") or a label cut short ("Long text…") is not one node's text: match its first part.
-    An id that repeats on the screen (list rows) names only the first: then the text, or id + index."""
-    same = [e for e in (screen.elements if screen else [el]) if e.id and e.id == el.id]
-    if el.id and len(same) == 1:
-        return {"id": el.id}
-    if el.id and not el.text:
-        return {"id": el.id, "index": next(i for i, e in enumerate(same) if e is el)}
+def selector(el, screen: Screen | None = None) -> dict | str | None:
+    """A selector that finds THIS element again on the screen, or None when none does (then the
+    element is not tapped: a selector that hits another element could hit a denied one).
+
+    Flow selectors read text as a regex for the whole text, so the text is escaped. A row whose
+    label joins its children's texts ("Wi-Fi, Connected") or a label cut short ("Long text…") is
+    not one node's text on every driver: its first part is tried first. A repeated id (list rows)
+    names only the first match: then the text, or id + index."""
+    els = screen.elements if screen else [el]
+    me = next(i for i, e in enumerate(els) if e is el) if screen else 0
     text = el.text
+    lit = (lambda t: "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t))  # "@2" is text, not a ref
+    tries: list = []
+    if el.id:
+        tries.append({"id": el.id})
     if text.endswith("…"):
-        return escape(text[:-1].split(", ")[0]) + ".*"
-    if ", " in text:
-        return escape(text.split(", ")[0]) + ".*"
-    return escape(text)
+        tries.append(lit(text[:-1].split(", ")[0]) + ".*")
+    elif ", " in text:
+        tries.append(lit(text.split(", ")[0]) + ".*")
+    if text:
+        tries.append(lit(text))
+        same = [i for i, e in enumerate(els) if e.text == text]
+        tries.append({"text": lit(text), "index": same.index(me)})
+    if el.id:
+        same = [i for i, e in enumerate(els) if e.id and id_matches(el.id, e.id)]
+        tries.append({"id": el.id, "index": same.index(me)})
+    return next((t for t in tries if find(els, t) == me), None)
 
 
 def heading(screen: Screen) -> str:
@@ -85,7 +96,11 @@ def explore(driver: Driver, amap: AppMap, app: str, deny: list, limit: int = 12)
         return []
     options = []
     for el in tap_targets(base, deny, limit):
-        tap = {"tapOn": selector(el, base)}
+        sel = selector(el, base)
+        if sel is None:  # no selector finds only this element: tapping could hit another one
+            options.append({"tap": None, "leads_to": None, "note": f"skipped: no unique selector for {el.line()}"})
+            continue
+        tap = {"tapOn": sel}
         res = driver.do([tap])
         if not res.ok:
             options.append({"tap": tap, "leads_to": None, "note": res.message[:200]})
