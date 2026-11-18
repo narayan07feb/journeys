@@ -36,14 +36,15 @@ build:   [[./gradlew, assembleDebug]]
 install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-debug.apk]]
 devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
-                                    # --dka needs a driver that can change a setting (speedrun, fake);
-                                    # maestro refuses it.
+                                    # --dka sets "don't keep activities" over adb (maestro, speedrun).
                                     # Elsewhere --dka is refused, and Speedrun does not start when it
                                     # would change the phone (Android 13+, other agent builds, a Maestro driver)
   animations: normal                # speedrun driver only: --animations normal leaves the scales at 1
 tap_all:
   allowed: true                     # false: tap-all and explore-on-failure never tap in this app
-  deny: [{text: "/(?i)delete account/"}, {id: logout_button}]   # never tapped (rules as for screens)
+  deny: [{text: "/(?i)delete account/"}, {id: logout_button}]   # never tapped (rules as for screens);
+                                    # a text rule also reads the id's name (delete_account), and a broken
+                                    # rule stops tap-all until validate passes
 ```
 
 Tap-all and explore always skip a built-in deny list (reset, erase, uninstall, Wi-Fi, airplane mode,
@@ -136,3 +137,10 @@ sets:
 | new-screen | appends a screen (named from its heading, or `--name`) and edges from it |
 
 Promote edits the files in place and re-checks the pack. Review the diff in the pack's git.
+
+## Secrets
+
+Journeys masks `env:` values (as •••) in everything it writes to the state folder. The driver's own
+tool keeps its own logs outside that: Maestro under `~/.maestro`, Speedrun under
+`<state>/speedrun-home`. Those logs can hold a typed value, such as a password. Use test accounts, and
+clear or protect those folders on a shared machine.

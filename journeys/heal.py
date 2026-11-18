@@ -9,18 +9,19 @@ Proposal kinds (field `change`):
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
 
 from . import yamlio
 from .actions import ActionError, escape, from_command, from_commands, to_commands
-from .appmap import AppMap
+from .appmap import KINDS, AppMap
 from .drivers.base import Driver, DriverError, Screen, find, id_matches
 from .pack import Pack
 from .results import Store
 
-TAPPABLE = {"Button", "Field", "Text", "Switch", "CheckBox", "Image", "View", "Tab", "Link", "Radio"}
+TAPPABLE = set(KINDS)  # every kind a driver reports can be tapped
 
 
 def fingerprint(screen: Screen) -> frozenset:
@@ -59,7 +60,14 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
     if el.id:
         same = [i for i, e in enumerate(els) if e.id and id_matches(el.id, e.id)]
         tries.append({"id": el.id, "index": same.index(me)})
-    return next((t for t in tries if find(els, t) == me), None)
+    return next((t for t in tries if find(els, t) == me and _only(els, t)), None)
+
+
+def _only(els: list, sel) -> bool:
+    """No other element matches the selector without its index: a driver may pick another match
+    than the first one. With an index, the index names the one element."""
+    return isinstance(sel, dict) and "index" in sel or \
+        sum(find([e], sel) == 0 for e in els) == 1
 
 
 def heading(screen: Screen) -> str:
@@ -71,12 +79,20 @@ def screen_name(text: str) -> str:
     return "-".join(words[:4]) or "UNNAMED"
 
 
+def denied(el, deny: list) -> bool:
+    """A deny rule matches the label, or a text rule matches the id's name ("OK" with id
+    delete_account): a label can be vague or cut short, the id often says what the button does."""
+    name = re.sub(r"[_.]+", " ", el.id.rsplit("/", 1)[-1]) if el.id else ""
+    return any(r.matches(el) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
+               for r in deny)
+
+
 def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     """The elements tap-all and explore may tap: tappable kinds with a label, not denied. A label-less
     element (often a container) is never tapped: its centre may sit over a denied button, and the
     deny list reads labels."""
     return [e for e in screen.elements
-            if e.kind in TAPPABLE and e.text.strip() and not any(r.matches(e) for r in deny)][:limit]
+            if e.kind in TAPPABLE and e.text.strip() and not denied(e, deny)][:limit]
 
 
 def left_app(driver: Driver, app) -> str | None:

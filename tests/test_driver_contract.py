@@ -39,6 +39,12 @@ def texts(d):
     return [e.text for e in d.look().elements]
 
 
+def test_every_driver_can_read_and_set_a_global_setting(drv):
+    """tap-all --dka needs it; the caller checks devices.allow_settings_changes first."""
+    assert drv.global_setting("always_finish_activities", "1") in ("", "null", "0")
+    assert drv.global_setting("always_finish_activities") == "1"
+
+
 def test_launch_shows_the_start_screen(drv):
     assert "Welcome" in texts(drv) and "next" in ids(drv.look().elements)
     assert drv.app_alive()

@@ -29,6 +29,7 @@ class Phone:
         self.page, self.offset = page, 0   # page: rows on screen at once (None: all); a swipe moves one row
         self.focus: str | None = None      # a window other than the app's, e.g. a dialog
         self.keyboard = False
+        self.settings: dict[str, str] = {}
 
     # what the phone shows
     def _elements(self):
@@ -91,6 +92,11 @@ class Phone:
             return _done()
         if cmd == "dumpsys input_method":
             return _done(f"  mInputShown={str(self.keyboard).lower()}\n")
+        if cmd.startswith("settings get global "):
+            return _done(self.settings.get(cmd.split()[3], "null") + "\n")
+        if cmd.startswith("settings put global "):
+            self.settings[cmd.split()[3]] = cmd.split()[4]
+            return _done()
         if cmd.startswith("pm clear"):
             return _done()
         return _done(f"unknown: {cmd}", 1)

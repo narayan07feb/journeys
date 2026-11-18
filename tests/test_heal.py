@@ -131,3 +131,16 @@ def test_no_explore_when_pack_forbids_taps(pack_dir, tmp_path):
         pack.select("open-display"))
     assert out.status == "failed" and "options" not in store.failure(out.failure)
     assert sum(1 for c in driver.log if c == {"tapOn": "Network & internet"}) == 0
+
+
+def test_explore_stops_when_a_tap_leaves_the_app(h):
+    pack_dir, app, store, run = h
+    app["screens"]["TOUR"] = {"elements": [
+        {"kind": "Text", "text": "Welcome tour"}, {"kind": "Button", "text": "Help", "to": "BROWSER"},
+        {"kind": "Button", "text": "Skip", "to": "DISPLAY"}]}
+    app["screens"]["BROWSER"] = {"package": "com.android.chrome", "elements": [{"kind": "Text", "text": "Help"}]}
+    _display_tap_to(app, "TOUR")
+    out = run("open-display")
+    opts = store.failure(out.failure)["options"]
+    assert "left the app for com.android.chrome" in opts[-1]["note"]
+    assert opts[-1]["tap"] == {"tap": "Help"} and len(opts) == 2  # Skip is never tapped after it

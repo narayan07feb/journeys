@@ -167,3 +167,35 @@ def test_a_prefix_selector_never_lands_on_a_denied_sibling(pack_dir):
     assert find(s.elements, selector(s.elements[2], s)) == 2  # the text "@1" is not the ref @1
     twins = Screen([Element("@1", "Button", "Same"), Element("@2", "Button", "Same")])
     assert selector(twins.elements[1], twins) == {"text": "Same", "index": 1}
+
+
+def test_deny_reads_the_id_name_and_tab_kinds_are_tapped(t):
+    app, driver, store, walk = t
+    app["screens"]["HOME"]["elements"] += [
+        {"kind": "Button", "text": "OK", "id": "com.x:id/delete_account", "to": "CRASH"},  # the id says what it does
+        {"kind": "Tab", "text": "Updates", "to": "UPDATES"},
+    ]
+    app["screens"]["UPDATES"] = {"elements": [{"kind": "Text", "text": "All updates"}]}
+    rep, run = walk()
+    assert rep.crashes == [] and "OK" not in str(driver.log)
+    assert any(n.startswith("NEW:ALL-UPDATES") for n in rep.new_screens)
+
+
+def test_after_a_crash_the_walk_goes_back_and_taps_the_rest(t):
+    app, driver, store, walk = t
+    app["screens"]["ABOUT"]["elements"][1:1] = [
+        {"kind": "Button", "text": "Update", "to": "CRASH"},
+        {"kind": "Button", "text": "Legal", "to": "LEGAL"},
+    ]
+    app["screens"]["LEGAL"] = {"elements": [{"kind": "Text", "text": "Legal info"}]}
+    rep, run = walk()
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Update"}]
+    assert any(n.startswith("NEW:LEGAL-INFO") for n in rep.new_screens)
+
+
+def test_a_selector_that_also_finds_another_row_is_not_used():
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import selector
+    rows = [Element("@1", "Button", "Account, Profile"), Element("@2", "Button", "Account, Delete")]
+    sel = selector(rows[0], Screen(rows))
+    assert sel in ("Account, Profile", {"text": "Account, Profile", "index": 0}), sel

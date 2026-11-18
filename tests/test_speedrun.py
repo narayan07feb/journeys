@@ -36,7 +36,12 @@ def test_parse_look():
 
 def test_find_speedrun_prefers_env_then_third_party(tmp_path, monkeypatch):
     monkeypatch.setenv("JOURNEYS_SPEEDRUN", "/x/speedrun")
-    assert speedrun.find_speedrun(tmp_path) == "/x/speedrun"
+    assert speedrun.find_speedrun(tmp_path) is None  # a path that is not there is not a speedrun
+    mine = tmp_path / "my-speedrun"
+    mine.write_text("")
+    mine.chmod(0o755)
+    monkeypatch.setenv("JOURNEYS_SPEEDRUN", str(mine))
+    assert speedrun.find_speedrun(tmp_path) == str(mine)
     monkeypatch.delenv("JOURNEYS_SPEEDRUN")
     for v in ("v0.4.2", "v0.4.9"):
         (tmp_path / "third_party" / "speedrun" / v).mkdir(parents=True)

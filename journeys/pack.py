@@ -8,21 +8,22 @@ from pathlib import Path
 
 from . import yamlio
 from .actions import QUOTE, ActionError, to_commands, to_selector
-from .appmap import AppMap, Rule
+from .appmap import KINDS, AppMap, Rule
 from .drivers import DRIVERS
 from .journey import Journey, load_journeys
 
 # Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
 # that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
-DEFAULT_DENY = [Rule(text=t) for t in (
-    # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too
-    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (all )?(data|storage|cache)|force stop|"
-    r"deactivat|close account|unlink|revoke|forget|reboot|restart|power off|shut ?down|turn off|block|"
-    r"clear (all|history)|discard|empty|format)/",
-    r"/(?i)\b(wi[-\u2010-\u2015 ]?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging"
-    r"|developer options|disconnect)/",
-    r"/(?i)\b(sign[ -]?(out|off)|log[ -]?(out|off)|pay|buy|purchase|subscri|send|call|share|rate us|report|"
-    r"order|checkout|transfer|withdraw|donat|top ?up|add money)/",
+_S = r"[\s\-\u2010-\u2015]"  # a space or dash of any kind: NBSP, U+2011 ("Log\u2011out") as on real devices
+DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
+    # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too; "_" is any space or dash
+    r"/(?i)\b(reset|erase|factory|wipe|delet|remov|uninstall|clear_(all_)?(data|storage|cache)|force_stop|"
+    r"deactivat|close_account|unlink|revoke|forget|reboot|restart|power_off|shut_?down|turn_off|block|"
+    r"clear_(all|history)|discard|empty|format)/",
+    r"/(?i)\b(wi_?fi|airplane|aeroplane|flight_mode|bluetooth|mobile_data|hotspot|usb_debugging"
+    r"|developer_options|disconnect)/",
+    r"/(?i)\b(sign_?(out|off)|log_?(out|off)|pay|buy|purchase|(un)?subscri|send|call|share|rate_us|report|"
+    r"order|checkout|transfer|withdraw|donat|top_?up|add_money)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
@@ -94,7 +95,8 @@ class Pack:
 
         def shaped(key, typ, what):
             """A pack.yaml value of the right shape, or an error line and an empty one."""
-            value = raw.get(key) or typ()
+            value = raw.get(key)
+            value = typ() if value is None else value  # `tap_all: false` is an error, not an empty map
             if not isinstance(value, typ):
                 errors.append(f"{pf}: {key} is {what}, not {value!r}")
                 return typ()
@@ -129,7 +131,10 @@ class Pack:
             p.project = (root / str(raw["project"])).resolve()
         taps = shaped("tap_all", dict, "a map with allowed and deny")
         p.errors += errors
-        p.tap_allowed = bool(taps.get("allowed", True))
+        p.tap_allowed = taps.get("allowed", True) if isinstance(raw.get("tap_all", {}), (dict, type(None))) else False
+        if not isinstance(p.tap_allowed, bool):
+            p.errors.append(f"{pf}: tap_all.allowed is true or false, not {p.tap_allowed!r}")
+            p.tap_allowed = False  # unclear: never tap everything
         deny = taps.get("deny") or []
         if not isinstance(deny, list):
             p.errors.append(f"{pf}: tap_all.deny is a list of rules, like [{{text: \"/(?i)delete/\"}}], not {deny!r}")
@@ -183,6 +188,11 @@ class Pack:
             if not isinstance(els, list) or not all(isinstance(e, dict) for e in els):
                 self.errors.append(f"{f}: screen {name}: elements is a list of maps")
                 continue
+            for e in els:
+                bad = [k for k in ("kind", "text", "id") if k in e and not isinstance(e[k], str)]
+                if bad or e.get("kind", "Text") not in KINDS or not isinstance(e.get("state", []), list):
+                    self.errors.append(f"{f}: screen {name}: element {e} needs text and id as quoted text, kind one "
+                                       f"of {', '.join(KINDS)} and state as a list")
             targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
             for t in targets:
                 if t is not None and (not isinstance(t, str) or t not in screens):

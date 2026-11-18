@@ -11,7 +11,7 @@ from .actions import ActionError, to_commands
 from .drivers.base import Element, Screen, id_matches
 
 _RULE_KEYS = {"text", "id", "kind"}
-KINDS = ("Text", "Button", "Field", "Switch", "CheckBox", "Image", "View")  # as drivers report them
+KINDS = ("Text", "Button", "Field", "Switch", "CheckBox", "Image", "View", "Tab", "Link", "Radio")  # as drivers report them
 
 
 @dataclass(frozen=True)

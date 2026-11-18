@@ -3,7 +3,7 @@
 Journeys is a generic, open-source end-to-end test tool for Android apps. Journeys are written in a
 neutral format and run with the team's own tool through a driver: Maestro or upstream
 [Speedrun](https://github.com/hubastard/speedrun) (public). Journeys has no device driver of its
-own (owner, 18 Nov 2026). Sections 3.1 below
+own (owner, 18 Nov 2026). Section 3.1 and the sections after it
 describe the first design (Speedrun first); M9 to M13 in section 5 replaced it.
 A company keeps its own app map and journeys in a private **pack**; the public repo has the core
 and one example pack for a public demo app.
@@ -243,7 +243,7 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M6 | MCP server | JSON-RPC tests over a pipe |
 | M7 | Droid Lite plugin | `list/run/watch` output checked against the spec |
 | M8 | Docs, README, emulator end-to-end with the example pack | owner review |
-| M9 | Driver-generic: one Driver contract, driver per pack (required) + `--driver`, no silent fallback; no own device driver (a uiautomator driver was built, then removed by the owner) | one contract test suite passes on fake, uiautomator, maestro, speedrun (pretend phone) |
+| M9 | Driver-generic: one Driver contract, driver per pack (required) + `--driver`, no silent fallback; no own device driver (a uiautomator driver was built, then removed by the owner) | one contract test suite passes on fake, maestro, speedrun (pretend phone) |
 | M10 | Neutral format: packs use Journeys' own action words and selectors; framework words are errors | validate tests |
 | M11 | Framework detection: `init --project` picks the driver from the project's tests; doctor shows it | tests on sample projects |
 | M12 | Maestro import (flows to drafts) and export (journey to flow) | round-trip tests |

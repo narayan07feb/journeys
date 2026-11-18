@@ -18,6 +18,15 @@ class AdbDriver(Driver):
         except (OSError, subprocess.TimeoutExpired) as e:
             raise DriverError(f"adb {args[0]}: {e}") from None
 
+    def global_setting(self, name: str, value: str | None = None) -> str:
+        """Read an Android global setting over adb; with value, set it and return the old one.
+        Callers check pack.yaml devices.allow_settings_changes first."""
+        old = self._adb("shell", "settings", "get", "global", name).stdout.decode().strip()
+        if value is not None:
+            if self._adb("shell", "settings", "put", "global", name, value).returncode != 0:
+                raise DriverError(f"could not set {name}")
+        return old
+
     def screenshot(self, path: Path) -> Path | None:
         p = self._adb("exec-out", "screencap", "-p")
         if p.returncode != 0 or not p.stdout.startswith(b"\x89PNG"):

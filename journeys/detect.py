@@ -97,7 +97,7 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
     found, app_id = scan(project, strict=not app) if project else ([], None)
     detected, why = pick(found)
     if driver:
-        why = f"chosen with --driver ({why})" if detected != driver else why
+        why = why if detected == driver else f"chosen with --driver ({why})" if project else "chosen with --driver"
     driver = driver or detected
     if driver not in DRIVERS:
         raise ValueError(f"{why}: pass --driver {' | '.join(d for d in DRIVERS if d != 'fake')}"

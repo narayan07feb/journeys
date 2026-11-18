@@ -53,7 +53,7 @@ def find_speedrun(repo_root: Path | None = None) -> str | None:
     A PATH speedrun under ~/.speedrun is skipped: that folder may hold a patched build."""
     env = os.environ.get("JOURNEYS_SPEEDRUN")
     if env:
-        return env
+        return env if os.access(env, os.X_OK) and Path(env).is_file() else None
     root = repo_root or Path(__file__).resolve().parents[2]
     found = sorted((root / "third_party" / "speedrun").glob("*/speedrun"))
     if found:
@@ -137,13 +137,6 @@ class SpeedrunDriver(AdbDriver):
             return CommandResult(True, out)
         failed = [ln for ln in out.splitlines() if ln.startswith("FAILED") or ln.startswith("  ")]
         return CommandResult(False, "\n".join(failed[:4]) or out[-500:])
-
-    def global_setting(self, name: str, value: str | None = None) -> str:
-        old = self._adb("shell", "settings", "get", "global", name).stdout.decode().strip()
-        if value is not None:
-            if self._adb("shell", "settings", "put", "global", name, value).returncode != 0:
-                raise DriverError(f"could not set {name}")
-        return old
 
     def stop(self) -> None:
         if self.started:

@@ -547,3 +547,51 @@ def test_round_11_small_fixes(pack_dir, tmp_path, capsys, monkeypatch):
 def json_dump(obj):
     import json
     return json.dumps(obj)
+
+
+def test_deny_list_catches_spaces_and_dashes_of_any_kind_and_more_stems():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Log out", "Sign‑out", "Clear data", "Force stop", "Turn off", "Wi Fi",
+                 "Top-up", "Unsubscribe", "Account deletion", "Remove device"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    for text in ("Display", "Profile", "Sound", "Battery"):
+        assert not any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_a_broken_tap_all_block_stops_tap_all_and_look(tappable_pack_dir, capsys):
+    f = tappable_pack_dir / "pack.yaml"
+    keep = f.read_text()
+    f.write_text(keep + "  deny: [{text: \"/(?i)nuke/\", kind: Btn}]\n")
+    assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 2
+    assert "kind is one of" in capsys.readouterr().err + capsys.readouterr().out
+    assert not list((tappable_pack_dir / "s").glob("runs/*"))
+    assert cli(tappable_pack_dir, "look", "--driver", "fake") == 2
+    for bad in ("tap_all: false\n", "tap_all:\n  allowed: \"false\"\n"):
+        f.write_text(keep.split("tap_all:")[0] + bad)
+        pack = Pack.load(tappable_pack_dir)
+        assert pack.tap_allowed is False and any("tap_all" in e for e in pack.errors), bad
+
+
+def test_tap_all_fails_when_a_screen_cannot_be_reached_again(tappable_pack_dir, monkeypatch):
+    import journeys.explore
+    from journeys.explore import TapAllReport
+    monkeypatch.setattr(journeys.explore, "tap_all", lambda *a, **k: TapAllReport(unreachable=["SETTINGS-ABOUT"]))
+    assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 1
+
+
+def test_fake_app_element_fields_are_checked(tappable_pack_dir, capsys):
+    f = tappable_pack_dir / "fake" / "app.yaml"
+    app = yaml.safe_load(f.read_text())
+    app["screens"][app["start"]]["elements"].append({"kind": "Text", "text": 12})
+    f.write_text(yaml.safe_dump(app))
+    assert cli(tappable_pack_dir, "validate") == 1 and "quoted text" in capsys.readouterr().out
+
+
+def test_mask_hides_the_raw_and_the_regex_escaped_secret():
+    from journeys.results import mask, set_secrets
+    set_secrets(["p@ss.w(rd"])
+    try:
+        assert mask({"m": ["typed p@ss.w(rd", "no /p@ss\\.w\\(rd/ found"]}) == {"m": ["typed •••", "no /•••/ found"]}
+    finally:
+        set_secrets([])

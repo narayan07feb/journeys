@@ -84,7 +84,11 @@ def cmd_doctor(args) -> int:
     adb = shutil.which("adb")
     rows.append(("OK", f"adb {adb}") if adb else ("WARN", "adb not on PATH"))
     if adb:
-        out = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=30).stdout
+        try:
+            out = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=30).stdout
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out = ""
+            rows.append(("WARN", f"adb devices: {e}"))
         devices = [ln.split()[0] for ln in out.splitlines()[1:] if ln.strip().endswith("device")]
         rows.append(("OK", f"devices: {', '.join(devices)}") if devices else ("WARN", "no device on adb"))
     for level, text in rows:
@@ -111,6 +115,12 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _refuse_errors(pack: Pack) -> None:
+    errors = pack.run_errors()
+    if errors:
+        raise PackError("\n".join(errors) + f"\n{len(errors)} pack errors: fix them first (journeys validate)")
+
+
 def _open(args, pack: Pack) -> tuple[Store, Driver]:
     kind = args.driver or pack.driver
     if kind != "fake" and not args.serial:
@@ -122,6 +132,7 @@ def _open(args, pack: Pack) -> tuple[Store, Driver]:
 def cmd_tap_all(args) -> int:
     from .explore import tap_all
     pack = _load(args)
+    _refuse_errors(pack)  # a broken deny rule must not leave its buttons tappable
     if not pack.tap_allowed:
         raise PackError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     store, driver = _open(args, pack)
@@ -145,7 +156,7 @@ def cmd_tap_all(args) -> int:
         print(f"left app  {x['screen']}  {x['tap']} -> {x['package']}")
     for u in rep.unreachable:
         print(f"unreachable  {u}")
-    return 1 if rep.crashes else 0
+    return 1 if rep.crashes or rep.unreachable else 0
 
 
 def cmd_run(args) -> int:
@@ -301,6 +312,7 @@ def cmd_init(args) -> int:
 def cmd_look(args) -> int:
     """The screen on the device now, as Journeys reads it, and which map screen it is. Read-only."""
     pack = _load(args)
+    _refuse_errors(pack)
     _, driver = _open(args, pack)
     driver.start(pack.app, args.serial)
     try:
