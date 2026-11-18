@@ -19,7 +19,8 @@ import time
 import xml.etree.ElementTree as ET
 
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen, command_name, find, focused_window, kind_of
+from .base import (CommandResult, DriverError, Element, Screen, command_name, find, focused_window, kind_of,
+                   shown)
 
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _KEYS = {"back": 4, "home": 3, "enter": 66, "tab": 61, "backspace": 67, "delete": 67, "search": 84}
@@ -155,7 +156,10 @@ class UiAutomatorDriver(AdbDriver):
         the app: input waits, then is refused."""
         end = self.clock() + self.wait_s
         while True:
-            out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
+            p = self._adb("shell", "dumpsys", "window")
+            if p.returncode != 0 and p.stderr.decode(errors="replace").lstrip().startswith("error:"):
+                raise DriverError(f"adb: {p.stderr.decode(errors='replace').strip()[:200]}")  # the link is down
+            out = p.stdout.decode(errors="replace")
             first = re.search(r"mCurrentFocus=(\S+)", out)  # the same first line focused_window reads
             w = None if first and first.group(1) == "null" else focused_window(out)
             if w or self.clock() >= end:
@@ -217,7 +221,7 @@ class UiAutomatorDriver(AdbDriver):
         elif name == "tapOn":
             i = self._wait_for(arg)
             if i is None:
-                return CommandResult(False, f"Element not found: {arg}")
+                return CommandResult(False, f"Element not found: {shown(arg)}")
             w, h = self._size or (10 ** 5, 10 ** 5)
             x, y = self._centres[i]
             # a row cut by the screen edge: tap its visible part
@@ -243,9 +247,9 @@ class UiAutomatorDriver(AdbDriver):
             if not self._ours(self._window()):  # another app on screen proves nothing about ours
                 return CommandResult(False, f"{name} {arg}: {self.app} is not on screen")
             if name == "assertVisible" and self._wait_for(arg) is None:
-                return CommandResult(False, f"Element not found: {arg}")
+                return CommandResult(False, f"Element not found: {shown(arg)}")
             if name == "assertNotVisible" and self._wait_for(arg, present=False) is not None:
-                return CommandResult(False, f"Element is visible: {arg}")
+                return CommandResult(False, f"Element is visible: {shown(arg)}")
         elif name == "scroll":
             self.look()  # the screen size comes from the dump
             return self._swipe("DOWN") or CommandResult(True)
@@ -264,7 +268,7 @@ class UiAutomatorDriver(AdbDriver):
                 before = after
             if find(before.elements, opts["element"]) is not None:
                 return CommandResult(True)
-            return CommandResult(False, f"Element not found after scrolling: {opts['element']}")
+            return CommandResult(False, f"Element not found after scrolling: {shown(opts['element'])}")
         elif name not in _NO_OP:
             return CommandResult(False, f"uiautomator driver does not know {name}")
         return CommandResult(True)

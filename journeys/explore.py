@@ -63,7 +63,11 @@ class TapAll:
         return res.ok and self.driver.app_alive() and self._key(self.driver.look())[0] == f.key
 
     def walk(self) -> TapAllReport:
-        self.driver.do(["stopApp", "launchApp"])
+        res = self.driver.do(["stopApp", "launchApp"])
+        if not res.ok:  # an app that does not start is not a clean walk
+            self.run.data.update(status="failed", error=res.message)
+            self.run.save()
+            raise DriverError(f"tap-all: the app did not start: {res.message}")
         first = self.driver.look()
         key, known = self._key(first)
         self.found.append(Found(key, first, [], known))
@@ -72,7 +76,8 @@ class TapAll:
             self._visit(self.found[i])
             i += 1
         self.report.new_screens = [f.key for f in self.found if not f.known]
-        self.run.data.update(status="failed" if self.report.crashes else "passed", tap_all=self.report.__dict__)
+        clean = not (self.report.crashes or self.report.unreachable)  # a screen it could not reach again is not clean
+        self.run.data.update(status="passed" if clean else "failed", tap_all=self.report.__dict__)
         self.run.save()
         return self.report
 

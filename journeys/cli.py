@@ -65,7 +65,8 @@ def cmd_doctor(args) -> int:
         pack = _load(args)
         rows.append(("OK", f"pack {pack.name} ({pack.app}): {len(pack.map.screens)} screens, "
                            f"{len(pack.map.edges)} edges, {len(pack.journeys)} journeys"))
-        rows += [("FAIL", e) for e in pack.errors]
+        blocking = set(pack.run_errors())
+        rows += [("FAIL" if e in blocking else "WARN", e) for e in pack.errors]  # an unfinished draft only warns
     except PackError as e:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
@@ -267,7 +268,11 @@ def cmd_steps(args) -> int:
     for argv in steps:
         argv = [str(a).replace("{serial}", serial or "") for a in argv]
         print("$ " + " ".join(argv), flush=True)
-        code = subprocess.run(argv, cwd=pack.root, env=env).returncode
+        try:
+            code = subprocess.run(argv, cwd=pack.root, env=env).returncode
+        except OSError as e:
+            print(f"{args.cmd} step cannot start: {e}", file=sys.stderr)
+            return 1
         if code != 0:
             print(f"{args.cmd} step failed with exit {code}", file=sys.stderr)
             return 1
@@ -312,7 +317,11 @@ def cmd_look(args) -> int:
 
 
 def cmd_validate(args) -> int:
-    pack = _load(args)
+    try:
+        pack = _load(args)
+    except PackError as e:  # pack.yaml itself is broken: still a FAIL line, like every other file
+        print(f"FAIL {e}")
+        return 1
     for e in pack.errors:
         print(f"FAIL {e}")
     print(f"{'OK' if not pack.errors else 'FAIL'} pack {pack.name}: {len(pack.journeys)} journeys, "

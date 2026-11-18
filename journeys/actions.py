@@ -30,6 +30,10 @@ FOREIGN = {"tapOn": "tap", "inputText": "type", "eraseText": "erase", "pressKey"
            "waitForAnimationToEnd": "wait_idle", "click": "tap", "sendKeys": "type"}
 
 
+QUOTE = ("quote it: YAML reads 0123, 12:30, 1_000, Yes, No, On and Off as numbers, times or true/false, "
+         'so write "0123", "12:30", "Yes"')
+
+
 class ActionError(ValueError):
     pass
 
@@ -40,9 +44,10 @@ def escape(text: str) -> str:
 
 
 def _text(t) -> str:
-    if not isinstance(t, (str, int, float)) or isinstance(t, bool) or str(t) == "":
-        raise ActionError(f"selector text must be a non-empty text, not {t!r}")
-    t = str(t)
+    if not isinstance(t, str):
+        raise ActionError(f"selector text {t!r} is not a text: {QUOTE}")
+    if t == "":
+        raise ActionError("selector text must be a non-empty text")
     if len(t) > 1 and t.startswith("/") and t.endswith("/"):
         if len(t) == 2:
             raise ActionError("an empty regex // matches only empty text: write the text you want")
@@ -56,7 +61,7 @@ def _text(t) -> str:
 
 def to_selector(sel):
     """Neutral selector -> the drivers' form (text is always a whole-text regex)."""
-    if isinstance(sel, (str, int, float)) and not isinstance(sel, bool):
+    if isinstance(sel, (str, int, float, bool)) or sel is None or type(sel).__name__ in ("date", "datetime"):
         return _text(sel)
     if isinstance(sel, dict) and sel and set(sel) <= {"text", "id", "index"} and ("text" in sel or "id" in sel):
         if "index" in sel and (type(sel["index"]) is not int or sel["index"] < 0):
@@ -96,9 +101,9 @@ def to_command(action):
     if word == "tap":
         return {"tapOn": to_selector(arg)}
     if word == "type":
-        if not isinstance(arg, (str, int, float)) or isinstance(arg, bool) or str(arg) == "":
-            raise ActionError(f"type takes a non-empty text, not {arg!r}")
-        return {"inputText": str(arg)}
+        if not isinstance(arg, str) or arg == "":
+            raise ActionError(f"type takes a non-empty text, not {arg!r}" + ("" if arg in ("", None) else f"; {QUOTE}"))
+        return {"inputText": arg}
     if word == "erase":
         if not isinstance(arg, int) or isinstance(arg, bool) or not 1 <= arg <= 1000:
             raise ActionError(f"erase takes a number of characters from 1 to 1000, not {arg!r}")

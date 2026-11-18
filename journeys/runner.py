@@ -249,7 +249,7 @@ class Runner:
     def _record_failure(self, j: Journey, index: int, step: Step, message: str) -> str:
         try:
             screen = self.driver.look()
-            listing, name = screen.listing(), self.pack.map.identify(screen).name
+            listing, name = self._mask(screen.listing()), self.pack.map.identify(screen).name
         except DriverError as e:
             listing, name = f"(no screen: {e})", None
         try:
@@ -272,7 +272,7 @@ class Runner:
         if not self.pack.tap_allowed:
             return
         options = explore(self.driver, self.pack.map, self.pack.owns, self.pack.deny)
-        failure = self.store.update_failure(fid, options=options)
+        failure = self.store.update_failure(fid, options=json.loads(self._mask(json.dumps(options))))
         target = step.arg if step.kind in ("expect", "goto") else None
         here = failure.get("screen")
         if here is None:

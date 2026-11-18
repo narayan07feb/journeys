@@ -87,6 +87,9 @@ Selector (SEL), for actions and for `see`/`not_see` steps:
 - `"/regex/"`, which must match the WHOLE text (`"/Total.*/"` for "Total 12.50").
 - `{id: name}`.
 - `{text: "Save", index: 1}`: the second match (0 is the first). `text` and `id` can go together.
+- Quote any text YAML would read as something else: numbers, times and yes/no words.
+  Write `"0123"`, `"12:30"`, `"1_000"`, `"Yes"`, `"No"`, `"On"`, `"Off"`. Unquoted they are a
+  validate error (`quote it`), the same for `type:` and `input:`.
 
 ## Journeys (journeys/*.yaml or drafts/*.yaml)
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
-from .actions import ActionError, to_commands, to_selector
+from .actions import QUOTE, ActionError, to_commands, to_selector
 from .appmap import AppMap, Rule
 from .drivers import DRIVERS
 from .journey import Journey, load_journeys
@@ -17,15 +17,25 @@ from .journey import Journey, load_journeys
 DEFAULT_DENY = [Rule(text=t) for t in (
     # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too
     r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (all )?(data|storage|cache)|force stop|"
-    r"deactivat|close account|unlink|revoke|forget|reboot|restart|power off|shut ?down|turn off|block)/",
+    r"deactivat|close account|unlink|revoke|forget|reboot|restart|power off|shut ?down|turn off|block|"
+    r"clear (all|history)|discard|empty|format)/",
     r"/(?i)\b(wi[-\u2010-\u2015 ]?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging"
     r"|developer options|disconnect)/",
-    r"/(?i)\b(sign[ -]?(out|off)|log[ -]?(out|off)|pay|buy|purchase|subscri|send|call|share|rate us|report)/",
+    r"/(?i)\b(sign[ -]?(out|off)|log[ -]?(out|off)|pay|buy|purchase|subscri|send|call|share|rate us|report|"
+    r"order|checkout|transfer|withdraw|donat|top ?up|add money)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 _JOURNEY_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 _PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+")
+
+
+def _argvs(steps: list, key: str, pf, errors: list[str]) -> list:
+    """build/install entries are argv lists ([./gradlew, assembleDebug]), not one shell string."""
+    good = [a for a in steps if isinstance(a, list) and a and all(isinstance(x, str) for x in a)]
+    if len(good) != len(steps):
+        errors.append(f"{pf}: {key} entries are command lists like [./gradlew, assembleDebug]")
+    return good
 
 
 def _names(obj) -> list[str]:
@@ -104,7 +114,8 @@ class Pack:
                 errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "uiautomator")),
-            shaped("build", list, "a list of commands"), shaped("install", list, "a list of commands"),
+            _argvs(shaped("build", list, "a list of commands"), "build", pf, errors),
+            _argvs(shaped("install", list, "a list of commands"), "install", pf, errors),
             [str(n) for n in shaped("env", list, "a list of names")], accounts,
             shaped("hooks", dict, "a map of name: [command]"), events.get("check"),
             shaped("devices", dict, "a map"),
@@ -164,7 +175,7 @@ class Pack:
         if not isinstance(screens, dict) or not screens:
             self.errors.append(f"{f}: screens is a map of NAME: {{elements: [...]}}")
             return
-        if app.get("start") not in screens:
+        if not isinstance(app.get("start"), str) or app.get("start") not in screens:
             self.errors.append(f"{f}: start names a screen in it, not {app.get('start')!r}")
         for name, sd in screens.items():
             els = (sd or {}).get("elements") or [] if isinstance(sd, dict) else None
@@ -173,7 +184,7 @@ class Pack:
                 continue
             targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
             for t in targets:
-                if t is not None and t not in screens:
+                if t is not None and (not isinstance(t, str) or t not in screens):
                     self.errors.append(f"{f}: screen {name} points to unknown screen {t}")
 
     def _check(self) -> None:
@@ -192,8 +203,9 @@ class Pack:
                 for name in sorted(set(_names(s.arg)) - declared):
                     self.errors.append(f"{at}: ${{{name}}} is not declared in pack.yaml (env: or accounts:)")
                 if (s.kind in ("expect", "goto") and not isinstance(s.arg, str)) or (
-                        s.kind == "input" and (not isinstance(s.arg, (str, int)) or isinstance(s.arg, bool) or s.arg == "")):
-                    self.errors.append(f"{at}: {s.kind} takes one text, not {s.arg!r}")
+                        s.kind == "input" and (not isinstance(s.arg, str) or s.arg == "")):
+                    self.errors.append(f"{at}: {s.kind} takes one text, not {s.arg!r}"
+                                       + ("" if s.arg in ("", None) or s.kind != "input" else f"; {QUOTE}"))
                     here = None
                     continue
                 if s.kind in ("hook", "event") and not isinstance(s.arg, (str, dict)):

@@ -98,6 +98,16 @@ def kind_of(cls: str, clickable: bool, label: str) -> str:
     return "Button" if clickable and kind in ("View", "Image", "Text") and not label.strip() else kind
 
 
+def shown(sel) -> str:
+    """A selector as a pack writes it, for messages ("Wi-Fi (2)", "/Display.*/", {id: x})."""
+    from ..actions import ActionError, from_selector
+    try:
+        out = from_selector(sel["element"] if isinstance(sel, dict) and "element" in sel else sel)
+    except (ActionError, TypeError, KeyError, AttributeError):
+        return repr(sel)
+    return out if isinstance(out, str) else "{" + ", ".join(f"{k}: {v}" for k, v in out.items()) + "}"
+
+
 def command_name(cmd) -> tuple[str, object]:
     """A flow command is a bare name ("back") or a one-key map ({tapOn: "Next"})."""
     if isinstance(cmd, str):

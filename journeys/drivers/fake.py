@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from .base import CommandResult, Driver, DriverError, Element, Screen, command_name, find
+from .base import CommandResult, Driver, DriverError, Element, Screen, command_name, find, shown
 
 CRASH = "CRASH"
 _NO_OP = {"waitForAnimationToEnd", "hideKeyboard", "inputText", "eraseText", "scroll", "pressKey"}
@@ -119,7 +119,7 @@ class FakeDriver(Driver):
         elif name == "tapOn":
             el = self._find(arg)
             if el is None:
-                return CommandResult(False, f"Element not found: {arg}")
+                return CommandResult(False, f"Element not found: {shown(arg)}")
             to = el.get("to")
             if el.get("dka_crash") and self.settings.get("always_finish_activities") == "1":
                 to = CRASH  # this tap only breaks when activities are not kept
@@ -131,10 +131,10 @@ class FakeDriver(Driver):
                 self.stack.append(to)
         elif name in ("assertVisible", "scrollUntilVisible"):
             if self._find(arg) is None:
-                return CommandResult(False, f"Element not found: {arg}")
+                return CommandResult(False, f"Element not found: {shown(arg)}")
         elif name == "assertNotVisible":
             if self._find(arg) is not None:
-                return CommandResult(False, f"Element is visible: {arg}")
+                return CommandResult(False, f"Element is visible: {shown(arg)}")
         elif name not in _NO_OP:
             return CommandResult(False, f"fake driver does not know {name}")
         return CommandResult(True)

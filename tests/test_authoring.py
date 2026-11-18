@@ -134,7 +134,7 @@ def test_selectors_step_words_and_launch_arguments_are_checked(pack_dir, tmp_pat
     assert cli(pack_dir, "validate") == 1
     out = capsys.readouterr().out
     assert out.count("index is a whole number") == 2 and "write `do: [{tap: ...}]`" in out
-    assert "write `see: ...`" in out and "non-empty text" in out and "not True" in out
+    assert "write `see: ...`" in out and "non-empty text" in out and "True is not a text" in out
     # import: launch/stop arguments are kept or listed, never guessed
     f = tmp_path / "f.yaml"
     f.write_text("appId: com.android.settings\n---\n- launchApp\n- tapOn: Hi\n- launchApp: {clearState: true}\n"
@@ -189,7 +189,7 @@ def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_di
     for want in ("expect takes one text", "hook takes a name or a map", "input takes one text",
                  "stop takes no value", "empty regex", "type takes a non-empty text"):
         assert want in out, want
-    assert "odd.yaml:9" not in out  # a number is fine as input
+    assert "odd.yaml:9: input takes one text, not 1234; quote it" in out  # YAML made it a number
 
 
 def test_validate_reports_bad_start_kinds_screens_and_every_step_error(pack_dir, capsys):
@@ -394,12 +394,12 @@ def test_broken_pack_files_are_fail_lines(pack_dir, capsys):
     pf = pack_dir / "pack.yaml"
     keep = pf.read_text()
     pf.write_text("name: x\napp: [\n")
-    assert cli(pack_dir, "validate") == 2 and "not valid YAML" in capsys.readouterr().err
+    assert cli(pack_dir, "validate") == 1 and "FAIL" in (o := capsys.readouterr().out) and "not valid YAML" in o
     for bad in ("events: {check: 5}", "events: {check: hooks/x.sh}", "hooks: {h: hooks/h.sh}"):
         pf.write_text(keep + bad + "\n")
         assert cli(pack_dir, "validate") == 1 and "command list" in capsys.readouterr().out, bad
     pf.write_text(keep.replace("app: com.android.settings", "app: \"not a package!\""))
-    assert cli(pack_dir, "validate") == 2 and "Android package name" in capsys.readouterr().err
+    assert cli(pack_dir, "validate") == 1 and "FAIL" in (o := capsys.readouterr().out) and "Android package name" in o
 
 
 def test_deny_list_stems_and_dashes_and_two_key_steps(pack_dir, capsys):
@@ -473,3 +473,77 @@ def test_small_round_10_fixes(pack_dir, tmp_path, capsys):
     pf = pack_dir / "pack.yaml"
     pf.write_text(pf.read_text() + "app_packages: [\"\"]\n")
     assert cli(pack_dir, "validate") == 1 and "app_packages is a list of package names" in capsys.readouterr().out
+
+
+def test_yaml_values_that_are_not_text_must_be_quoted(pack_dir, capsys):
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "q.yaml").write_text("name: q\nsteps:\n  - do: [{tap: 12:30}]\n  - do: [{type: 0123}]\n  - see: 1_000\n"
+                              "  - do: [{tap: Yes}]\n  - input: 0123\n  - see: \"12:30\"\n  - do: [{type: \"0123\"}]\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert out.count("quote it") == 5 and "q.yaml:8" not in out and "q.yaml:9" not in out
+
+
+def test_tap_all_fails_when_the_app_does_not_start(pack_dir, tmp_path, capsys):
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text().replace("allowed: false", "allowed: true"))
+    app = tmp_path / "app.yaml"
+    app.write_text("app: com.android.settings\nstart: A\nscreens: {A: {elements: [{kind: Button, text: Go, to: CRASH}]}}\n")
+    from journeys.drivers.fake import FakeDriver
+    from journeys.explore import tap_all
+    from journeys.results import Store
+    driver = FakeDriver.from_file(app)
+    driver.do = lambda cmds: __import__("journeys.drivers.base", fromlist=["x"]).CommandResult(False, "no launcher activity")
+    store = Store(tmp_path / "s")
+    run = store.new_run()
+    with pytest.raises(Exception, match="did not start: no launcher activity"):
+        tap_all(Pack.load(pack_dir), driver, store, run)
+    assert run.data["status"] == "failed"
+
+
+def test_round_11_small_fixes(pack_dir, tmp_path, capsys, monkeypatch):
+    from journeys.drivers.base import Element
+    from journeys.drivers.fake import FakeDriver
+    from journeys.pack import DEFAULT_DENY
+    from journeys.results import Store
+    from journeys.runner import Runner
+    for text in ("Clear history", "Clear all", "Place order", "Order now", "Transfer", "Withdraw", "Donate",
+                 "Discard", "Empty trash", "Format SD card", "Top up", "Add money"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    fa = pack_dir / "fake" / "app.yaml"
+    keep = fa.read_text()
+    for bad in (keep.replace("start: HOME", "start: [HOME]"), keep.replace("to: DISPLAY", "to: [x]", 1)):
+        fa.write_text(bad)
+        assert cli(pack_dir, "validate") == 1
+        capsys.readouterr()
+    fa.write_text(keep)
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text() + "build: [\"./gradlew assemble\"]\n")
+    assert cli(pack_dir, "validate") == 1 and "command lists" in capsys.readouterr().out
+    pf.write_text(pf.read_text().replace("build: [\"./gradlew assemble\"]\n", ""))
+    # the typed secret is masked in the failure listing too, and messages use pack words
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "m.yaml").write_text("name: m\nsteps:\n  - goto: SETTINGS-SEARCH\n  - input: \"${DEMO_SEARCH}\"\n"
+                              "  - see: \"Wi-Fi (2)\"\n")
+    app = yaml.safe_load(keep)
+    driver = FakeDriver(app)
+    real = driver._one
+
+    def typed(cmd):  # the field shows what was typed, like a real phone
+        if isinstance(cmd, dict) and "inputText" in cmd:
+            driver.app["screens"][driver.stack[-1]]["elements"][0]["text"] = cmd["inputText"]
+        return real(cmd)
+    driver._one = typed
+    pack = Pack.load(pack_dir)
+    store = Store(tmp_path / "st")
+    out = Runner(pack, driver, store, store.new_run(), variables={"DEMO_SEARCH": "hunter22secret"}).run_all(
+        [pack.drafts["m"]])
+    f = store.failure(out[0].failure)
+    assert "hunter22secret" not in json_dump(f) and "Wi-Fi (2)" in f["message"] and "\\(" not in f["message"]
+
+
+def json_dump(obj):
+    import json
+    return json.dumps(obj)

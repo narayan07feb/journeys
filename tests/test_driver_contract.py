@@ -404,3 +404,16 @@ def test_an_empty_app_package_never_lets_input_out(tmp_path):
     phone.focus = "null"
     assert not d.do([{"pressKey": "Enter"}]).ok
     assert not [c for c in phone.shell_log if c.startswith("input")]
+
+
+def test_a_dead_adb_link_is_a_driver_error_on_input(tmp_path):
+    import subprocess
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R")
+    phone.app.do(["launchApp"])
+    real = phone.adb
+    d._adb = lambda *a, **k: (subprocess.CompletedProcess(a, 1, b"", b"error: device offline")
+                              if a[1:] == ("dumpsys", "window") else real(*a))
+    with pytest.raises(DriverError, match="device offline"):
+        d.do(["back"])
