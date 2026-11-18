@@ -39,7 +39,7 @@ def test_validation_errors(pack_dir):
 
 def test_variables_only_declared(pack_dir):
     (pack_dir / "pack.yaml").write_text(
-        "name: n\napp: a\nenv: [X]\naccounts:\n  main: {user: U_VAR}\n"
+        "name: n\napp: com.a\nenv: [X]\naccounts:\n  main: {user: U_VAR}\n"
     )
     p = Pack.load(pack_dir)
     v = p.variables({"X": "1", "U_VAR": "bob", "SECRET": "no"})

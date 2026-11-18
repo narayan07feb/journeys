@@ -79,13 +79,15 @@ def tap_targets(screen: Screen, deny: list, limit: int) -> list:
             if e.kind in TAPPABLE and e.text.strip() and not any(r.matches(e) for r in deny)][:limit]
 
 
-def left_app(driver: Driver, app: str) -> str | None:
-    """The other package on screen after a tap (a system screen, another app), else None."""
+def left_app(driver: Driver, app) -> str | None:
+    """The other package on screen after a tap (a system screen, another app), else None.
+    `app` is the pack's package, or a test of a package (Pack.owns: the app and its app_packages)."""
     fg = driver.foreground_app()
-    return fg if fg and fg != app else None
+    owns = app if callable(app) else (lambda pkg: pkg == app)
+    return fg if fg and not owns(fg) else None
 
 
-def explore(driver: Driver, amap: AppMap, app: str, deny: list, limit: int = 12) -> list[dict]:
+def explore(driver: Driver, amap: AppMap, app, deny: list, limit: int = 12) -> list[dict]:
     """Tap each allowed option on the current screen once, see where it leads, go back.
 
     Stops early when the app dies, leaves for another app, or `back` does not return."""

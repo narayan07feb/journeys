@@ -26,7 +26,10 @@ class AdbDriver(Driver):
         return path
 
     def app_alive(self) -> bool:
-        return self._adb("shell", "pidof", self.app).returncode == 0
+        p = self._adb("shell", "pidof", self.app)
+        if p.returncode != 0 and p.stderr.decode(errors="replace").lstrip().startswith("error:"):
+            raise DriverError(f"adb: {p.stderr.decode(errors='replace').strip()[:200]}")  # the link, not the app
+        return p.returncode == 0
 
     def foreground_app(self) -> str | None:
         return focused_package(self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace"))

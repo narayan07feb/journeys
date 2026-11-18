@@ -100,7 +100,7 @@ class AppMap:
         m = cls()
         sf, ef = map_dir / "screens.yaml", map_dir / "edges.yaml"
         if sf.exists():
-            screens = (yamlio.load(sf) or {}).get("screens") or {}
+            screens = yamlio.load_map(sf, m.errors).get("screens") or {}
             if not isinstance(screens, dict):
                 m.errors.append(f"{sf}: screens is a map of NAME: {{title, match}}")
                 screens = {}
@@ -122,7 +122,11 @@ class AppMap:
                 except (ValueError, AttributeError, TypeError, re.error) as e:
                     m.errors.append(f"{yamlio.where(sf, raw)}: screen {name}: {e}")
         if ef.exists():
-            for raw in (yamlio.load(ef) or {}).get("edges") or []:
+            edges = yamlio.load_map(ef, m.errors).get("edges") or []
+            if not isinstance(edges, list):
+                m.errors.append(f"{ef}: edges is a list of {{from, to, do}}")
+                edges = []
+            for raw in edges:
                 try:
                     do = yamlio.strip_lines(raw["do"])
                     if not (isinstance(raw["from"], str) and isinstance(raw["to"], str)):

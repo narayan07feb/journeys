@@ -54,7 +54,7 @@ def scan(project: Path, strict: bool = False) -> tuple[list[Found], str | None]:
             if _ESPRESSO.search(text):
                 found.setdefault("espresso", Found("espresso", rel))
             m = _APP_ID.search(text)
-            if m and not re.search(r"com\.android\.(library|test)|benchmark", text + rel, re.I):
+            if m and not re.search(r"com\.android\.(library|test)|androidx\.benchmark|android\.test\b", text):
                 ids.setdefault(m.group(1), rel)  # an app module, not a test, library or benchmark one
         elif f.suffix in (".yaml", ".yml"):
             try:

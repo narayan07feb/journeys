@@ -70,3 +70,12 @@ def test_several_app_modules_need_app(tmp_path):
     with pytest.raises(ValueError, match="several app ids.*com.acme.one.*com.acme.two"):
         init_pack(tmp_path / "p", proj, "p", None)
     init_pack(tmp_path / "q", proj, "q", "com.acme.two")
+
+
+def test_an_app_module_with_a_benchmark_build_type_still_counts(tmp_path):
+    proj = _project(tmp_path, {"app/build.gradle.kts": 'plugins { id("com.android.application") }\n'
+                                                       'applicationId = "com.example.shop"\n'
+                                                       'buildTypes { create("benchmark") { } }',
+                               "bench/build.gradle.kts": 'plugins { id("com.android.test"); id("androidx.benchmark") }\n'
+                                                         'applicationId = "com.example.bench"'})
+    assert scan(proj, strict=True)[1] == "com.example.shop"

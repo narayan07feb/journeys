@@ -102,7 +102,7 @@ class TapAll:
                 if not self._reach(here):
                     break
                 continue
-            other = left_app(self.driver, self.pack.app)
+            other = left_app(self.driver, self.pack.owns)
             if other:  # a system screen or another app: never walked; come back
                 self.report.left_app.append({"screen": here.key, "tap": tap, "package": other})
                 options.append({"tap": tap, "result": f"left the app for {other}"})

@@ -107,7 +107,10 @@ class UiAutomatorDriver(AdbDriver):
                               "uiautomator would break it, so it does not start")
 
     def look(self) -> Screen:
-        out = self._adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout.decode(errors="replace")
+        p = self._adb("exec-out", "uiautomator", "dump", "/dev/tty")
+        out = p.stdout.decode(errors="replace")
+        if p.returncode != 0 and not out.strip():
+            raise DriverError(f"uiautomator dump: {p.stderr.decode(errors='replace').strip()[-300:] or 'no output'}")
         if "</hierarchy>" not in out:  # some builds cannot dump to a tty: use our own file, then delete it
             f = "/data/local/tmp/journeys-window.xml"
             out = self._adb("exec-out", f"uiautomator dump {f} >/dev/null && cat {f}; rm -f {f}").stdout.decode(
@@ -121,7 +124,7 @@ class UiAutomatorDriver(AdbDriver):
         for cmd in commands:
             try:
                 res = self._one(cmd)
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError, KeyError) as e:
                 res = CommandResult(False, str(e))
             if not res.ok:
                 return res

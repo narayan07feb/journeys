@@ -108,7 +108,7 @@ class Runner:
                 fg = self.driver.foreground_app()
             except DriverError:
                 fg = None
-            if fg not in (None, self.pack.app) and "permissioncontroller" not in fg:
+            if fg is not None and not self.pack.owns(fg):
                 raise StepFailed(f"not_see {arg}: {self.pack.app} is not on screen ({fg} is), so it proves nothing")
         elif step.kind == "do":
             self._do(to_commands(arg))
@@ -264,7 +264,7 @@ class Runner:
             return
         if not self.pack.tap_allowed:
             return
-        options = explore(self.driver, self.pack.map, self.pack.app, self.pack.deny)
+        options = explore(self.driver, self.pack.map, self.pack.owns, self.pack.deny)
         failure = self.store.update_failure(fid, options=options)
         target = step.arg if step.kind in ("expect", "goto") else None
         here = failure.get("screen")

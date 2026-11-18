@@ -378,3 +378,17 @@ def test_uiautomator_app_packages_and_the_first_focus_line(tmp_path):
 def subprocess_done(out):
     import subprocess
     return subprocess.CompletedProcess([], 0, out, b"")
+
+
+def test_adb_errors_are_driver_errors_not_crashes_or_empty(tmp_path):
+    import subprocess
+    d = hooked("uiautomator", Phone(APP), tmp_path)
+    d.app = "com.example.app"
+    d._adb = lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"error: device offline")
+    with pytest.raises(DriverError, match="device offline"):
+        d.look()
+    with pytest.raises(DriverError, match="device offline"):
+        d.app_alive()
+    d2 = hooked("uiautomator", Phone(APP), tmp_path)
+    d2.start("com.example.app", "R")
+    assert not d2.do([{"scrollUntilVisible": {}}]).ok

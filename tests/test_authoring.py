@@ -365,3 +365,51 @@ def test_draft_hint_list_drafts_and_odd_selectors(pack_dir, capsys):
     assert find(s.elements, {}) is None and find(s.elements, {"point": "5,5"}) is None
     with pytest.raises(Exception, match="1 to 1000"):
         to_commands([{"erase": 5000}])
+
+
+def test_app_packages_count_as_the_app_for_not_see_and_tap_all(pack_dir):
+    from journeys.drivers.fake import FakeDriver
+    from journeys.heal import left_app
+    from journeys.results import Store
+    from journeys.runner import Runner
+    app = yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text())
+    app["screens"]["SEARCH"]["package"] = "com.android.settings.intelligence"
+    driver = FakeDriver(app)
+    pack = Pack.load(pack_dir)
+    store = Store(pack_dir / "s")
+    out = Runner(pack, driver, store, store.new_run(), variables={"DEMO_SEARCH": "wifi"}).run_all(
+        [pack.journeys["search-settings"]])
+    assert out[0].status == "passed", out[0].message
+    assert left_app(driver, pack.owns) is None and left_app(driver, pack.app) == "com.android.settings.intelligence"
+
+
+def test_broken_pack_files_are_fail_lines(pack_dir, capsys):
+    (pack_dir / "map" / "screens.yaml").write_text("screens: [\n")
+    (pack_dir / "map" / "edges.yaml").write_text("- a\n")
+    (pack_dir / "sets.yaml").write_text("sets: {a: [\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert "screens.yaml:2: not valid YAML" in out and "edges.yaml:1: the file is a map" in out
+    assert "sets.yaml" in out and "not valid YAML" in out
+    pf = pack_dir / "pack.yaml"
+    keep = pf.read_text()
+    pf.write_text("name: x\napp: [\n")
+    assert cli(pack_dir, "validate") == 2 and "not valid YAML" in capsys.readouterr().err
+    for bad in ("events: {check: 5}", "events: {check: hooks/x.sh}", "hooks: {h: hooks/h.sh}"):
+        pf.write_text(keep + bad + "\n")
+        assert cli(pack_dir, "validate") == 1 and "command list" in capsys.readouterr().out, bad
+    pf.write_text(keep.replace("app: com.android.settings", "app: \"not a package!\""))
+    assert cli(pack_dir, "validate") == 2 and "Android package name" in capsys.readouterr().err
+
+
+def test_deny_list_stems_and_dashes_and_two_key_steps(pack_dir, capsys):
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Wi‑Fi", "Wi–Fi", "Payments", "Subscriptions", "Force stop", "Disconnect", "Deleted items"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    for text in ("Display", "Dark theme", "About phone", "Calendar"):
+        assert not any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "two.yaml").write_text("name: two\nsteps:\n  - {expect: SETTINGS-HOME, see: foo}\n")
+    assert cli(pack_dir, "validate") == 1 and "one step, one key" in capsys.readouterr().out

@@ -15,9 +15,11 @@ from .journey import Journey, load_journeys
 # Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
 # that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
 DEFAULT_DENY = [Rule(text=t) for t in (
-    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (data|storage|cache))\b/",
-    r"/(?i)\b(wi-?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging|developer options)\b/",
-    r"/(?i)\b(sign ?out|log ?out|pay|buy|purchase|subscribe|send|call|share|rate us|report)\b/",
+    # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too
+    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (data|storage|cache)|force stop|deactivat)/",
+    r"/(?i)\b(wi[-\u2010-\u2015 ]?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging"
+    r"|developer options|disconnect)/",
+    r"/(?i)\b(sign ?out|log ?out|pay|buy|purchase|subscri|send|call|share|rate us|report)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
@@ -68,9 +70,14 @@ class Pack:
         pf = root / "pack.yaml"
         if not pf.exists():
             raise PackError(f"{pf} not found: a pack folder needs pack.yaml")
-        raw = yamlio.strip_lines(yamlio.load(pf) or {})
+        load_errors: list[str] = []
+        raw = yamlio.strip_lines(yamlio.load_map(pf, load_errors))
+        if load_errors:
+            raise PackError(load_errors[0])
         if not raw.get("name") or not raw.get("app"):
             raise PackError(f"{pf}: name and app are required")
+        if not isinstance(raw["app"], str) or not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", raw["app"]):
+            raise PackError(f"{pf}: app is an Android package name like com.example.app, not {raw['app']!r}")
         errors: list[str] = []
 
         def shaped(key, typ, what):
@@ -86,6 +93,13 @@ class Pack:
                 errors.append(f"{pf}: accounts.{acc} is a map of field: ENV_VAR, not {fields!r}")
                 del accounts[acc]
         events = shaped("events", dict, "a map with check: [command]")
+        check = events.get("check")
+        if check is not None and not (isinstance(check, list) and check and all(isinstance(a, str) for a in check)):
+            errors.append(f"{pf}: events.check is a command list like [hooks/check.sh], not {check!r}")
+            events = {}
+        for name, argv in (raw.get("hooks") or {}).items() if isinstance(raw.get("hooks"), dict) else []:
+            if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
+                errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "uiautomator")),
             shaped("build", list, "a list of commands"), shaped("install", list, "a list of commands"),
@@ -120,7 +134,7 @@ class Pack:
                         into[j.name] = j
         sf = root / "sets.yaml"
         if sf.exists():
-            p.sets = yamlio.strip_lines((yamlio.load(sf) or {}).get("sets") or {})
+            p.sets = yamlio.strip_lines(yamlio.load_map(sf, p.errors).get("sets") or {})
             if not isinstance(p.sets, dict):
                 p.errors.append(f"{sf}: sets is a map of set names, not {type(p.sets).__name__}")
                 p.sets = {}
@@ -172,9 +186,6 @@ class Pack:
                         self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
-        for name, argv in self.hooks.items():
-            if not isinstance(argv, list) or not argv:
-                self.errors.append(f"pack.yaml: hook {name} must be a command list")
         for name, spec in self.sets.items():
             if name == "all":
                 self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
@@ -188,6 +199,10 @@ class Pack:
                     self.errors.append(f"sets.yaml: set {name} names unknown journey {jn}")
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
+
+    def owns(self, package: str) -> bool:
+        """The pack's app on screen: its package, its app_packages, or Android's permission dialog."""
+        return package == self.app or package in self.app_packages or package.endswith(".permissioncontroller")
 
     def run_errors(self, draft: str | None = None) -> list[str]:
         """Errors that stop a run: all but other drafts' (an unfinished draft never stops a set)."""

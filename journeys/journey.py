@@ -71,6 +71,8 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
                     else:
                         hint = f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)"
                 at = yamlio.where(path, s) if isinstance(s, dict) else f"{yamlio.where(path, item)} step {n}"
+                if len(body) > 1:
+                    hint = f" (this step has {len(body)} keys: {', '.join(map(str, body))}; one step, one key)"
                 errors.append(f"{at}: a step is one of {', '.join(KINDS)}{hint}")
                 continue  # the journey still loads, so its other steps are checked too (its file has errors)
             kind, arg = next(iter(body.items()))
