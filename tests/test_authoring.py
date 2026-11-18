@@ -1,3 +1,4 @@
+import pytest
 import yaml
 
 from journeys.cli import main
@@ -152,3 +153,40 @@ def test_journeys_differing_only_in_start_are_not_duplicates(pack_dir):
     (d / "fresh.yaml").write_text((pack_dir / "journeys" / "display.yaml").read_text()
                                   .replace("open-display", "fresh").replace("tags:", "start: {clear_state: true}\ntags:"))
     promote_journey(Pack.load(pack_dir), "fresh")
+
+
+def test_review_round_3_fixes(pack_dir, tmp_path, capsys):
+    from journeys.detect import init_pack
+    from journeys.heal import apply
+    # a pack made by init takes promoted proposals without breaking its YAML
+    new = tmp_path / "newpack"
+    init_pack(new, None, "pk", "com.example.app")
+    (new / "map" / "screens.yaml").write_text("screens:\n  A:\n    match: {all: [{text: A}]}\n")
+    (new / "map" / "edges.yaml").write_text("edges: []\n")  # a hand-written empty list
+    apply(Pack.load(new), {"kind": "new-screen", "name": "B", "match": {"all": [{"text": "B"}]},
+                           "edges": [{"from": "A", "to": "B", "do": [{"tapOn": "Go"}]}]})  # an old-style proposal
+    p = Pack.load(new)
+    assert p.errors == [] and p.map.edges[0].do == [{"tap": "Go"}]
+    with pytest.raises(ValueError, match="not an Android package"):
+        init_pack(tmp_path / "bad", None, "x", "x y")
+    # import lists what it cannot carry over, and survives files it cannot read
+    fl = tmp_path / "fl"
+    fl.mkdir()
+    (fl / "vars.yaml").write_text("appId: com.android.settings\n---\n- tapOn: \"${NAME}\"\n- inputText: ${X}\n"
+                                  "- tapOn: {id: \"btn_.*\"}\n- inputText:\n- tapOn: \"{{who}}\"\n- tapOn: Ok\n")
+    (fl / "latin1.yaml").write_bytes(b"appId: a\n---\n- tapOn: caf\xe9\n")
+    assert cli(pack_dir, "import", "maestro", str(fl), str(tmp_path / "missing.yaml")) == 0
+    out = capsys.readouterr().out
+    assert out.count("Maestro variable") == 3 and "is a pattern" in out and "not a plain text" in out
+    assert "SKIP" in out and "latin1.yaml" in out and "missing.yaml" in out
+    assert yaml.safe_load((pack_dir / "drafts" / "vars.yaml").read_text())["steps"] == [{"do": [{"tap": "Ok"}]}]
+    # validate reports odd step values instead of crashing
+    (pack_dir / "drafts" / "odd.yaml").write_text(
+        "name: odd\nsteps:\n  - expect: [a]\n  - hook: 5\n  - input:\n  - do: [{stop: 1}]\n  - see: \"//\"\n"
+        "  - do: [{type: [1]}]\n  - input: 1234\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    for want in ("expect takes one text", "hook takes a name or a map", "input takes one text",
+                 "stop takes no value", "empty regex", "type takes a non-empty text"):
+        assert want in out, want
+    assert "odd.yaml:9" not in out  # a number is fine as input

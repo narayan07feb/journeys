@@ -87,10 +87,27 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     return f"# Exported from Journeys journey {j.name} (pack {pack.name}).\nappId: {pack.app}\n---\n{body}", notes
 
 
+_FLOW_VAR = re.compile(r"\$\{|\{\{")
+_REGEX_CHARS = re.compile(r"[.^$*+?{}\[\]\\|()]")
+
+
+def _plain(value, what: str) -> str:
+    """Text from a flow, refused when it holds a Maestro variable (${X}, {{X}}) we cannot resolve."""
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool) or str(value) == "":
+        raise ActionError(f"{what} {value!r} is not a plain text")
+    if _FLOW_VAR.search(str(value)):
+        raise ActionError(f"{what} {value!r} uses a Maestro variable; write it with the pack's ${{NAME}} by hand")
+    return str(value)
+
+
 def _neutral_sel(arg):
     if isinstance(arg, str):
-        return from_selector(arg)
+        return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
+        if "text" in arg:
+            _plain(arg["text"], "selector text")
+        if "id" in arg and _REGEX_CHARS.search(_plain(arg["id"], "id")):
+            raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
         return from_selector(arg)
     raise ActionError(f"selector {arg!r} has keys with no neutral form")
 
@@ -140,7 +157,7 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
             elif name == "tapOn":
                 actions.append({"tap": _neutral_sel(arg)})
             elif name == "inputText":
-                actions.append({"type": str(arg)})
+                actions.append({"type": _plain(arg, "inputText")})
             elif name == "eraseText":
                 n = arg.get("charactersToErase", 50) if isinstance(arg, dict) else (arg or 50)
                 actions.append({"erase": int(n)})

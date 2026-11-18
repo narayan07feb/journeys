@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from . import yamlio
-from .actions import escape
+from .actions import ActionError, escape, from_commands, to_commands
 from .appmap import AppMap
 from .drivers.base import Driver, DriverError, Screen
 from .pack import Pack
@@ -123,7 +123,8 @@ def _append(path: Path, top_key: str, items) -> None:
     """Append entries under the file's top key (the key must be the file's last block)."""
     if not path.exists() or not path.read_text().strip():
         path.write_text(f"{top_key}:\n")
-    text = path.read_text()
+    # an empty inline value ("edges: []", "screens: {}") cannot take block items after it
+    text = re.sub(rf"(?m)^{top_key}:\s*(\[\s*\]|\{{\s*\}})\s*$", f"{top_key}:", path.read_text())
     body = yaml.safe_dump(items, sort_keys=False, allow_unicode=True, default_flow_style=False)
     body = "".join(f"  {ln}\n" for ln in body.splitlines())
     path.write_text(text.rstrip("\n") + "\n" + body)
@@ -134,6 +135,15 @@ def _edge_line(pack: Pack, src: str, dst: str) -> int:
         if raw.get("from") == src and raw.get("to") == dst:
             return raw[yamlio.LINE]
     raise PromoteError(f"no edge {src} -> {dst} in edges.yaml any more")
+
+
+def _neutral(do: list) -> list:
+    """Proposals saved by older versions hold framework commands ({tapOn: ...}): write neutral words."""
+    try:
+        to_commands(do)
+        return do
+    except ActionError:
+        return from_commands(do)
 
 
 def apply(pack: Pack, change: dict) -> str:
@@ -153,14 +163,14 @@ def apply(pack: Pack, change: dict) -> str:
                 return f"edge {change['src']} -> {change['old']} now goes to {change['new']}"
         raise PromoteError(f"could not find `to: {change['old']}` near {edges_file}:{start}")
     if kind == "new-edge":
-        _append(edges_file, "edges", [{"from": change["src"], "to": change["dst"], "do": change["do"]}])
+        _append(edges_file, "edges", [{"from": change["src"], "to": change["dst"], "do": _neutral(change["do"])}])
         return f"edge {change['src']} -> {change['dst']} added"
     if kind == "new-screen":
         if change["name"] in pack.map.screens:
             raise PromoteError(f"screen {change['name']} already exists: rename it in the proposal")
         _append(screens_file, "screens", {change["name"]: {"match": change["match"]}})
         if change.get("edges"):
-            _append(edges_file, "edges", change["edges"])
+            _append(edges_file, "edges", [{**e, "do": _neutral(e["do"])} for e in change["edges"]])
         return f"screen {change['name']} added with {len(change.get('edges') or [])} edges"
     raise PromoteError(f"unknown proposal kind {kind}")
 

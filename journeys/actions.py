@@ -44,6 +44,8 @@ def _text(t) -> str:
         raise ActionError(f"selector text must be a non-empty text, not {t!r}")
     t = str(t)
     if len(t) > 1 and t.startswith("/") and t.endswith("/"):
+        if len(t) == 2:
+            raise ActionError("an empty regex // matches only empty text: write the text you want")
         try:
             re.compile(t[1:-1])
         except re.error as e:
@@ -92,6 +94,8 @@ def to_command(action):
     if word == "tap":
         return {"tapOn": to_selector(arg)}
     if word == "type":
+        if not isinstance(arg, (str, int, float)) or isinstance(arg, bool) or str(arg) == "":
+            raise ActionError(f"type takes a non-empty text, not {arg!r}")
         return {"inputText": str(arg)}
     if word == "erase":
         if not isinstance(arg, int) or arg < 1:
@@ -117,6 +121,8 @@ def to_command(action):
         if not isinstance(arg, dict) or set(arg) - {"clear_state"}:
             raise ActionError(f"launch takes {{clear_state: true}}, not {arg!r}")
         return {"launchApp": {"clearState": True}} if arg.get("clear_state") else "launchApp"
+    if word in BARE:
+        raise ActionError(f"{word} takes no value: write it as a bare word, `{word}`")
     raise ActionError(_unknown(word))
 
 

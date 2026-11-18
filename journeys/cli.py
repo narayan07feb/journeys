@@ -337,7 +337,7 @@ def cmd_import(args) -> int:
             continue  # Maestro's workspace config, not a flow
         try:
             draft, notes = import_flow(f, pack.app)
-        except (ActionError, yaml.YAMLError) as e:
+        except (ActionError, yaml.YAMLError, OSError, UnicodeDecodeError) as e:
             print(f"SKIP {f}: {e}")
             continue
         dest = pack.root / "drafts" / f"{draft['name']}.yaml"

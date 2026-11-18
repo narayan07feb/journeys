@@ -99,6 +99,14 @@ class Pack:
             here = None  # the screen the journey is on, as far as the file says
             for s in j.steps:
                 at = f"{j.file}:{s.line}"
+                if (s.kind in ("expect", "goto") and not isinstance(s.arg, str)) or (
+                        s.kind == "input" and (not isinstance(s.arg, (str, int)) or isinstance(s.arg, bool) or s.arg == "")):
+                    self.errors.append(f"{at}: {s.kind} takes one text, not {s.arg!r}")
+                    here = None
+                    continue
+                if s.kind in ("hook", "event") and not isinstance(s.arg, (str, dict)):
+                    self.errors.append(f"{at}: {s.kind} takes a name or a map, not {s.arg!r}")
+                    continue
                 if s.kind in ("expect", "goto") and s.arg not in self.map.screens:
                     self.errors.append(f"{at}: {s.kind} names unknown screen {s.arg}")
                     here = None

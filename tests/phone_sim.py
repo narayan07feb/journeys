@@ -20,17 +20,20 @@ def _done(out: bytes | str = b"", rc: int = 0) -> subprocess.CompletedProcess:
 
 
 class Phone:
-    def __init__(self, app: dict, busy: str = "", ps_works: bool = True):
+    def __init__(self, app: dict, busy: str = "", ps_works: bool = True, page: int | None = None):
         self.app = FakeDriver(app)
         self.pkg = app["app"]
         self.busy = busy          # a process name `ps` shows, e.g. dev.mobile.maestro
         self.ps_works = ps_works
         self.shell_log: list[str] = []
         self.typed: list[str] = []
+        self.page, self.offset = page, 0   # page: rows on screen at once (None: all); a swipe moves one row
+        self.focus: str | None = None      # a window other than the app's, e.g. a dialog
 
     # what the phone shows
     def _elements(self):
-        return self.app.look().elements
+        els = self.app.look().elements
+        return els if self.page is None else els[self.offset:self.offset + self.page]
 
     def dump_xml(self) -> str:
         nodes = "".join(
@@ -65,7 +68,7 @@ class Phone:
             return _done(b"123\n" if self.app.alive else b"", 0 if self.app.alive else 1)
         if cmd == "dumpsys window":
             fg = self.app.foreground_app()
-            return _done(f"  mCurrentFocus=Window{{1a u0 {fg}/{fg}.Main}}\n")
+            return _done(f"  mCurrentFocus=Window{{1a u0 {self.focus or f'{fg}/{fg}.Main'}}}\n")
         if cmd.startswith("getprop"):
             return _done(b"")
         if cmd == "wm size":
@@ -80,7 +83,8 @@ class Phone:
             return _done()
         if cmd.startswith("input tap"):
             x, y = map(int, cmd.split()[2:4])
-            self.app.do([{"tapOn": f"@{y // ROW + 1}"}])
+            self.app.do([{"tapOn": f"@{self.offset + y // ROW + 1}"}])
+            self.offset = 0
             return _done()
         if cmd.startswith("input keyevent"):
             if cmd.split()[2] == "4":
@@ -89,7 +93,14 @@ class Phone:
         if cmd.startswith("input text"):
             self.typed.append(cmd[len("input text "):])
             return _done()
-        if cmd.startswith(("input swipe", "pm clear", "dumpsys input_method")):
+        if cmd.startswith("input swipe") and self.page is None:
+            return _done()  # everything is on screen: nothing moves
+        if cmd.startswith("input swipe"):
+            y1, y2 = int(cmd.split()[3]), int(cmd.split()[5])
+            last = max(len(self.app.look().elements) - (self.page or 0), 0)
+            self.offset = min(self.offset + 1, last) if y1 > y2 else max(self.offset - 1, 0)
+            return _done()
+        if cmd.startswith(("pm clear", "dumpsys input_method")):
             return _done()
         return _done(f"unknown: {cmd}", 1)
 

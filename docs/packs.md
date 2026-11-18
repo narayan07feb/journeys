@@ -36,6 +36,8 @@ build:   [[./gradlew, assembleDebug]]
 install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-debug.apk]]
 devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
+                                    # --dka needs a driver that can change a setting (speedrun, fake);
+                                    # uiautomator and maestro refuse it.
                                     # Elsewhere --dka is refused, and Speedrun does not start when it
                                     # would change the phone (Android 13+, other agent builds, a Maestro driver)
   animations: normal                # speedrun driver only: --animations normal leaves the scales at 1

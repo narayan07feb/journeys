@@ -105,7 +105,8 @@ steps:                         # required; each step is ONE of:
 
 - A file holds one journey (a map) or a list of journeys. A draft file holds one.
 - `goto` checks the screen it reaches: no `expect` is needed after it.
-- `goto` needs the screen before it known: put an `expect` (or another `goto`) first.
+- `goto` finds its path from the screen the app is on when it runs. Put an `expect` (or another
+  `goto`) before it so `validate` can check that a path exists.
 - `see` and `not_see` check the current screen, whatever it is; they wait a moment for the element.
 - After `do`, `input` or `hook` the screen is unknown again until the next `expect`/`goto`.
 - `${NAME}` works in any step text for names declared in `env:` or `accounts:`.

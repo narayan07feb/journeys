@@ -145,3 +145,90 @@ def test_uiautomator_taps_only_in_the_pack_app_and_survives_odd_output(tmp_path)
     d2 = hooked("uiautomator", Phone(APP), tmp_path)
     d2._adb = lambda *a, **k: subprocess.CompletedProcess(a, 0, b"", b"")
     assert d2._screen_size() == (1080, 1920)
+
+
+LONG = {"app": "com.example.app", "start": "LIST", "screens": {"LIST": {"elements": [
+    {"kind": "Button", "text": f"Row {i}", **({"to": "END"} if i == 7 else {})} for i in range(10)]},
+    "END": {"elements": [{"kind": "Text", "text": "Row 7 opened"}]}}}
+
+
+@pytest.mark.parametrize("kind", ["uiautomator"])
+def test_scroll_until_visible_scrolls_and_stops_at_the_end(kind, tmp_path):
+    phone = Phone(LONG, page=3)
+    d = hooked(kind, phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    assert d.do(["launchApp", {"scrollUntilVisible": {"element": "Row 7", "direction": "DOWN"}}]).ok
+    assert "Row 7" in texts(d) and "Row 0" not in texts(d)
+    assert d.do([{"tapOn": "Row 7"}]).ok and "Row 7 opened" in texts(d)
+    assert d.do(["back"]).ok
+    swipes = sum(c.startswith("input swipe") for c in phone.shell_log)
+    res = d.do([{"scrollUntilVisible": {"element": "Row 99", "direction": "DOWN", "maxScrolls": 50}}])
+    assert not res.ok and sum(c.startswith("input swipe") for c in phone.shell_log) - swipes < 15  # stops at the end
+
+
+def test_uiautomator_waits_and_retries_a_bad_dump(tmp_path):
+    from journeys.drivers.uiautomator import UiAutomatorDriver
+    phone = Phone(APP)
+    t = [0.0]
+    d = UiAutomatorDriver(wait_s=2, poll_s=0.5, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    calls = {"n": 0}
+
+    def adb(*args, timeout=60):
+        if args[:2] == ("exec-out", "uiautomator"):
+            calls["n"] += 1
+            if calls["n"] <= 3:  # two bad dumps (tty + file fallback each) then a good one
+                return phone.adb("shell", "nonsense")
+        return phone.adb(*args)
+    d._adb = adb
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    assert d.do([{"assertVisible": "Welcome"}]).ok and t[0] > 0
+    t[0] = 0
+    assert not d.do([{"assertVisible": "Never"}]).ok and t[0] >= 2  # waited the full wait_s
+
+
+@pytest.mark.parametrize("cmd", [{"tapOn": "Next"}, "back", {"pressKey": "Enter"}, {"inputText": "hunter2"},
+                                 {"eraseText": 3}, "scroll", "hideKeyboard",
+                                 {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
+def test_uiautomator_sends_no_input_to_another_window(cmd, tmp_path):
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    phone.focus = "com.other.app/.Dialog"
+    res = d.do([cmd])
+    assert not res.ok and "com.other.app" in res.message
+    assert not [c for c in phone.shell_log if c.startswith("input")]
+    phone.focus = "com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity"
+    assert d.do([{"pressKey": "Enter"}]).ok  # the permission-grant dialog may take input
+    phone.focus = "com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.ManagePermissionsActivity"
+    assert not d.do([{"pressKey": "Enter"}]).ok  # other permission screens may not
+
+
+def test_uiautomator_shell_commands_are_an_allowlist(tmp_path):
+    import re
+    phone = Phone(LONG, page=3)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    d.do(["launchApp", {"launchApp": {"clearState": True}}, {"scrollUntilVisible": {"element": "Row 7"}},
+          {"tapOn": "Row 7"}, "back", {"pressKey": "Enter"}, {"inputText": "a b"}, {"eraseText": 2}, "hideKeyboard",
+          "scroll", "stopApp"])
+    d.app_alive(), d.foreground_app(), d.is_emulator()
+    allowed = re.compile(r"(ps -A -o NAME|dumpsys (window|input_method)|wm size|pidof com\.example\.app|"
+                         r"getprop ro\.kernel\.qemu|cmd package resolve-activity --brief -c "
+                         r"android\.intent\.category\.LAUNCHER com\.example\.app|am start -W -n \S+|"
+                         r"am force-stop com\.example\.app|pm clear com\.example\.app|input (tap|swipe|keyevent|text) .*)")
+    assert [c for c in phone.shell_log if not allowed.fullmatch(c)] == []
+    assert any(c.startswith("pm clear") for c in phone.shell_log)
+
+
+def test_uiautomator_refuses_next_to_espresso_and_parses_control_chars(tmp_path):
+    from journeys.drivers.uiautomator import parse_dump
+    with pytest.raises(DriverError, match="another UI test driver"):
+        hooked("uiautomator", Phone(APP, busy="com.shop.test\n"), tmp_path).start("com.example.app", "R58M")
+    p = Phone(APP)
+    p.app.do(["launchApp"])
+    xml = p.dump_xml().replace('text="Welcome"', 'text="Wel&#1;come"')
+    assert "Welcome" in [e.text for e in parse_dump(xml)[0].elements]
+    with pytest.raises(DriverError, match="not valid XML"):
+        parse_dump("<hierarchy><node></hierarchy>")

@@ -2,8 +2,8 @@
 `input` to tap, type, swipe and press keys, `am` to start and stop the pack's app.
 
 It installs nothing and writes no device setting. The only file it writes and deletes is its own
-/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It taps only in the
-pack's app (and the system permission dialog). It types plain ASCII only. It does not start when another
+/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It sends input (taps,
+keys, text, swipes) only while the pack's app (or Android's permission-grant dialog) has the focus. It types plain ASCII only. It does not start when another
 UI test driver (Maestro, Speedrun, an instrumentation) already runs on the device: two UiAutomation
 users on one device break each other.
 """
@@ -20,8 +20,18 @@ from .base import CommandResult, DriverError, Element, Screen, command_name, fin
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _KEYS = {"back": 4, "home": 3, "enter": 66, "tab": 61, "backspace": 67, "delete": 67, "search": 84}
 _NO_OP = {"waitForAnimationToEnd"}
-TAP_ALSO = ("com.android.permissioncontroller", "com.google.android.permissioncontroller")  # permission dialogs
-OTHER_DRIVERS = "maestro|uiautomator|speedrun|instrument"
+PERMISSION_DIALOG = re.compile(r"(com\.android|com\.google\.android)\.permissioncontroller/\S*GrantPermissionsActivity")
+OTHER_DRIVERS = r"maestro|uiautomator|speedrun|instrument|orchestrator|\.test$"
+_FOCUS = re.compile(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)")
+
+
+_CHAR_REF = re.compile(r"&#(x[0-9a-fA-F]+|[0-9]+);")
+
+
+def _bad_char(ref: str) -> bool:
+    """Control characters (&#1;) that apps put in texts are not XML 1.0: drop them before parsing."""
+    n = int(ref[1:], 16) if ref.startswith("x") else int(ref)
+    return n < 32 and n not in (9, 10, 13)
 
 
 def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
@@ -29,7 +39,11 @@ def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
     start, end = xml.find("<hierarchy"), xml.rfind("</hierarchy>")
     if start < 0 or end < 0:
         raise DriverError(f"uiautomator dump gave no screen: {xml.strip()[-200:]}")
-    root = ET.fromstring(xml[start:end + len("</hierarchy>")])
+    body = _CHAR_REF.sub(lambda m: "" if _bad_char(m.group(1)) else m.group(0), xml[start:end + 12])
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as e:
+        raise DriverError(f"uiautomator dump is not valid XML: {e}") from None
     elements: list[Element] = []
     centres: list[tuple[int, int]] = []
     for n in root.iter("node"):
@@ -60,7 +74,6 @@ class UiAutomatorDriver(AdbDriver):
         self.serial: str | None = None
         self.app = ""
         self._centres: list[tuple[int, int]] = []
-        self._package = ""
         self._size: tuple[int, int] | None = None
 
     def _sh(self, cmd: str) -> str:
@@ -91,7 +104,6 @@ class UiAutomatorDriver(AdbDriver):
             out = self._adb("exec-out", f"uiautomator dump {f} >/dev/null && cat {f}; rm -f {f}").stdout.decode(
                 errors="replace")
         screen, self._centres = parse_dump(out)
-        self._package = screen.header.split()[1].rstrip(",") if len(screen.header.split()) > 2 else ""
         return screen
 
     def do(self, commands: list) -> CommandResult:
@@ -112,9 +124,15 @@ class UiAutomatorDriver(AdbDriver):
         """Poll the screen until the selector is there (or gone); the index, or None."""
         end = self.clock() + self.wait_s
         while True:
-            i = find(self.look().elements, sel)
-            if (i is not None) == present or self.clock() >= end:
-                return i
+            try:
+                i = find(self.look().elements, sel)
+            except DriverError:
+                if self.clock() >= end:
+                    raise
+                i = None if present else 0  # a bad dump: not an answer, poll again
+            else:
+                if (i is not None) == present or self.clock() >= end:
+                    return i
             self.sleep(self.poll_s)
 
     def _screen_size(self) -> tuple[int, int]:
@@ -150,8 +168,24 @@ class UiAutomatorDriver(AdbDriver):
             self.sleep(self.poll_s)
         return CommandResult(True)
 
+    def _not_in_app(self, what: str) -> CommandResult | None:
+        """Input goes only to the pack's app (or Android's permission-grant dialog), never to
+        another app, a crash dialog or the launcher. Read-only check of the focused window."""
+        out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
+        m = _FOCUS.search(out)
+        window = m.group(1) if m else ""
+        if window.split("/")[0] == self.app or PERMISSION_DIALOG.fullmatch(window):
+            return None
+        return CommandResult(False, f"{what}: the focused window is {window or 'unknown'}, not {self.app}; "
+                                    "this driver sends input only to the pack's app")
+
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)
+        if name in ("back", "pressKey", "tapOn", "inputText", "eraseText", "hideKeyboard", "scroll",
+                    "scrollUntilVisible") and not (name == "pressKey" and str(arg).lower() == "home"):
+            refused = self._not_in_app(name)
+            if refused:
+                return refused
         if name == "launchApp":
             return self._launch(arg)
         if name == "stopApp":
@@ -167,9 +201,6 @@ class UiAutomatorDriver(AdbDriver):
             i = self._wait_for(arg)
             if i is None:
                 return CommandResult(False, f"Element not found: {arg}")
-            if self._package not in (self.app, *TAP_ALSO):
-                return CommandResult(False, f"tapOn {arg}: the screen shows {self._package or 'no app'}, not "
-                                            f"{self.app}; this driver taps only in the pack's app")
             w, h = self._screen_size()
             x, y = self._centres[i]
             self._sh(f"input tap {min(max(x, 1), w - 1)} {min(max(y, 1), h - 1)}")  # a row cut by the screen edge

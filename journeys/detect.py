@@ -89,6 +89,8 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
     app = app or app_id
     if not app:
         raise ValueError("no app id: pass --app <package> (none found in the project's Gradle files)")
+    if not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", app):
+        raise ValueError(f"{app!r} is not an Android package name (like com.example.app)")
     for sub in ("map", "journeys", "drafts"):
         (dest / sub).mkdir(parents=True, exist_ok=True)
     head = {"name": name, "app": app, "driver": driver}
@@ -96,8 +98,8 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
         head["project"] = os.path.relpath(project.resolve(), dest.resolve())
     (dest / "pack.yaml").write_text(f"# driver {driver}: {why}\n" + yaml.safe_dump(head, sort_keys=False)
                                     + "devices:\n  allow_settings_changes: emulator\n")
-    (dest / "map" / "screens.yaml").write_text("screens: {}\n")
-    (dest / "map" / "edges.yaml").write_text("edges: []\n")
-    (dest / "sets.yaml").write_text("sets: {}\n")
+    (dest / "map" / "screens.yaml").write_text("screens:\n")
+    (dest / "map" / "edges.yaml").write_text("edges:\n")
+    (dest / "sets.yaml").write_text("sets:\n")
     return [f"pack {name} for {app} in {dest}", f"driver {driver}: {why}",
             "next: add screens to map/screens.yaml, then `journeys new <name>` for a first draft journey"]
