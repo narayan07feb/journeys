@@ -21,6 +21,7 @@ screens:
     elements:
       - {kind: Button, text: "Device name, Android phone"}
       - {kind: Button, text: "Android version, 11"}
+      - {kind: Button, text: "Build number, RP1A.201005.004"}
   SEARCH:
     elements:
       - {kind: Field, text: "", id: search_src_text, state: [focused]}

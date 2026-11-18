@@ -24,9 +24,12 @@ Read `references/format.md` before you write a step. It has the exact format and
 5. Run `journeys --pack P validate` until it prints `OK`. Each FAIL names file:line and the fix.
 6. Run the draft: `journeys --pack P run <name> --draft --serial <adb serial>` (the pack's driver),
    or `--driver fake` when the pack has `fake/app.yaml`. A device run needs the user's device
-   serial; never pick a device yourself.
+   serial; never pick a device yourself. Results go to `--state <folder>` (default
+   `~/.local/state/journeys/<pack name>/`).
 7. If it fails: `journeys --pack P failures F-<n>` shows the screen, the step and (when taps are
-   allowed) where each option led. Fix the draft or the map, then run again.
+   allowed) where each option led. Fix the draft or the map, then run again. With `--driver fake`
+   the cause can also be the fake model: add the missing element to `fake/app.yaml` (format.md,
+   "Fake app").
 8. When it passes: `journeys --pack P promote-journey <name>`. It moves the draft to `journeys/`
    (it refuses errors and a journey with the same steps as another one).
 

@@ -104,7 +104,9 @@ steps:                         # required; each step is ONE of:
 ```
 
 - A file holds one journey (a map) or a list of journeys. A draft file holds one.
+- `goto` checks the screen it reaches: no `expect` is needed after it.
 - `goto` needs the screen before it known: put an `expect` (or another `goto`) first.
+- `see` and `not_see` check the current screen, whatever it is; they wait a moment for the element.
 - After `do`, `input` or `hook` the screen is unknown again until the next `expect`/`goto`.
 - `${NAME}` works in any step text for names declared in `env:` or `accounts:`.
 
@@ -117,6 +119,30 @@ sets:
 ```
 
 `journeys run smoke`, `journeys run all`. Drafts are never in a set or in `all`.
+
+## Fake app (fake/app.yaml, for --driver fake)
+
+A small model of the app, so journeys run without a device. Keep it in step with the real app.
+
+```yaml
+app: com.example.shop          # the pack's app
+start: HOME                    # the screen `launch` opens
+screens:
+  HOME:
+    package: com.example.shop  # optional: the app on screen (another package = left the app)
+    elements:                  # top to bottom
+      - {kind: Text, text: "Shop"}
+      - {kind: Button, text: "Cart, 2 items", id: cart, to: CART}   # a tap opens CART
+      - {kind: Field, text: "", id: search, state: [focused]}
+      - {kind: Button, text: "Crash me", to: CRASH}                 # a tap kills the app
+      - {kind: Button, text: "Skip", to: CART, replace: true}       # opens CART, closes this screen
+  CART:
+    back: HOME                 # optional: where back goes (default: the screen before)
+    elements: [{kind: Text, text: "Your cart"}]
+```
+
+`kind`: Text, Button, Field, Switch, CheckBox, Image, View. `state`: checked, selected, focused,
+disabled. Selectors match `text` and `id` as on a device.
 
 ## Commands
 
@@ -132,6 +158,9 @@ sets:
 | `journeys --pack P export maestro NAME [-o F]` | A journey as a Maestro flow. |
 | `journeys --pack NEW init --project APP [--app ID]` | A new pack; the driver follows the project's framework. |
 | `journeys --pack P doctor` | Tools, drivers and devices. |
+
+Global options go before the command: `--pack P` (or `$JOURNEYS_PACK`), `--state S` (results;
+default `~/.local/state/journeys/<pack name>/`, or `$JOURNEYS_STATE`).
 
 ## Worked example (the example pack: Android Settings)
 
@@ -151,8 +180,9 @@ ways. Goal: "Display shows the Dark theme option".
      - see: "/Dark theme.*/"
    ```
 
-   The row's label may hold more text ("Dark theme, Off"), so the selector is a regex for the
-   whole text.
+   The row's label may hold more text ("Dark theme, Off"): some drivers read a row's texts as one
+   label. The exact text `"Dark theme"` would not match it, so the selector is a regex for the whole
+   text. Use exact text only for an element that shows just that text (a button, a title).
 3. `journeys --pack examples/settings-pack validate` prints `OK pack settings-demo: ... 1 drafts ...`.
 4. `journeys --pack examples/settings-pack run dark-theme-shown --draft --driver fake` passes on the
    pack's fake app; on a device: `--serial <serial>` with the pack's driver.
