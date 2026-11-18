@@ -1,12 +1,15 @@
 """Drives a device with adb and the phone's own tools only: `uiautomator dump` to read the screen,
 `input` to tap, type, swipe and press keys, `am` to start and stop the pack's app.
 
-It installs nothing and writes no device setting. The only file it writes and deletes is its own
-/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It stops and starts only
-the pack's app; `launch` with clear_state runs `pm clear` on that app (its data only). It sends input (taps,
-keys, text, swipes) only while the pack's app (or Android's permission-grant dialog) has the focus. It types plain ASCII only. It does not start when another
-UI test driver (Maestro, Speedrun, an instrumentation) already runs on the device: two UiAutomation
-users on one device break each other.
+- It installs nothing and writes no device setting. The only file it writes and deletes is its own
+  /data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty.
+- It stops and starts only the pack's app; `launch` with clear_state runs `pm clear` on that app.
+- It sends input (taps, keys, text, swipes) only while the pack's app, its `app_packages`, or
+  Android's permission-grant dialog (for any app) has the focus, checked right before each send.
+- It types printable ASCII only.
+- It does not start when another UI test driver process (Maestro, Speedrun, a test or orchestrator
+  process) runs on the device: two UiAutomation users break each other. An instrumentation that
+  runs inside the app's own process is not visible to this check.
 """
 from __future__ import annotations
 
@@ -73,8 +76,10 @@ def parse_dump(xml: str, keep: tuple[str, ...] | None = None) -> tuple[Screen, l
 
 
 class UiAutomatorDriver(AdbDriver):
-    def __init__(self, wait_s: float = 5.0, poll_s: float = 0.4, sleep=time.sleep, clock=time.monotonic):
+    def __init__(self, wait_s: float = 5.0, poll_s: float = 0.4, sleep=time.sleep, clock=time.monotonic,
+                 app_packages: tuple[str, ...] = ()):
         self.wait_s, self.poll_s, self.sleep, self.clock = wait_s, poll_s, sleep, clock
+        self.app_packages = tuple(app_packages)  # other packages the pack's app shows screens in
         self.serial: str | None = None
         self.app = ""
         self._centres: list[tuple[int, int]] = []
@@ -107,7 +112,7 @@ class UiAutomatorDriver(AdbDriver):
             f = "/data/local/tmp/journeys-window.xml"
             out = self._adb("exec-out", f"uiautomator dump {f} >/dev/null && cat {f}; rm -f {f}").stdout.decode(
                 errors="replace")
-        screen, self._centres = parse_dump(out, keep=(self.app, *_PERMISSION_PKGS) if self.app else None)
+        screen, self._centres = parse_dump(out, keep=(self.app, *self.app_packages, *_PERMISSION_PKGS) if self.app else None)
         m = re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', out)  # the window, as rotated now
         self._size = (int(m.group(1)), int(m.group(2))) if m else self._size
         return screen
@@ -148,13 +153,14 @@ class UiAutomatorDriver(AdbDriver):
         end = self.clock() + self.wait_s
         while True:
             out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
-            w = None if "mCurrentFocus=null" in out else focused_window(out)
+            first = re.search(r"mCurrentFocus=(\S+)", out)  # the same first line focused_window reads
+            w = None if first and first.group(1) == "null" else focused_window(out)
             if w or self.clock() >= end:
                 return w or ""
             self.sleep(self.poll_s)
 
     def _ours(self, window: str) -> bool:
-        return window.split("/")[0] == self.app or bool(PERMISSION_DIALOG.fullmatch(window))
+        return window.split("/")[0] in (self.app, *self.app_packages) or bool(PERMISSION_DIALOG.fullmatch(window))
 
     def _input(self, cmd: str, what: str) -> CommandResult | None:
         """Send one `input ...` command, but only while the pack's app (or Android's permission-grant

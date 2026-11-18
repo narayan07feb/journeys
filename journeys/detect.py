@@ -34,12 +34,12 @@ def _files(root: Path, depth: int = 6):
             yield Path(dirpath) / f
 
 
-def scan(project: Path) -> tuple[list[Found], str | None]:
+def scan(project: Path, strict: bool = False) -> tuple[list[Found], str | None]:
     """Frameworks found (strongest first) and the app id from the Gradle build, if any."""
     if not project.is_dir():
         raise FileNotFoundError(f"project folder {project} not found")
     found: dict[str, Found] = {}
-    app_id = None
+    ids: dict[str, str] = {}  # applicationId -> the build file that sets it
     for f in _files(project):
         rel = f.relative_to(project.resolve()).as_posix()
         if ".maestro" in Path(rel).parts and f.suffix in (".yaml", ".yml"):
@@ -54,7 +54,8 @@ def scan(project: Path) -> tuple[list[Found], str | None]:
             if _ESPRESSO.search(text):
                 found.setdefault("espresso", Found("espresso", rel))
             m = _APP_ID.search(text)
-            app_id = app_id or (m.group(1) if m else None)
+            if m and not re.search(r"com\.android\.(library|test)|benchmark", text + rel, re.I):
+                ids.setdefault(m.group(1), rel)  # an app module, not a test, library or benchmark one
         elif f.suffix in (".yaml", ".yml"):
             try:
                 if f.stat().st_size > 200_000:
@@ -65,7 +66,12 @@ def scan(project: Path) -> tuple[list[Found], str | None]:
             if re.search(r"^appId:", head, re.M) and "\n---" in head:
                 found.setdefault("maestro", Found("maestro", rel))
     order = ["maestro", "appium", "espresso"]
-    return [found[k] for k in order if k in found], app_id
+    if len(ids) > 1 and not strict:
+        return [found[k] for k in order if k in found], None
+    if len(ids) > 1:
+        raise ValueError("several app ids in the project (" + ", ".join(f"{i} in {f}" for i, f in ids.items())
+                         + "): pass --app <package>")
+    return [found[k] for k in order if k in found], next(iter(ids), None)
 
 
 def pick(found: list[Found]) -> tuple[str, str]:
@@ -86,7 +92,7 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
     there = [str(f) for f in files if f.exists()]
     if there:
         raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
-    found, app_id = scan(project) if project else ([], None)
+    found, app_id = scan(project, strict=not app) if project else ([], None)
     driver, why = pick(found)
     app = app or app_id
     if not app:

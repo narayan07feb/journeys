@@ -49,10 +49,9 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
     tries: list = []
     if el.id:
         tries.append({"id": el.id})
-    if text.endswith("…"):
-        tries.append(lit(text[:-1].split(", ")[0]) + ".*")
-    elif ", " in text:
-        tries.append(lit(text.split(", ")[0]) + ".*")
+    prefix = text[:-1].split(", ")[0] if text.endswith("…") else text.split(", ")[0] if ", " in text else ""
+    if prefix.strip():  # never ".*" alone: it would match whatever is first
+        tries.append(lit(prefix) + ".*")
     if text:
         tries.append(lit(text))
         same = [i for i, e in enumerate(els) if e.text == text]

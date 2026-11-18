@@ -136,8 +136,8 @@ def find(elements: list[Element], sel) -> int | None:
         sel = sel["element"]
     if isinstance(sel, str):
         sel = {"text": sel}
-    if not isinstance(sel, dict):
-        return None
+    if not isinstance(sel, dict) or not ({"text", "id"} & set(sel)):
+        return None  # a selector names a text or an id; anything else matches nothing
     hits = [i for i, e in enumerate(elements)
             if ("id" not in sel or id_matches(str(sel["id"]), e.id))
             and ("text" not in sel or text_matches(str(sel["text"]), e.text))]

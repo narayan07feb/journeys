@@ -100,7 +100,11 @@ class AppMap:
         m = cls()
         sf, ef = map_dir / "screens.yaml", map_dir / "edges.yaml"
         if sf.exists():
-            for name, raw in ((yamlio.load(sf) or {}).get("screens") or {}).items():
+            screens = (yamlio.load(sf) or {}).get("screens") or {}
+            if not isinstance(screens, dict):
+                m.errors.append(f"{sf}: screens is a map of NAME: {{title, match}}")
+                screens = {}
+            for name, raw in screens.items():
                 if name == yamlio.LINE:
                     continue
                 try:

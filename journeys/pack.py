@@ -53,6 +53,7 @@ class Pack:
     events: list[str] | None = None
     devices: dict = field(default_factory=dict)
     project: Path | None = None   # the app's project folder, for framework detection
+    app_packages: list[str] = field(default_factory=list)  # other packages the app's screens run in
     tap_allowed: bool = True
     deny: list[Rule] = field(default_factory=lambda: list(DEFAULT_DENY))
     map: AppMap = field(default_factory=AppMap)
@@ -70,19 +71,33 @@ class Pack:
         raw = yamlio.strip_lines(yamlio.load(pf) or {})
         if not raw.get("name") or not raw.get("app"):
             raise PackError(f"{pf}: name and app are required")
+        errors: list[str] = []
+
+        def shaped(key, typ, what):
+            """A pack.yaml value of the right shape, or an error line and an empty one."""
+            value = raw.get(key) or typ()
+            if not isinstance(value, typ):
+                errors.append(f"{pf}: {key} is {what}, not {value!r}")
+                return typ()
+            return value
+        accounts = shaped("accounts", dict, "a map of account: {field: ENV_VAR}")
+        for acc, fields in list(accounts.items()):
+            if not isinstance(fields, dict) or not all(isinstance(v, str) for v in fields.values()):
+                errors.append(f"{pf}: accounts.{acc} is a map of field: ENV_VAR, not {fields!r}")
+                del accounts[acc]
+        events = shaped("events", dict, "a map with check: [command]")
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "uiautomator")),
-            list(raw.get("build") or []), list(raw.get("install") or []),
-            [str(n) for n in raw.get("env") or []], dict(raw.get("accounts") or {}),
-            dict(raw.get("hooks") or {}), (raw.get("events") or {}).get("check"),
-            raw.get("devices") or {},
+            shaped("build", list, "a list of commands"), shaped("install", list, "a list of commands"),
+            [str(n) for n in shaped("env", list, "a list of names")], accounts,
+            shaped("hooks", dict, "a map of name: [command]"), events.get("check"),
+            shaped("devices", dict, "a map"),
         )
+        p.app_packages = [str(x) for x in shaped("app_packages", list, "a list of package names")]
         if raw.get("project"):
             p.project = (root / str(raw["project"])).resolve()
-        if not isinstance(p.devices, dict):
-            p.errors.append(f"{pf}: devices is a map, not {p.devices!r}")
-            p.devices = {}
-        taps = raw.get("tap_all") or {}
+        taps = shaped("tap_all", dict, "a map with allowed and deny")
+        p.errors += errors
         p.tap_allowed = bool(taps.get("allowed", True))
         for r in taps.get("deny") or []:
             try:
@@ -153,7 +168,7 @@ class Pack:
                     self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
                     name = s.arg if isinstance(s.arg, str) else (s.arg or {}).get("name")
-                    if name not in self.hooks:
+                    if not isinstance(name, str) or name not in self.hooks:
                         self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
@@ -161,6 +176,8 @@ class Pack:
             if not isinstance(argv, list) or not argv:
                 self.errors.append(f"pack.yaml: hook {name} must be a command list")
         for name, spec in self.sets.items():
+            if name == "all":
+                self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
             if name in self.journeys:
                 self.errors.append(f"sets.yaml: set {name} has the same name as a journey")
             if not isinstance(spec, dict):
@@ -190,7 +207,8 @@ class Pack:
             return [self.journeys[target]]
         spec = self.sets.get(target)
         if not isinstance(spec, dict):
-            raise PackError(f"no journey or set named {target}")
+            hint = f" ({target} is a draft: add --draft)" if target in self.drafts else ""
+            raise PackError(f"no journey or set named {target}{hint}")
         names = [n for n in spec.get("journeys") or [] if n in self.journeys]
         tags = set(spec.get("tags") or [])
         names += [j.name for j in self.journeys.values() if tags & set(j.tags) and j.name not in names]

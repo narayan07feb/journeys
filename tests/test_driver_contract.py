@@ -356,3 +356,25 @@ def test_maestro_driver_writes_maestro_selectors(tmp_path):
     d.start("com.example.app", "R")
     d.do(["launchApp", {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
     assert "element:\n      text: Next" in flows[-1]
+
+
+def test_uiautomator_app_packages_and_the_first_focus_line(tmp_path):
+    from journeys.drivers.uiautomator import UiAutomatorDriver
+    phone = Phone(APP)
+    d = UiAutomatorDriver(wait_s=0, sleep=lambda s: None, app_packages=("com.example.search",))
+    d._adb = phone.adb
+    d.start("com.example.app", "R")
+    phone.app.do(["launchApp"])
+    phone.focus = "com.example.search/.SearchActivity"
+    assert d.do([{"pressKey": "Enter"}]).ok  # a declared package of the app
+    phone.focus = "com.other/.X"
+    assert not d.do([{"pressKey": "Enter"}]).ok
+    real = phone.adb
+    d._adb = lambda *a, **k: (subprocess_done(b"mCurrentFocus=Window{1 u0 com.example.app/.Main}\n"
+                                              b"mCurrentFocus=null\n") if a[1:] == ("dumpsys", "window") else real(*a))
+    assert d.do([{"pressKey": "Enter"}]).ok  # a later display's null line does not override the first
+
+
+def subprocess_done(out):
+    import subprocess
+    return subprocess.CompletedProcess([], 0, out, b"")

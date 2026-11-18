@@ -4,6 +4,7 @@
 name: settings-demo
 app: com.android.settings
 driver: uiautomator   # or maestro, speedrun (the team picks; --driver overrides)
+app_packages: [com.android.settings.intelligence]   # Settings' search screen runs here on many versions
 env: [DEMO_SEARCH]          # optional variable used by the search journey
 hooks:
   note: [hooks/note.sh]     # a tiny example hook: prints its JSON argument

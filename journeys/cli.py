@@ -28,7 +28,7 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
                           + (f" (these can: {', '.join(others)}; pass --driver)" if others else ""))
     if kind == "uiautomator":
         from .drivers.uiautomator import UiAutomatorDriver
-        return UiAutomatorDriver()
+        return UiAutomatorDriver(app_packages=tuple(pack.app_packages))
     if kind == "speedrun":
         from .drivers.speedrun import SpeedrunDriver, find_speedrun
         return SpeedrunDriver(find_speedrun(), store.root / "speedrun-home",
@@ -96,12 +96,15 @@ def cmd_list(args) -> int:
             "sets": {n: [j.name for j in pack.select(n)] for n in pack.sets},
             "journeys": [{"name": j.name, "tags": j.tags, "file": str(j.file), "line": j.line}
                          for j in pack.journeys.values()],
+            "drafts": [{"name": j.name, "file": str(j.file), "line": j.line} for j in pack.drafts.values()],
         }, indent=2))
         return 0
     for n in pack.sets:
         print(f"set {n}: {', '.join(j.name for j in pack.select(n))}")
     for j in pack.journeys.values():
         print(f"{j.name}  [{', '.join(j.tags)}]  {j.file.relative_to(pack.root)}:{j.line}")
+    for j in pack.drafts.values():
+        print(f"draft {j.name}  {j.file.relative_to(pack.root)}:{j.line}  (run with --draft)")
     return 0
 
 

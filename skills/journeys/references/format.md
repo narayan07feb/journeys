@@ -21,6 +21,8 @@ name: shop                     # required
 app: com.example.shop          # required: the app's package
 driver: uiautomator            # uiautomator (default) | maestro | speedrun | fake
 project: ../shop-android       # optional: the app's project (doctor checks its test framework)
+app_packages: [com.example.shop.web]   # optional: other packages the app's own screens run in
+                               # (uiautomator sends input to the app, these, and the permission dialog only)
 env: [SEARCH_TEXT]             # env vars journeys may use as ${SEARCH_TEXT}
 accounts:
   main: {user: SHOP_USER, password: SHOP_PASSWORD}   # ${SHOP_USER} or ${main.user}; values from env only
@@ -72,12 +74,12 @@ edges:
 |---|---|
 | `{tap: SEL}` | Tap the element (waits a moment for it). |
 | `{type: "text"}` | Type into the focused field. The `uiautomator` driver types plain ASCII only (no `%s`). |
-| `{erase: 10}` | Delete 10 characters in the focused field. |
+| `{erase: 10}` | Delete 10 characters in the focused field (1 to 1000). |
 | `{press: enter}` | A key: enter, back, home, tab, delete, search. |
 | `{scroll_to: SEL}` | Scroll down until the element shows. Up: `{scroll_to: {element: SEL, direction: up}}`. |
 | `scroll` | Scroll down once. |
 | `{see: SEL}` / `{not_see: SEL}` | Check the element is / is not on screen. |
-| `back`, `hide_keyboard`, `wait_idle` | |
+| `back`, `hide_keyboard`, `wait_idle` | `wait_idle` lets animations end (uiautomator needs no wait: it polls for each element). |
 | `launch`, `{launch: {clear_state: true}}`, `stop` | Start (fresh) or stop the pack's app. |
 
 Selector (SEL), for actions and for `see`/`not_see` steps:

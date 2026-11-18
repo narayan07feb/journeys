@@ -58,3 +58,15 @@ def test_scan_skips_broken_links(tmp_path):
     (proj / "x.yaml").symlink_to(proj / "gone.yaml")
     (proj / "build.gradle.kts").symlink_to(proj / "gone.kts")
     assert scan(proj) == ([], "com.a")
+
+
+def test_several_app_modules_need_app(tmp_path):
+    import pytest
+    from journeys.detect import init_pack
+    proj = _project(tmp_path, {"a/build.gradle.kts": 'plugins { id("com.android.application") }\napplicationId = "com.acme.one"',
+                               "b/build.gradle.kts": 'plugins { id("com.android.application") }\napplicationId = "com.acme.two"',
+                               "macrobenchmark/build.gradle.kts": 'applicationId = "com.acme.bench"'})
+    assert scan(proj) == ([], None)
+    with pytest.raises(ValueError, match="several app ids.*com.acme.one.*com.acme.two"):
+        init_pack(tmp_path / "p", proj, "p", None)
+    init_pack(tmp_path / "q", proj, "q", "com.acme.two")

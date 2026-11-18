@@ -315,3 +315,53 @@ def test_names_variables_empty_do_and_import_header(pack_dir, tmp_path, capsys):
     (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: search}]\n")
     _, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
     assert any("search/tab" in n for n in notes)
+
+
+def test_edge_variables_get_their_value(pack_dir, monkeypatch):
+    from journeys.drivers.fake import FakeDriver
+    from journeys.results import Store
+    from journeys.runner import Runner
+    ef = pack_dir / "map" / "edges.yaml"
+    ef.write_text(ef.read_text().replace('do: [{tap: "Search settings"}]',
+                                         'do: [{tap: "Search settings"}, {type: "${DEMO_SEARCH}"}]'))
+    monkeypatch.setenv("DEMO_SEARCH", "wifi")
+    pack = Pack.load(pack_dir)
+    assert pack.errors == []
+    driver = FakeDriver.from_file(pack_dir / "fake" / "app.yaml")
+    store = Store(pack_dir / "s")
+    Runner(pack, driver, store, store.new_run(), variables=pack.variables()).run_all([pack.journeys["search-settings"]])
+    assert {"inputText": "wifi"} in driver.log and {"inputText": "${DEMO_SEARCH}"} not in driver.log
+
+
+def test_odd_pack_yaml_shapes_are_errors_not_crashes(pack_dir, capsys):
+    pf = pack_dir / "pack.yaml"
+    for bad in ("accounts: [a]", "accounts: {main: hello}", "hooks: [a]", "events: hello", "tap_all: hello",
+                "app_packages: x"):
+        pf.write_text("name: x\napp: com.android.settings\n" + bad + "\n")
+        assert cli(pack_dir, "validate") == 1, bad
+        assert "FAIL" in capsys.readouterr().out
+    (pack_dir / "map" / "screens.yaml").write_text("screens: [a]\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  all: {tags: [smoke]}\n")
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "h.yaml").write_text("name: h\nsteps:\n  - hook: {name: [x]}\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert "screens is a map" in out and "`all` is every journey" in out and "hook ['x']" in out
+
+
+def test_draft_hint_list_drafts_and_odd_selectors(pack_dir, capsys):
+    from journeys.actions import from_selector, to_commands
+    from journeys.drivers.base import Element, Screen, find
+    from journeys.heal import selector
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "x.yaml").write_text("name: x\nsteps:\n  - see: Hi\n")
+    assert cli(pack_dir, "run", "x", "--driver", "fake") == 2 and "add --draft" in capsys.readouterr().err
+    assert cli(pack_dir, "list") == 0 and "draft x" in capsys.readouterr().out
+    assert from_selector(r"//") == "////" and to_commands([{"tap": "////"}]) == [{"tapOn": "//"}]
+    s = Screen([Element("@1", "Button", "…"), Element("@2", "Button", ", x")])
+    assert selector(s.elements[0], s) == "…" and selector(s.elements[1], s) == ", x"  # never ".*"
+    assert find(s.elements, {}) is None and find(s.elements, {"point": "5,5"}) is None
+    with pytest.raises(Exception, match="1 to 1000"):
+        to_commands([{"erase": 5000}])

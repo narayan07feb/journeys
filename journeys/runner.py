@@ -176,7 +176,7 @@ class Runner:
                 if (edge.src, edge.dst) in broken:
                     raise StepFailed(f"edge {edge.src} -> {edge.dst} landed on "
                                      f"{broken[edge.src, edge.dst]} (again, after a detour)")
-                self._do(to_commands(edge.do))
+                self._do(to_commands(self._sub(edge.do)))  # ${NAME} in edges gets its value too
                 got = self._settled_on(edge.dst)
                 if got == edge.dst:
                     here = got

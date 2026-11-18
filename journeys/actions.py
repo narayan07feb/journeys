@@ -74,7 +74,9 @@ def from_selector(sel):
     """The drivers' form -> neutral (plain text when the regex is only escaped text)."""
     def text(rx: str) -> str:
         literal = re.sub(r"\\(.)", r"\1", rx)
-        return literal if _text(literal) == rx and not literal.startswith("/") else f"/{rx}/"
+        if literal and not literal.startswith("/") and _text(literal) == rx:
+            return literal
+        return f"/{rx}/"
     if isinstance(sel, str):
         return text(sel)
     out = dict(sel)
@@ -98,8 +100,8 @@ def to_command(action):
             raise ActionError(f"type takes a non-empty text, not {arg!r}")
         return {"inputText": str(arg)}
     if word == "erase":
-        if not isinstance(arg, int) or isinstance(arg, bool) or arg < 1:
-            raise ActionError(f"erase takes a number of characters, not {arg!r}")
+        if not isinstance(arg, int) or isinstance(arg, bool) or not 1 <= arg <= 1000:
+            raise ActionError(f"erase takes a number of characters from 1 to 1000, not {arg!r}")
         return {"eraseText": arg}
     if word == "press":
         if str(arg).lower() not in KEYS:
