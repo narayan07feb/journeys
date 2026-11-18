@@ -199,3 +199,15 @@ def test_a_selector_that_also_finds_another_row_is_not_used():
     rows = [Element("@1", "Button", "Account, Profile"), Element("@2", "Button", "Account, Delete")]
     sel = selector(rows[0], Screen(rows))
     assert sel in ("Account, Profile", {"text": "Account, Profile", "index": 0}), sel
+
+
+def test_camel_case_ids_zero_width_labels_and_siblings_of_denied_ones():
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import tap_targets
+    from journeys.pack import DEFAULT_DENY
+    els = [Element("@1", "Button", "OK", "btnDeleteAccount"), Element("@2", "Button", "Log​out"),
+           Element("@3", "Button", "OK"), Element("@4", "Button", "Next", "row"),
+           Element("@5", "Button", "Disable account", "row"), Element("@6", "Button", "Help")]
+    assert [e.text for e in tap_targets(Screen(els), DEFAULT_DENY, 20)] == ["Help"]
+    for text in ("Terminate session", "Cancel plan", "Opt out", "Install", "Clear"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text

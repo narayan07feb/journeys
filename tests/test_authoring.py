@@ -595,3 +595,41 @@ def test_mask_hides_the_raw_and_the_regex_escaped_secret():
         assert mask({"m": ["typed p@ss.w(rd", "no /p@ss\\.w\\(rd/ found"]}) == {"m": ["typed •••", "no /•••/ found"]}
     finally:
         set_secrets([])
+
+
+def test_rule_values_must_be_text_and_string_rules_must_compile(tappable_pack_dir, capsys):
+    f = tappable_pack_dir / "pack.yaml"
+    keep = f.read_text()
+    for deny, said in (("[{text: Yes}]", "rule values are text"), ("[{text: 0123}]", "rule values are text"),
+                       ('["/[/"]', "unterminated")):
+        f.write_text(keep + f"  deny: {deny}\n")
+        assert cli(tappable_pack_dir, "validate") == 1 and said in capsys.readouterr().out, deny
+        assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 2, deny  # refused, no traceback
+    f.write_text(keep + '  deny: [{text: "Yes"}]\n')
+    assert cli(tappable_pack_dir, "validate") == 0
+
+
+def test_device_settings_are_checked(tappable_pack_dir, capsys):
+    f = tappable_pack_dir / "pack.yaml"
+    keep = f.read_text()
+    for bad in ("allow_settings_changes: emulator", "allow_settings_changes: true"), \
+               ("animations: normal", "animations: 5"):
+        f.write_text(keep.replace(*bad))
+        assert cli(tappable_pack_dir, "validate") == 1 and "devices." in capsys.readouterr().out, bad
+
+
+def test_tap_all_masks_env_values_and_a_refused_dka_leaves_no_run(tappable_pack_dir, monkeypatch):
+    f = tappable_pack_dir / "fake" / "app.yaml"
+    app = yaml.safe_load(f.read_text())
+    app["screens"][app["start"]]["elements"].append({"kind": "Button", "text": "Hello hunter22", "to": "CRASH"})
+    f.write_text(yaml.safe_dump(app))
+    monkeypatch.setenv("DEMO_SEARCH", "hunter22")
+    assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 1  # the crash
+    state = tappable_pack_dir / "s"
+    written = "".join(p.read_text() for p in state.rglob("*.json"))
+    assert "Hello" in written and "hunter22" not in written
+    runs = len(list(state.rglob("run.json")))
+    p = tappable_pack_dir / "pack.yaml"
+    p.write_text(p.read_text().replace("allow_settings_changes: emulator", "allow_settings_changes: []"))
+    assert cli(tappable_pack_dir, "tap-all", "--driver", "fake", "--dka") == 2
+    assert len(list(state.rglob("run.json"))) == runs

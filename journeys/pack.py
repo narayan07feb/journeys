@@ -18,8 +18,9 @@ _S = r"[\s\-\u2010-\u2015]"  # a space or dash of any kind: NBSP, U+2011 ("Log\u
 DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too; "_" is any space or dash
     r"/(?i)\b(reset|erase|factory|wipe|delet|remov|uninstall|clear_(all_)?(data|storage|cache)|force_stop|"
-    r"deactivat|close_account|unlink|revoke|forget|reboot|restart|power_off|shut_?down|turn_off|block|"
-    r"clear_(all|history)|discard|empty|format)/",
+    r"deactivat|disabl|terminat|close_account|unlink|revoke|forget|reboot|restart|power_off|shut_?down|turn_off|"
+    r"block|clear_(all|history)|clear$|discard|empty|format|install|opt_?out|"
+    r"cancel_(plan|subscription|membership|order|booking|payment))/",
     r"/(?i)\b(wi_?fi|airplane|aeroplane|flight_mode|bluetooth|mobile_data|hotspot|usb_debugging"
     r"|developer_options|disconnect)/",
     r"/(?i)\b(sign_?(out|off)|log_?(out|off)|pay|buy|purchase|(un)?subscri|send|call|share|rate_us|report|"
@@ -122,6 +123,11 @@ class Pack:
             shaped("hooks", dict, "a map of name: [command]"), events.get("check"),
             shaped("devices", dict, "a map"),
         )
+        rule = p.devices.get("allow_settings_changes", "emulator")
+        if not (rule in ("emulator", "any") or isinstance(rule, list) and all(isinstance(x, str) for x in rule)):
+            errors.append(f"{pf}: devices.allow_settings_changes is emulator, any or a list of serials, not {rule!r}")
+        if p.devices.get("animations", "normal") not in ("off", "fast", "normal", "default"):
+            errors.append(f"{pf}: devices.animations is off, fast, normal or default, not {p.devices['animations']!r}")
         p.app_packages = shaped("app_packages", list, "a list of package names")
         if not all(isinstance(x, str) and _PACKAGE.fullmatch(x) for x in p.app_packages):
             errors.append(f"{pf}: app_packages is a list of package names like com.example.app.web, "

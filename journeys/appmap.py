@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
-from .actions import ActionError, to_commands
+from .actions import QUOTE, ActionError, to_commands
 from .drivers.base import Element, Screen, id_matches
 
 _RULE_KEYS = {"text", "id", "kind"}
@@ -23,14 +23,17 @@ class Rule:
     @classmethod
     def parse(cls, raw) -> "Rule":
         if isinstance(raw, str):
-            return cls(text=raw)
+            raw = {"text": raw}
         if not isinstance(raw, dict):
             raise ValueError(f"a rule is a text or a map of {sorted(_RULE_KEYS)}, not {raw!r}")
         raw = yamlio.strip_lines(raw)
         extra = set(raw) - _RULE_KEYS
         if extra or not raw:
             raise ValueError(f"a rule takes {sorted(_RULE_KEYS)}, got {sorted(raw)}")
-        rule = cls(**{k: str(v) for k, v in raw.items()})
+        bad = {k: v for k, v in raw.items() if not isinstance(v, str)}
+        if bad:  # `text: Yes` loads as true: the rule would never match the "Yes" button
+            raise ValueError(f"rule values are text, not {bad}: {QUOTE}")
+        rule = cls(**raw)
         if rule.kind is not None and rule.kind not in KINDS:
             raise ValueError(f"kind is one of {', '.join(KINDS)}, not {rule.kind}")
         if rule.text and _is_regex(rule.text):

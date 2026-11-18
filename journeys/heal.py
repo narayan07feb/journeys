@@ -82,17 +82,26 @@ def screen_name(text: str) -> str:
 def denied(el, deny: list) -> bool:
     """A deny rule matches the label, or a text rule matches the id's name ("OK" with id
     delete_account): a label can be vague or cut short, the id often says what the button does."""
-    name = re.sub(r"[_.]+", " ", el.id.rsplit("/", 1)[-1]) if el.id else ""
+    name = el.id.rsplit("/", 1)[-1] if el.id else ""
+    name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", name)  # delete_account, btnDeleteAccount
+    el = replace(el, text=_ZW.sub("", el.text))  # "Log\u200bout" reads as "Logout"
     return any(r.matches(el) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
                for r in deny)
+
+
+_ZW = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")  # zero-width characters and soft hyphens
 
 
 def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     """The elements tap-all and explore may tap: tappable kinds with a label, not denied. A label-less
     element (often a container) is never tapped: its centre may sit over a denied button, and the
     deny list reads labels."""
-    return [e for e in screen.elements
-            if e.kind in TAPPABLE and e.text.strip() and not denied(e, deny)][:limit]
+    no = [e for e in screen.elements if denied(e, deny)]
+    texts, ids = {e.text for e in no}, {e.id for e in no if e.id}
+    # an element that shares its text or id with a denied one is skipped too: its selector needs an
+    # index, and a driver may count matches in another order than this listing
+    return [e for e in screen.elements if e.kind in TAPPABLE and e.text.strip() and e not in no
+            and e.text not in texts and e.id not in ids][:limit]
 
 
 def left_app(driver: Driver, app) -> str | None:

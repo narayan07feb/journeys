@@ -43,7 +43,9 @@ devices:
 tap_all:
   allowed: true                     # false: tap-all and explore-on-failure never tap in this app
   deny: [{text: "/(?i)delete account/"}, {id: logout_button}]   # never tapped (rules as for screens);
-                                    # a text rule also reads the id's name (delete_account), and a broken
+                                    # a text rule also reads the id's name (delete_account, btnDelete);
+                                    # an element with the same text or id as a denied one is skipped too;
+                                    # rule values are quoted text, and a broken
                                     # rule stops tap-all until validate passes
 ```
 
@@ -140,7 +142,8 @@ Promote edits the files in place and re-checks the pack. Review the diff in the 
 
 ## Secrets
 
-Journeys masks `env:` values (as •••) in everything it writes to the state folder. The driver's own
+Journeys masks `env:` values (as •••) in the text and JSON it writes to the state folder. Screenshots
+are pictures and are not masked: a typed value can show in one. The driver's own
 tool keeps its own logs outside that: Maestro under `~/.maestro`, Speedrun under
 `<state>/speedrun-home`. Those logs can hold a typed value, such as a password. Use test accounts, and
 clear or protect those folders on a shared machine.

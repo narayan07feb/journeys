@@ -15,7 +15,7 @@ from .drivers import DRIVERS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
 from .pack import Pack, PackError
-from .results import Store, default_state_dir
+from .results import Store, default_state_dir, set_secrets
 from .runner import Runner
 
 
@@ -126,17 +126,22 @@ def _open(args, pack: Pack) -> tuple[Store, Driver]:
     if kind != "fake" and not args.serial:
         raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
     store = _store(args, pack)
+    set_secrets(pack.variables().values())  # every command that writes to the store masks env values
     return store, make_driver(kind, pack, args, store)
 
 
 def cmd_tap_all(args) -> int:
-    from .explore import tap_all
+    from .explore import dka_allowed, tap_all
     pack = _load(args)
     _refuse_errors(pack)  # a broken deny rule must not leave its buttons tappable
     if not pack.tap_allowed:
         raise PackError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
+    if args.dka and not dka_allowed(pack, driver, args.serial):
+        driver.stop()
+        raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
+                          "does not allow it on this device")
     run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver or pack.driver,
                         serial=args.serial, dka=args.dka)
     try:
