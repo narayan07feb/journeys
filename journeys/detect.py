@@ -82,8 +82,10 @@ def pick(found: list[Found]) -> tuple[str, str]:
 
 def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> list[str]:
     """Write a new, empty pack. Returns what it did, line by line."""
-    if (dest / "pack.yaml").exists():
-        raise FileExistsError(f"{dest}/pack.yaml already exists")
+    files = [dest / "pack.yaml", dest / "map" / "screens.yaml", dest / "map" / "edges.yaml", dest / "sets.yaml"]
+    there = [str(f) for f in files if f.exists()]
+    if there:
+        raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
     found, app_id = scan(project) if project else ([], None)
     driver, why = pick(found)
     app = app or app_id
@@ -96,10 +98,10 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
     head = {"name": name, "app": app, "driver": driver}
     if project:
         head["project"] = os.path.relpath(project.resolve(), dest.resolve())
-    (dest / "pack.yaml").write_text(f"# driver {driver}: {why}\n" + yaml.safe_dump(head, sort_keys=False)
-                                    + "devices:\n  allow_settings_changes: emulator\n")
-    (dest / "map" / "screens.yaml").write_text("screens:\n")
-    (dest / "map" / "edges.yaml").write_text("edges:\n")
-    (dest / "sets.yaml").write_text("sets:\n")
+    texts = [f"# driver {driver}: {why}\n" + yaml.safe_dump(head, sort_keys=False)
+             + "devices:\n  allow_settings_changes: emulator\n", "screens:\n", "edges:\n", "sets:\n"]
+    for f, text in zip(files, texts):
+        with open(f, "x") as out:  # never over a file that appeared meanwhile
+            out.write(text)
     return [f"pack {name} for {app} in {dest}", f"driver {driver}: {why}",
             "next: add screens to map/screens.yaml, then `journeys new <name>` for a first draft journey"]

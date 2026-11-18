@@ -189,8 +189,9 @@ def promote(pack: Pack, store: Store, pid: str, name: str | None = None) -> str:
                             "to": name if e["to"] == old else e["to"]} for e in change.get("edges") or []]
     done = apply(pack, change)
     check = Pack.load(pack.root)
-    store.update_proposal(pid, status="promoted", result=done, pack_errors=check.errors)
-    return done + (f" (pack now has {len(check.errors)} errors: run doctor)" if check.errors else "")
+    errors = check.run_errors()  # unfinished drafts' errors are not this promote's doing
+    store.update_proposal(pid, status="promoted", result=done, pack_errors=errors)
+    return done + (f" (pack now has {len(errors)} errors: run validate)" if errors else "")
 
 
 def reject(store: Store, pid: str, why: str) -> None:

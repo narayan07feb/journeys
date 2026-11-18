@@ -1,7 +1,7 @@
 [project]
 name = "journeys"
-version = "0.1.0"
-description = "End-to-end journeys for Android apps, driven by Speedrun, with private per-company packs."
+version = "0.2.0"
+description = "Framework-neutral end-to-end journeys for Android apps, run with the team's own driver (uiautomator, Maestro, Speedrun), with private per-company packs."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

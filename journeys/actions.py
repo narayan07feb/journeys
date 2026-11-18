@@ -61,8 +61,8 @@ def to_selector(sel):
     if isinstance(sel, dict) and sel and set(sel) <= {"text", "id", "index"} and ("text" in sel or "id" in sel):
         if "index" in sel and (type(sel["index"]) is not int or sel["index"] < 0):
             raise ActionError(f"index is a whole number from 0 (the first match), not {sel['index']!r}")
-        if "id" in sel and not str(sel["id"]):
-            raise ActionError("id must not be empty")
+        if "id" in sel and (not isinstance(sel["id"], str) or not sel["id"]):
+            raise ActionError(f"id is a non-empty text, not {sel['id']!r}")
         out = {k: v for k, v in sel.items() if k != "text"}
         if "text" in sel:
             out["text"] = _text(sel["text"])
@@ -107,6 +107,8 @@ def to_command(action):
         return {"pressKey": KEYS[str(arg).lower()]}
     if word == "scroll_to":
         opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
+        if set(opts) - {"element", "direction"}:
+            raise ActionError(f"scroll_to takes element and direction, not {sorted(set(opts) - {'element', 'direction'})}")
         direction = str(opts.get("direction", "down")).upper()
         if direction not in ("UP", "DOWN"):
             raise ActionError(f"scroll_to direction is up or down, not {opts.get('direction')!r}")
@@ -118,8 +120,8 @@ def to_command(action):
     if word in ("see", "not_see"):
         return {"assertVisible" if word == "see" else "assertNotVisible": to_selector(arg)}
     if word == "launch":
-        if not isinstance(arg, dict) or set(arg) - {"clear_state"}:
-            raise ActionError(f"launch takes {{clear_state: true}}, not {arg!r}")
+        if not isinstance(arg, dict) or set(arg) - {"clear_state"} or not isinstance(arg.get("clear_state", False), bool):
+            raise ActionError(f"launch takes {{clear_state: true}} (true or false), not {arg!r}")
         return {"launchApp": {"clearState": True}} if arg.get("clear_state") else "launchApp"
     if word in BARE:
         raise ActionError(f"{word} takes no value: write it as a bare word, `{word}`")

@@ -229,3 +229,39 @@ def test_reserved_names_appid_note_export_note_and_no_empty_run(pack_dir, tmp_pa
     app.write_text("app: com.other\nstart: A\nscreens: {A: {elements: []}}\n")
     assert cli(pack_dir, "run", "smoke", "--driver", "fake", "--fake-app", str(app)) == 2
     assert not list((pack_dir / "s").glob("runs/*"))  # a refused start leaves no run behind
+
+
+def test_init_export_import_and_shapes_are_strict(pack_dir, tmp_path, capsys):
+    from journeys.detect import init_pack
+    from journeys.formats.maestro import import_flow
+    old = tmp_path / "np"
+    (old / "map").mkdir(parents=True)
+    (old / "map" / "screens.yaml").write_text("screens:\n  A: {match: {all: [A]}}\n")
+    with pytest.raises(FileExistsError):
+        init_pack(old, None, "np", "com.example.app")
+    assert "A:" in (old / "map" / "screens.yaml").read_text() and not (old / "pack.yaml").exists()
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "badact.yaml").write_text("name: badact\nsteps:\n  - do: [{tap: {text: \"\"}}]\n")
+    assert cli(pack_dir, "export", "maestro", "badact") == 2
+    (d / "badhook.yaml").write_text("name: badhook\nsteps:\n  - see: Hi\n  - hook: nothere\n")
+    assert cli(pack_dir, "export", "maestro", "badhook") == 2  # validate errors stop an export
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {text: a, index: x}\n- tapOn: {text: a, index: -1}\n"
+                 "- eraseText: -5\n- eraseText: 0\n- launchApp: {clearState: 'false'}\n- assertVisible: {id: null}\n"
+                 "- tapOn: Ok\n")
+    draft, notes = import_flow(f, "com.android.settings")
+    assert draft["steps"] == [{"do": [{"tap": "Ok"}]}] and len(notes) == 6, notes
+    (d / "shapes.yaml").write_text("name: shapes\nstart: {clear_state: \"no\"}\nsteps: 5\n")
+    (d / "acts.yaml").write_text("name: acts\nsteps:\n  - do: [{launch: {clear_state: \"no\"}}]\n"
+                                 "  - do: [{tap: {id: null}}]\n  - do: [{scroll_to: {element: x, foo: 1}}]\n")
+    ef = pack_dir / "map" / "edges.yaml"
+    ef.write_text(ef.read_text() + "  - from: [a]\n    to: B\n    do: [back]\n")
+    (pack_dir / "sets.yaml").write_text("sets: [1]\n")
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text() + "devices: 5\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    for want in ("steps is a list", "(true or false)", "id is a non-empty text", "scroll_to takes element",
+                 "from and to are screen names", "sets is a map", "devices is a map"):
+        assert want in out, want

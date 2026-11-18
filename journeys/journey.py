@@ -45,10 +45,14 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             errors.append(f"{path}: a journey is a map with a name")
             continue
         start = item.get("start") or {}
-        if not isinstance(start, dict) or set(start) - {"launch", "clear_state", yamlio.LINE}:
-            errors.append(f"{yamlio.where(path, item)}: start is a map of launch and clear_state, not {start!r}")
+        if not isinstance(start, dict) or set(start) - {"launch", "clear_state", yamlio.LINE} or not all(
+                isinstance(start.get(k, True), bool) for k in ("launch", "clear_state")):
+            errors.append(f"{yamlio.where(path, item)}: start is a map of launch and clear_state (true or false), not {yamlio.strip_lines(start)!r}")
             start = {}
         steps, ok = [], True
+        if not isinstance(item.get("steps") or [], list):
+            errors.append(f"{yamlio.where(path, item)}: steps is a list of steps")
+            continue
         for s in item.get("steps") or []:
             body = {k: v for k, v in s.items() if k != yamlio.LINE} if isinstance(s, dict) else {}
             if len(body) != 1 or next(iter(body)) not in KINDS:

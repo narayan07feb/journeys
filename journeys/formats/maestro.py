@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import KEYS, ActionError, escape, from_selector, to_commands
+from ..actions import KEYS, ActionError, escape, from_selector, to_command, to_commands, to_selector
 from ..journey import Journey
 from ..pack import Pack
 
@@ -146,13 +146,16 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
             (name, arg), = cmd.items()
         else:
             name, arg = None, cmd
+        na, ns = len(actions), len(steps)
         try:
             if name in ("launchApp", "stopApp"):
                 opts = arg if isinstance(arg, dict) else {}
                 if arg is not None and not isinstance(arg, dict) or set(opts) - {"appId", "clearState"} \
                         or opts.get("appId") not in (None, app) or (name == "stopApp" and "clearState" in opts):
                     raise ActionError(f"{name} {arg!r}: only the pack's app, with clearState for launchApp")
-                clear = bool(opts.get("clearState"))
+                clear = opts.get("clearState", False)
+                if not isinstance(clear, bool):
+                    raise ActionError(f"{name} clearState {clear!r} is not true or false")
                 if name == "launchApp" and not steps and not actions:
                     start = {"launch": True, "clear_state": clear}
                 else:
@@ -165,8 +168,8 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
             elif name == "inputText":
                 actions.append({"type": _plain(arg, "inputText")})
             elif name == "eraseText":
-                n = arg.get("charactersToErase", 50) if isinstance(arg, dict) else (arg or 50)
-                actions.append({"erase": int(n)})
+                n = arg.get("charactersToErase", 50) if isinstance(arg, dict) else (50 if arg is None else arg)
+                actions.append({"erase": n})
             elif name == "pressKey":
                 if str(arg).lower() not in KEYS:
                     raise ActionError(f"pressKey {arg}: not a neutral key ({', '.join(sorted(KEYS))})")
@@ -184,7 +187,15 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                                 "waitForAnimationToEnd": "wait_idle"}[name])
             else:
                 raise ActionError(f"{name or cmd!r} has no neutral word")
+            if len(actions) > na:
+                to_command(actions[-1])  # what import writes must validate; else it is listed, not kept
+            if len(steps) > ns and next(iter(steps[-1])) in ("see", "not_see"):
+                to_selector(next(iter(steps[-1].values())))
         except (ActionError, TypeError, ValueError) as e:
+            if len(actions) > na:
+                actions.pop()
+            if len(steps) > ns and next(iter(steps[-1])) in ("see", "not_see"):
+                steps.pop()
             notes.append(f"{path.name} command {i + 1}: {e}; left out")
     flush()
     if not steps:

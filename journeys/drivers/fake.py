@@ -34,6 +34,7 @@ class FakeDriver(Driver):
         self.log: list = []
         self.settings: dict[str, str] = {}
         self.emulator = True
+        self.home = False  # the app is alive but behind the launcher (press home)
 
     @classmethod
     def from_file(cls, path: Path) -> "FakeDriver":
@@ -45,7 +46,7 @@ class FakeDriver(Driver):
             raise DriverError(f"fake app is {self.app.get('app')}, not {app_id}")
 
     def look(self) -> Screen:
-        if not self.alive or not self.stack:
+        if not self.alive or not self.stack or self.home:
             return Screen([], header="launcher")
         return Screen(self._elements(), header=f"fake {self.stack[-1]}")
 
@@ -69,7 +70,7 @@ class FakeDriver(Driver):
         pass
 
     def foreground_app(self) -> str | None:
-        if not (self.alive and self.stack):
+        if not (self.alive and self.stack) or self.home:
             return "launcher"
         return self.app["screens"][self.stack[-1]].get("package", self.app["app"])
 
@@ -96,7 +97,7 @@ class FakeDriver(Driver):
         ]
 
     def _find(self, sel) -> dict | None:
-        if not self.alive or not self.stack:
+        if not self.alive or not self.stack or self.home:
             return None
         i = find(self._elements(), sel)
         return None if i is None else self._raw()[i]
@@ -104,11 +105,13 @@ class FakeDriver(Driver):
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)
         if name == "launchApp":
-            self.alive, self.stack, self.crashed = True, [self.app["start"]], False
+            self.alive, self.stack, self.crashed, self.home = True, [self.app["start"]], False, False
         elif name == "stopApp":
             self.alive, self.stack = False, []
+        elif name == "pressKey" and str(arg).lower() == "home":
+            self.home = True
         elif name == "back" or (name == "pressKey" and str(arg).lower() == "back"):
-            if self.alive and self.stack:
+            if self.alive and self.stack and not self.home:
                 target = self.app["screens"][self.stack[-1]].get("back")
                 self.stack.pop()
                 if target:

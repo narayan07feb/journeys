@@ -1,7 +1,9 @@
 # Journeys: plan
 
-Journeys is a generic, open-source end-to-end test tool for Android apps. It drives a device with
-[Speedrun](https://github.com/hubastard/speedrun) (upstream, public), with Maestro as a fallback.
+Journeys is a generic, open-source end-to-end test tool for Android apps. Journeys are written in a
+neutral format and run with the driver the team picks: `uiautomator` (adb only, the default),
+Maestro, or upstream [Speedrun](https://github.com/hubastard/speedrun) (public). Sections 3.1 below
+describe the first design (Speedrun first); M9 to M13 in section 5 replaced it.
 A company keeps its own app map and journeys in a private **pack**; the public repo has the core
 and one example pack for a public demo app.
 
@@ -46,7 +48,8 @@ journeys/                 python package
   drivers/
     base.py               Driver interface + Screen / Element types
     speedrun.py           upstream Speedrun session CLI
-    maestro.py            Maestro fallback (maestro test per step, maestro hierarchy)
+    maestro.py            Maestro driver (maestro test per step, maestro hierarchy)
+    uiautomator.py        adb only: uiautomator dump, input, am (the default)
     fake.py               scripted in-memory app for tests
 droid-lite-plugin/plugin.json
 examples/settings-pack/   example pack for Android Settings (com.android.settings)
@@ -72,9 +75,9 @@ class Driver:
   (parses the one-line-per-element listing), `speedrun do` and `speedrun session stop`. It runs
   with `HOME` set to a private folder (`<state>/speedrun-home`) so Speedrun's own state never goes
   to `~/.speedrun`, and passes explicit `--debug-output` paths.
-- **MaestroDriver** (fallback): each `do` writes a temp flow and runs `maestro --device <serial>
-  test`; `look` parses `maestro hierarchy`. Slower, used only when Speedrun is missing or the pack
-  says `driver: maestro`.
+- **MaestroDriver**: each `do` writes a temp flow and runs `maestro --device <serial>
+  test`; `look` parses `maestro hierarchy`. Used when the pack says `driver: maestro` (no fallback).
+- **UiAutomatorDriver** (default): `uiautomator dump`, `input` and `am` over adb; nothing installed.
 - **FakeDriver**: an app described as screens and tap targets in YAML/dicts. It can inject an
   unexpected screen, a crash, or a missing element. All unit and integration tests use it.
 

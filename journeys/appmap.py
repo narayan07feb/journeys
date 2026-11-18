@@ -121,6 +121,8 @@ class AppMap:
             for raw in (yamlio.load(ef) or {}).get("edges") or []:
                 try:
                     do = yamlio.strip_lines(raw["do"])
+                    if not (isinstance(raw["from"], str) and isinstance(raw["to"], str)):
+                        raise TypeError("from and to are screen names")
                     m.edges.append(Edge(raw["from"], raw["to"], do if isinstance(do, list) else [do]))
                     to_commands(m.edges[-1].do)
                 except (KeyError, TypeError) as e:

@@ -15,15 +15,13 @@ import time
 import xml.etree.ElementTree as ET
 
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen, command_name, find, kind_of
+from .base import CommandResult, DriverError, Element, Screen, command_name, find, focused_window, kind_of
 
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _KEYS = {"back": 4, "home": 3, "enter": 66, "tab": 61, "backspace": 67, "delete": 67, "search": 84}
 _NO_OP = {"waitForAnimationToEnd"}
 PERMISSION_DIALOG = re.compile(r"(com\.android|com\.google\.android)\.permissioncontroller/\S*GrantPermissionsActivity")
 OTHER_DRIVERS = r"maestro|uiautomator|speedrun|instrument|orchestrator|\.test$"
-_FOCUS = re.compile(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)")
-_FOCUSED_APP = re.compile(r"mFocusedApp=.*? ([\w.]+/[\w.$]+)")
 _PERMISSION_PKGS = ("com.android.permissioncontroller", "com.google.android.permissioncontroller")
 
 
@@ -33,7 +31,7 @@ _CHAR_REF = re.compile(r"&#(x[0-9a-fA-F]+|[0-9]+);")
 def _bad_char(ref: str) -> bool:
     """Control characters (&#1;) that apps put in texts are not XML 1.0: drop them before parsing."""
     n = int(ref[1:], 16) if ref.startswith("x") else int(ref)
-    return n < 32 and n not in (9, 10, 13)
+    return (n < 32 and n not in (9, 10, 13)) or 0xD800 <= n <= 0xDFFF  # surrogate halves are not XML either
 
 
 def parse_dump(xml: str, keep: tuple[str, ...] | None = None) -> tuple[Screen, list[tuple[int, int]]]:
@@ -97,7 +95,7 @@ class UiAutomatorDriver(AdbDriver):
         if len(names) < 2:
             raise DriverError("could not list the device's processes, so cannot tell if another UI test "
                               "driver runs there: not starting")
-        busy = [n for n in names if re.search(OTHER_DRIVERS, n, re.I)]
+        busy = [n for n in names if re.search(OTHER_DRIVERS, n, re.I) and n.split(":")[0] != app_id]
         if busy:
             raise DriverError(f"another UI test driver runs on the device ({' '.join(busy)}): "
                               "uiautomator would break it, so it does not start")
@@ -117,7 +115,7 @@ class UiAutomatorDriver(AdbDriver):
         for cmd in commands:
             try:
                 res = self._one(cmd)
-            except ValueError as e:
+            except (ValueError, TypeError) as e:
                 res = CommandResult(False, str(e))
             if not res.ok:
                 return res
@@ -147,10 +145,9 @@ class UiAutomatorDriver(AdbDriver):
         changes, so wait for it up to wait_s."""
         end = self.clock() + self.wait_s
         while True:
-            out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")
-            m = _FOCUS.search(out) or _FOCUSED_APP.search(out)
-            if m or self.clock() >= end:
-                return m.group(1) if m else ""
+            w = focused_window(self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace"))
+            if w or self.clock() >= end:
+                return w or ""
             self.sleep(self.poll_s)
 
     def _ours(self, window: str) -> bool:
@@ -214,13 +211,15 @@ class UiAutomatorDriver(AdbDriver):
                 or CommandResult(True)
         elif name == "inputText":
             text = str(arg)
-            if not text.isascii() or "%s" in text:
-                return CommandResult(False, f"inputText {text!r}: adb `input text` types plain ASCII only "
-                                            "(no '%s'); use another driver for this text")
+            if not (text.isascii() and text.isprintable()) or "%s" in text:
+                return CommandResult(False, f"inputText {text!r}: adb `input text` types printable ASCII only "
+                                            "(no '%s', no line breaks); use another driver for this text")
             # `input text` reads %s as a space
             return self._input(f"input text {shlex.quote(text.replace(' ', '%s'))}", name) or CommandResult(True)
         elif name == "eraseText":
             n = int(arg if not isinstance(arg, dict) else arg.get("charactersToErase", 50)) if arg else 50
+            if not 1 <= n <= 1000:
+                return CommandResult(False, f"eraseText {n}: erase 1 to 1000 characters")
             # MOVE_END first, then DEL: the field's last characters
             return self._input("input keyevent 123 " + " ".join(["67"] * n), name) or CommandResult(True)
         elif name == "hideKeyboard":

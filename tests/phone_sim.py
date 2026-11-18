@@ -29,6 +29,7 @@ class Phone:
         self.typed: list[str] = []
         self.page, self.offset = page, 0   # page: rows on screen at once (None: all); a swipe moves one row
         self.focus: str | None = None      # a window other than the app's, e.g. a dialog
+        self.keyboard = False
 
     # what the phone shows
     def _elements(self):
@@ -68,6 +69,8 @@ class Phone:
             return _done(b"123\n" if self.app.alive else b"", 0 if self.app.alive else 1)
         if cmd == "dumpsys window":
             fg = self.app.foreground_app()
+            if self.focus == "null":  # nothing focused for a moment; the app task is behind
+                return _done(f"  mCurrentFocus=null\n  mFocusedApp=ActivityRecord{{12 u0 {fg}/.Main t5}}\n")
             return _done(f"  mCurrentFocus=Window{{1a u0 {self.focus or f'{fg}/{fg}.Main'}}}\n")
         if cmd.startswith("getprop"):
             return _done(b"")
@@ -89,6 +92,8 @@ class Phone:
         if cmd.startswith("input keyevent"):
             if cmd.split()[2] == "4":
                 self.app.do(["back"])
+            elif cmd.split()[2] == "3":
+                self.app.do([{"pressKey": "Home"}])
             return _done()
         if cmd.startswith("input text"):
             self.typed.append(cmd[len("input text "):])
@@ -100,7 +105,9 @@ class Phone:
             last = max(len(self.app.look().elements) - (self.page or 0), 0)
             self.offset = min(self.offset + 1, last) if y1 > y2 else max(self.offset - 1, 0)
             return _done()
-        if cmd.startswith(("pm clear", "dumpsys input_method")):
+        if cmd == "dumpsys input_method":
+            return _done(f"  mInputShown={str(self.keyboard).lower()}\n")
+        if cmd.startswith("pm clear"):
             return _done()
         return _done(f"unknown: {cmd}", 1)
 

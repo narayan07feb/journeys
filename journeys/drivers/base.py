@@ -53,7 +53,7 @@ class Driver(ABC):
 
     @abstractmethod
     def do(self, commands: list) -> CommandResult:
-        """Run Maestro/Speedrun flow commands in order; stop at the first that fails."""
+        """Run commands in the drivers' shared form (journeys/actions.py) in order; stop at the first that fails."""
 
     @abstractmethod
     def screenshot(self, path: Path) -> Path | None: ...
@@ -143,8 +143,21 @@ def find(elements: list[Element], sel) -> int | None:
     return hits[idx] if 0 <= idx < len(hits) else None
 
 
+def focused_window(dumpsys_window: str) -> str | None:
+    """The focused window from `dumpsys window` (read-only): "pkg/Activity" for an app's activity,
+    else the window's own name ("NotificationShade", "Application Not Responding: com.x").
+    The app behind (mFocusedApp) counts only when nothing has the focus (mCurrentFocus=null)."""
+    m = re.search(r"mCurrentFocus=(null|Window\{\S+ \S+ ([^}]*)\})", dumpsys_window)
+    if not m:
+        return None
+    if m.group(1) != "null":
+        name = m.group(2).strip()
+        return name if re.fullmatch(r"[\w.]+/[\w.$]+", name) else f"window:{name}"
+    app = re.search(r"mFocusedApp=.*? ([\w.]+/[\w.$]+)", dumpsys_window)
+    return app.group(1) if app else None
+
+
 def focused_package(dumpsys_window: str) -> str | None:
-    """The package on screen, from `dumpsys window` (read-only)."""
-    m = (re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", dumpsys_window)
-         or re.search(r"mFocusedApp=.*? ([\w.]+)/", dumpsys_window))
-    return m.group(1) if m else None
+    """The package of the focused window; a system window gives its "window:<name>"."""
+    w = focused_window(dumpsys_window)
+    return w if w is None or w.startswith("window:") else w.split("/")[0]

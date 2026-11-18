@@ -271,3 +271,46 @@ def test_uiautomator_waits_for_a_brief_null_focus_and_reads_the_rotated_size(tmp
     phone.app.do(["launchApp"])
     assert d.do([{"tapOn": "Next"}]).ok and t[0] > 0  # waited out the null focus
     assert "input tap 2399 245" in phone.shell_log  # clamped to the rotated width, not 1080
+
+
+def test_home_leaves_the_app_on_every_driver(drv):
+    from journeys.actions import to_commands
+    assert drv.do(to_commands([{"press": "home"}])).ok
+    assert drv.foreground_app() != "com.example.app"
+
+
+@pytest.mark.parametrize("focus", ["NotificationShade", "Application Not Responding: com.x", "StatusBar"])
+def test_uiautomator_sends_nothing_to_system_windows(focus, tmp_path):
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    phone.focus = focus
+    assert not d.do([{"pressKey": "Enter"}]).ok and not d.do([{"inputText": "1234"}]).ok
+    assert not [c for c in phone.shell_log if c.startswith("input")]
+    phone.focus = "null"  # nothing focused, the app's task behind: the app still counts
+    assert d.do([{"pressKey": "Enter"}]).ok
+
+
+def test_focused_window_rules():
+    from journeys.drivers.base import focused_package, focused_window
+    assert focused_window("mCurrentFocus=Window{9f3 u0 NotificationShade}\n"
+                          "mFocusedApp=ActivityRecord{12 u0 com.example.app/.Main t5}") == "window:NotificationShade"
+    assert focused_package("mCurrentFocus=Window{1 u0 Application Not Responding: com.x}") == \
+        "window:Application Not Responding: com.x"
+    assert focused_window("mCurrentFocus=null\nmFocusedApp=ActivityRecord{12 u0 com.a/.Main t5}") == "com.a/.Main"
+    assert focused_package("mCurrentFocus=Window{1 u0 com.a/com.a.Main}") == "com.a"
+    assert focused_window("nothing") is None
+
+
+def test_uiautomator_odd_text_counts_keyboard_and_own_app_name(tmp_path):
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    assert not d.do([{"inputText": "a\nb"}]).ok and not d.do([{"eraseText": 10 ** 6}]).ok
+    assert not d.do([{"eraseText": [1]}]).ok
+    phone.keyboard = True
+    assert d.do(["hideKeyboard"]).ok and "input keyevent 4" in phone.shell_log
+    test_app = dict(APP, app="com.example.app.test")
+    hooked("uiautomator", Phone(test_app, busy="com.example.app.test\n"), tmp_path).start("com.example.app.test", "R")

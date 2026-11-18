@@ -24,6 +24,7 @@ The exact format, every step and action, and a worked example are in
 name: my-app                 # also the state folder's name
 app: com.example.app
 driver: uiautomator          # uiautomator (default), maestro, speedrun or fake
+                             # (packs without driver: ran Speedrun before 0.2; now uiautomator)
 env: [SEARCH_TEXT]           # variables a journey may use as ${SEARCH_TEXT}
 accounts:                    # test accounts: values only from env vars, never in the pack
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}

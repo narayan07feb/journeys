@@ -63,10 +63,13 @@ class Pack:
             list(raw.get("build") or []), list(raw.get("install") or []),
             [str(n) for n in raw.get("env") or []], dict(raw.get("accounts") or {}),
             dict(raw.get("hooks") or {}), (raw.get("events") or {}).get("check"),
-            dict(raw.get("devices") or {}),
+            raw.get("devices") or {},
         )
         if raw.get("project"):
             p.project = (root / str(raw["project"])).resolve()
+        if not isinstance(p.devices, dict):
+            p.errors.append(f"{pf}: devices is a map, not {p.devices!r}")
+            p.devices = {}
         taps = raw.get("tap_all") or {}
         p.tap_allowed = bool(taps.get("allowed", True))
         for r in taps.get("deny") or []:
@@ -91,6 +94,9 @@ class Pack:
         sf = root / "sets.yaml"
         if sf.exists():
             p.sets = yamlio.strip_lines((yamlio.load(sf) or {}).get("sets") or {})
+            if not isinstance(p.sets, dict):
+                p.errors.append(f"{sf}: sets is a map of set names, not {type(p.sets).__name__}")
+                p.sets = {}
         p._check()
         return p
 

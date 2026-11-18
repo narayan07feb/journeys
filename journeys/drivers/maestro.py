@@ -1,4 +1,5 @@
-"""Fallback driver: Maestro's CLI. Slower (a JVM start per call), used when Speedrun cannot run.
+"""The Maestro driver, for teams that use Maestro: each step runs as a one-off flow through its CLI
+(a JVM start per call, so slower than uiautomator).
 
 `do` writes the commands as a one-off flow and runs `maestro test`; `look` reads `maestro hierarchy`.
 """

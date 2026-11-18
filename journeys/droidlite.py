@@ -69,6 +69,7 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         return 1
     store = state_store(pack)
     driver = make_driver(kind, pack, _Args(), store)
+    driver.start(pack.app, serial)  # a refused start leaves no empty run behind
     run = store.new_run(pack=pack.name, target=target, driver=kind, serial=serial)
     emit(log=f"run {run.id} on {serial or 'fake'}")
     files = {j.name: j for j in pack.journeys.values()}
@@ -86,7 +87,6 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         emit(case=o.name, label=o.name, status=o.status, message=msg,
              file=line.get("file") or str(j.file), line=line.get("line") or j.line)
 
-    driver.start(pack.app, serial)
     try:
         outs = Runner(pack, driver, store, run, serial=serial, on_update=update).run_all(journeys)
     finally:
@@ -109,15 +109,16 @@ def cmd_view(store: Store, which: str) -> None:
 
 def cmd_doctor(pack: Pack) -> int:
     from .drivers import availability
-    emit(label=f"pack {pack.name}", status="failed" if pack.errors else "passed",
-         message="; ".join(pack.errors) or f"{len(pack.journeys)} journeys")
+    errors = pack.run_errors()  # an unfinished draft is not a broken pack
+    emit(label=f"pack {pack.name}", status="failed" if errors else "passed",
+         message="; ".join(errors) or f"{len(pack.journeys)} journeys, {len(pack.drafts)} drafts")
     kind = os.environ.get("JOURNEYS_DRIVER") or pack.driver
     missing = availability().get(kind, f"unknown driver {kind}")
     emit(label=f"driver {kind}", status="failed" if missing else "passed", message=missing or "can run")
     serial = os.environ.get("JOURNEYS_SERIAL")
     emit(label="device", status="passed" if serial else "skipped",
          message=serial or "JOURNEYS_SERIAL not set (fake driver only)")
-    return 1 if pack.errors or missing else 0
+    return 1 if errors or missing else 0
 
 
 def main(argv: list[str] | None = None) -> int:

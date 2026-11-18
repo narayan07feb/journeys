@@ -309,12 +309,19 @@ def cmd_promote_journey(args) -> int:
 
 
 def cmd_export(args) -> int:
+    from .actions import ActionError
     from .formats.maestro import export
     pack = _load(args)
     j = pack.journeys.get(args.journey) or pack.drafts.get(args.journey)
     if not j:
         raise PackError(f"no journey or draft named {args.journey}")
-    flow, notes = export(pack, j)
+    errs = [e for e in pack.errors if e.startswith(f"{j.file}:") or e.startswith(f"{j.file} ")]
+    if errs:
+        raise PackError(f"{j.name} has errors; `journeys validate` lists them:\n" + "\n".join(errs))
+    try:
+        flow, notes = export(pack, j)
+    except ActionError as e:
+        raise PackError(f"{j.name}: {e}") from None
     for n in notes:
         print(f"NOTE {n}", file=sys.stderr)
     if args.out:
