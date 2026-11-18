@@ -42,14 +42,14 @@ def test_crash_dead_end_and_new_screen(t):
         {"kind": "Text", "text": "Legal info"}, {"kind": "Button", "text": "Licenses", "to": "TRAP"}]}
     app["screens"]["TRAP"] = {"elements": [{"kind": "Text", "text": "No way out"}], "back": "TRAP"}
     rep, run = walk()
-    assert [c["tap"] for c in rep.crashes] == [{"tapOn": "Update"}]
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Update"}]
     f = store.failure(rep.crashes[0]["failure"])
-    assert f["log"].startswith("FATAL EXCEPTION") and f["route"][-1] == {"tapOn": "Update"}
+    assert f["log"].startswith("FATAL EXCEPTION") and f["route"][-1] == {"tap": "Update"}
     assert any(n.startswith("NEW:LEGAL-INFO:") for n in rep.new_screens)
     assert any(n.startswith("NEW:NO-WAY-OUT:") for n in rep.new_screens)
     assert [d["screen"].split(":")[1] for d in rep.dead_ends] == ["NO-WAY-OUT"]
     legal = next(s for s in rep.screens if s["screen"].startswith("NEW:LEGAL"))
-    assert legal["route"] == [{"tapOn": "About phone.*"}, {"tapOn": "Legal"}]
+    assert legal["route"] == [{"tap": "/About phone.*/"}, {"tap": "Legal"}]  # neutral words: copy-ready
     assert store.run(run.id)["status"] == "failed"
 
 
@@ -66,7 +66,7 @@ def test_dka_set_and_restored_and_finds_dka_crash(t):
     assert rep.crashes == []
     driver.settings[DKA] = "0"
     rep, run = walk(dka=True)
-    assert [c["tap"] for c in rep.crashes] == [{"tapOn": "Fonts"}]
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Fonts"}]
     assert driver.settings[DKA] == "0"  # put back
 
 
@@ -89,7 +89,7 @@ def test_deny_list_and_leaving_the_app(t):
     rep, run = walk()
     assert rep.crashes == []
     assert {"tapOn": "Wi-Fi"} not in driver.log
-    assert rep.left_app == [{"screen": "SETTINGS-HOME", "tap": {"tapOn": "Help"}, "package": "com.android.chrome"}]
+    assert rep.left_app == [{"screen": "SETTINGS-HOME", "tap": {"tap": "Help"}, "package": "com.android.chrome"}]
     assert {"tapOn": "Close all"} not in driver.log  # the other app is never walked
     assert not any(n.startswith("NEW:HELP") for n in rep.new_screens)
 
@@ -139,7 +139,7 @@ def test_in_app_back_to_a_known_screen_is_not_a_dead_end(t):
     rep, run = walk()
     assert rep.dead_ends == []
     about = next(s for s in rep.screens if s["screen"] == "SETTINGS-ABOUT")
-    assert {"tap": {"tapOn": "Done"}, "result": "SETTINGS-HOME"} in about["options"]
+    assert {"tap": {"tap": "Done"}, "result": "SETTINGS-HOME"} in about["options"]
 
 
 def test_tap_targets_skip_label_less_elements_and_name_repeated_ids():

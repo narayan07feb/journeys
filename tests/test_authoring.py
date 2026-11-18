@@ -413,3 +413,63 @@ def test_deny_list_stems_and_dashes_and_two_key_steps(pack_dir, capsys):
     d.mkdir()
     (d / "two.yaml").write_text("name: two\nsteps:\n  - {expect: SETTINGS-HOME, see: foo}\n")
     assert cli(pack_dir, "validate") == 1 and "one step, one key" in capsys.readouterr().out
+
+
+def test_rule_lists_sets_and_fake_app_are_checked(pack_dir, capsys):
+    sf = pack_dir / "map" / "screens.yaml"
+    sf.write_text(sf.read_text() + "  ODD1:\n    match: {all: Hi}\n  ODD2:\n    match: {all: {text: Hi}}\n")
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text().replace("  allowed: false", "  allowed: false\n  deny: delete"))
+    (pack_dir / "sets.yaml").write_text("sets:\n  s: {journeys: [[j]]}\n  t: {journeys: open-display}\n")
+    fa = pack_dir / "fake" / "app.yaml"
+    fa.write_text(fa.read_text().replace("start: HOME", "start: NOPE"))
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert out.count("match.all is a list") == 2 and "tap_all.deny is a list" in out
+    assert out.count("journeys: [names]") == 2 and "start names a screen" in out
+    for bad in ("a: [\n", "- x\n"):
+        fa.write_text(bad)
+        assert cli(pack_dir, "validate") == 1
+        assert "app.yaml" in capsys.readouterr().out
+
+
+def test_failure_options_and_secrets_in_messages(pack_dir, monkeypatch):
+    from journeys.drivers.fake import FakeDriver
+    from journeys.results import Store
+    from journeys.runner import Runner
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text().replace("allowed: false", "allowed: true"))
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "sec.yaml").write_text("name: sec\nsteps:\n  - expect: SETTINGS-HOME\n  - see: \"${DEMO_SEARCH}\"\n")
+    pack = Pack.load(pack_dir)
+    store = Store(pack_dir / "s")
+    out = Runner(pack, FakeDriver.from_file(pack_dir / "fake" / "app.yaml"), store, store.new_run(),
+                 variables={"DEMO_SEARCH": "hunter2.x"}).run_all([pack.drafts["sec"]])
+    assert out[0].status == "failed" and "hunter2" not in out[0].message and "•••" in out[0].message
+    f = store.failure(out[0].failure)
+    assert "hunter2" not in f["message"]
+    assert all("tapOn" not in str(o["tap"]) for o in f.get("options") or [])  # neutral words, copy-ready
+    assert any(isinstance(o["tap"], dict) and "tap" in o["tap"] for o in f["options"])
+
+
+def test_small_round_10_fixes(pack_dir, tmp_path, capsys):
+    from journeys.detect import init_pack, scan
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Sign-out", "Log off", "Clear all data", "Unlink", "Close account", "Block", "Revoke",
+                 "Forget network", "Reboot", "Power off", "Turn off"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    assert cli(pack_dir, "tap-all", "--driver", "fake") == 2 and not list((pack_dir / "s").glob("runs/*"))
+    assert cli(pack_dir, "export", "maestro", "open-display", "-o", str(tmp_path / "no" / "dir.yaml")) == 2
+    assert "cannot write" in capsys.readouterr().err
+    proj = tmp_path / "proj"
+    (proj / "app").mkdir(parents=True)
+    (proj / "app" / "build.gradle").write_text('// applicationId "com.old.thing"\napplicationId "com.new.thing"\n')
+    assert scan(proj)[1] == "com.new.thing"
+    with pytest.raises(ValueError) as e:
+        init_pack(tmp_path / "x", None, "x", None)
+    assert "Gradle" not in str(e.value)
+    pf = pack_dir / "pack.yaml"
+    pf.write_text(pf.read_text() + "app_packages: [\"\"]\n")
+    assert cli(pack_dir, "validate") == 1 and "app_packages is a list of package names" in capsys.readouterr().out

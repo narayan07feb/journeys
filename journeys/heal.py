@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from . import yamlio
-from .actions import ActionError, escape, from_commands, to_commands
+from .actions import ActionError, escape, from_command, from_commands, to_commands
 from .appmap import AppMap
 from .drivers.base import Driver, DriverError, Screen, find, id_matches
 from .pack import Pack
@@ -104,22 +104,22 @@ def explore(driver: Driver, amap: AppMap, app, deny: list, limit: int = 12) -> l
         tap = {"tapOn": sel}
         res = driver.do([tap])
         if not res.ok:
-            options.append({"tap": tap, "leads_to": None, "note": res.message[:200]})
+            options.append({"tap": from_command(tap), "leads_to": None, "note": res.message[:200]})
             continue
         if not driver.app_alive():
-            options.append({"tap": tap, "leads_to": "CRASH"})
+            options.append({"tap": from_command(tap), "leads_to": "CRASH"})
             break
         other = left_app(driver, app)
         if other:
-            options.append({"tap": tap, "leads_to": None, "note": f"left the app for {other}; explore stopped"})
+            options.append({"tap": from_command(tap), "leads_to": None, "note": f"left the app for {other}; explore stopped"})
             driver.do(["back"])
             break
         after = driver.look()
         if same_screen(base, after):
-            options.append({"tap": tap, "leads_to": None, "note": "no change"})
+            options.append({"tap": from_command(tap), "leads_to": None, "note": "no change"})
             continue
         known = amap.identify(after).name
-        options.append({"tap": tap, "leads_to": known, "heading": None if known else heading(after)})
+        options.append({"tap": from_command(tap), "leads_to": known, "heading": None if known else heading(after)})
         driver.do(["back"])
         if not same_screen(base, driver.look()):
             options[-1]["note"] = "back did not return; explore stopped"

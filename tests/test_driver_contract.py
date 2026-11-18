@@ -392,3 +392,15 @@ def test_adb_errors_are_driver_errors_not_crashes_or_empty(tmp_path):
     d2 = hooked("uiautomator", Phone(APP), tmp_path)
     d2.start("com.example.app", "R")
     assert not d2.do([{"scrollUntilVisible": {}}]).ok
+
+
+def test_an_empty_app_package_never_lets_input_out(tmp_path):
+    from journeys.drivers.uiautomator import UiAutomatorDriver
+    phone = Phone(APP)
+    d = UiAutomatorDriver(wait_s=0, sleep=lambda s: None, app_packages=("",))
+    d._adb = phone.adb
+    d.start("com.example.app", "R")
+    phone.app.do(["launchApp"])
+    phone.focus = "null"
+    assert not d.do([{"pressKey": "Enter"}]).ok
+    assert not [c for c in phone.shell_log if c.startswith("input")]

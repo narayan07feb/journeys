@@ -8,7 +8,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
-from .actions import ActionError, from_commands, to_commands
+from .actions import ActionError, escape, to_commands
 from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
@@ -78,7 +78,7 @@ class Runner:
                 screen = self._step(step)
                 out.steps.append(StepOutcome(i, step.describe(), "passed", _ms(t0), screen=screen))
             except (StepFailed, DriverError, ActionError) as e:
-                msg = str(e)
+                msg = self._mask(str(e))
                 if not self._alive():
                     msg += " (the app is not running: crash?)"
                 out.steps.append(StepOutcome(i, step.describe(), "failed", _ms(t0), msg))
@@ -119,6 +119,13 @@ class Runner:
         elif step.kind == "event":
             self._event(arg)
         return None
+
+    def _mask(self, text: str) -> str:
+        """Env values (account passwords, tokens) never reach messages, results or the live page."""
+        for value in sorted(self.vars.values(), key=len, reverse=True):
+            if len(value) >= 3:
+                text = text.replace(value, "•••").replace(escape(value), "•••")
+        return text
 
     def _sub(self, arg):
         try:
@@ -272,7 +279,7 @@ class Runner:
             if not head:
                 return
             name = screen_name(head)
-            edges = [{"from": name, "to": o["leads_to"], "do": from_commands([o["tap"]])}
+            edges = [{"from": name, "to": o["leads_to"], "do": [o["tap"]]}
                      for o in options if o.get("leads_to") and o["leads_to"] != "CRASH"]
             pid = self._propose(f"new screen {name} (heading {head!r}) at {self._journey.name}",
                                 {"kind": "new-screen", "name": name, "match": {"all": [{"text": head}]},
@@ -282,7 +289,7 @@ class Runner:
             if not hit:
                 return
             pid = self._propose(f"{here}: {hit['tap']} reaches {target}",
-                                {"kind": "new-edge", "src": here, "dst": target, "do": from_commands([hit["tap"]])}, failure=fid)
+                                {"kind": "new-edge", "src": here, "dst": target, "do": [hit["tap"]]}, failure=fid)
         self.store.update_failure(fid, proposal=pid)
 
     def _publish(self, out: JourneyOutcome) -> None:

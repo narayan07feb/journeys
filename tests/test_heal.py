@@ -82,7 +82,7 @@ def test_unknown_screen_explored_and_promoted(h):
     out = run("open-display")
     assert out.status == "failed" and "landed on an unknown screen" in out.message
     f = store.failure(out.failure)
-    assert {"tap": {"tapOn": "Skip"}, "leads_to": "SETTINGS-DISPLAY", "heading": None,
+    assert {"tap": {"tap": "Skip"}, "leads_to": "SETTINGS-DISPLAY", "heading": None,
             "note": "back did not return; explore stopped"} in f["options"]
     assert any(o.get("note") == "no change" for o in f["options"])
     p = store.proposal(f["proposal"])

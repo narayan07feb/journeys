@@ -16,14 +16,16 @@ from .journey import Journey, load_journeys
 # that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
 DEFAULT_DENY = [Rule(text=t) for t in (
     # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too
-    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (data|storage|cache)|force stop|deactivat)/",
+    r"/(?i)\b(reset|erase|factory|wipe|delete|remove|uninstall|clear (all )?(data|storage|cache)|force stop|"
+    r"deactivat|close account|unlink|revoke|forget|reboot|restart|power off|shut ?down|turn off|block)/",
     r"/(?i)\b(wi[-\u2010-\u2015 ]?fi|airplane|aeroplane|flight mode|bluetooth|mobile data|hotspot|usb debugging"
     r"|developer options|disconnect)/",
-    r"/(?i)\b(sign ?out|log ?out|pay|buy|purchase|subscri|send|call|share|rate us|report)/",
+    r"/(?i)\b(sign[ -]?(out|off)|log[ -]?(out|off)|pay|buy|purchase|subscri|send|call|share|rate us|report)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 _JOURNEY_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+_PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+")
 
 
 def _names(obj) -> list[str]:
@@ -76,7 +78,7 @@ class Pack:
             raise PackError(load_errors[0])
         if not raw.get("name") or not raw.get("app"):
             raise PackError(f"{pf}: name and app are required")
-        if not isinstance(raw["app"], str) or not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", raw["app"]):
+        if not isinstance(raw["app"], str) or not _PACKAGE.fullmatch(raw["app"]):
             raise PackError(f"{pf}: app is an Android package name like com.example.app, not {raw['app']!r}")
         errors: list[str] = []
 
@@ -107,13 +109,21 @@ class Pack:
             shaped("hooks", dict, "a map of name: [command]"), events.get("check"),
             shaped("devices", dict, "a map"),
         )
-        p.app_packages = [str(x) for x in shaped("app_packages", list, "a list of package names")]
+        p.app_packages = shaped("app_packages", list, "a list of package names")
+        if not all(isinstance(x, str) and _PACKAGE.fullmatch(x) for x in p.app_packages):
+            errors.append(f"{pf}: app_packages is a list of package names like com.example.app.web, "
+                          f"not {p.app_packages!r}")
+            p.app_packages = []
         if raw.get("project"):
             p.project = (root / str(raw["project"])).resolve()
         taps = shaped("tap_all", dict, "a map with allowed and deny")
         p.errors += errors
         p.tap_allowed = bool(taps.get("allowed", True))
-        for r in taps.get("deny") or []:
+        deny = taps.get("deny") or []
+        if not isinstance(deny, list):
+            p.errors.append(f"{pf}: tap_all.deny is a list of rules, like [{{text: \"/(?i)delete/\"}}], not {deny!r}")
+            deny = []
+        for r in deny:
             try:
                 p.deny.append(Rule.parse(r))
             except (ValueError, re.error) as e:
@@ -138,8 +148,33 @@ class Pack:
             if not isinstance(p.sets, dict):
                 p.errors.append(f"{sf}: sets is a map of set names, not {type(p.sets).__name__}")
                 p.sets = {}
+        p._check_fake_app()
         p._check()
         return p
+
+    def _check_fake_app(self) -> None:
+        """fake/app.yaml, when there is one, must load: `run --driver fake` reads it."""
+        f = self.root / "fake" / "app.yaml"
+        if not f.exists():
+            return
+        app = yamlio.strip_lines(yamlio.load_map(f, self.errors))
+        if not app:
+            return
+        screens = app.get("screens")
+        if not isinstance(screens, dict) or not screens:
+            self.errors.append(f"{f}: screens is a map of NAME: {{elements: [...]}}")
+            return
+        if app.get("start") not in screens:
+            self.errors.append(f"{f}: start names a screen in it, not {app.get('start')!r}")
+        for name, sd in screens.items():
+            els = (sd or {}).get("elements") or [] if isinstance(sd, dict) else None
+            if not isinstance(els, list) or not all(isinstance(e, dict) for e in els):
+                self.errors.append(f"{f}: screen {name}: elements is a list of maps")
+                continue
+            targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
+            for t in targets:
+                if t is not None and t not in screens:
+                    self.errors.append(f"{f}: screen {name} points to unknown screen {t}")
 
     def _check(self) -> None:
         declared = self.declared()
@@ -191,8 +226,11 @@ class Pack:
                 self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
             if name in self.journeys:
                 self.errors.append(f"sets.yaml: set {name} has the same name as a journey")
-            if not isinstance(spec, dict):
-                self.errors.append(f"sets.yaml: set {name} is a map with journeys and/or tags")
+            if not isinstance(spec, dict) or any(
+                    not isinstance(spec.get(k) or [], list) or not all(isinstance(x, str) for x in spec.get(k) or [])
+                    for k in ("journeys", "tags")):
+                self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags]")
+                self.sets[name] = {}
                 continue
             for jn in spec.get("journeys") or []:
                 if jn not in self.journeys:

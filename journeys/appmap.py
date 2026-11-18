@@ -112,6 +112,9 @@ class AppMap:
                     if not isinstance(raw, dict) or not isinstance(raw.get("match") or {}, dict):
                         raise ValueError("a screen is a map with title and match: {all, any, none}")
                     match = raw.get("match") or {}
+                    for k in ("all", "any", "none"):
+                        if not isinstance(match.get(k) or [], list):
+                            raise ValueError(f"match.{k} is a list of rules, like [{{text: Hi}}], not {match[k]!r}")
                     m.screens[name] = ScreenDef(
                         name,
                         raw.get("title", ""),

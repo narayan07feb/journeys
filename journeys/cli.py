@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 from .drivers import DRIVERS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
@@ -41,7 +43,10 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
     if not app.exists():
         raise DriverError(f"{app} not found: the fake driver needs a fake app file")
     from .drivers.fake import FakeDriver
-    return FakeDriver.from_file(app)
+    try:
+        return FakeDriver.from_file(app)
+    except (yaml.YAMLError, AttributeError, KeyError, TypeError) as e:
+        raise DriverError(f"{app}: not a fake app file ({e}); `journeys validate` checks the pack's own") from None
 
 
 def _load(args) -> Pack:
@@ -119,6 +124,8 @@ def _open(args, pack: Pack) -> tuple[Store, Driver]:
 def cmd_tap_all(args) -> int:
     from .explore import tap_all
     pack = _load(args)
+    if not pack.tap_allowed:
+        raise PackError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
     run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver or pack.driver,
@@ -348,6 +355,8 @@ def cmd_export(args) -> int:
                 out.write(flow)
         except FileExistsError:
             raise PackError(f"{args.out} exists: remove it first, or print the flow and diff") from None
+        except OSError as e:
+            raise PackError(f"cannot write {args.out}: {e.strerror}") from None
         print(f"written: {args.out}", file=sys.stderr)
     else:
         print(flow, end="")

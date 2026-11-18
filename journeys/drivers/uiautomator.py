@@ -163,6 +163,8 @@ class UiAutomatorDriver(AdbDriver):
             self.sleep(self.poll_s)
 
     def _ours(self, window: str) -> bool:
+        if not window:
+            return False  # no focus (an empty app_packages entry must not match it)
         return window.split("/")[0] in (self.app, *self.app_packages) or bool(PERMISSION_DIALOG.fullmatch(window))
 
     def _input(self, cmd: str, what: str) -> CommandResult | None:

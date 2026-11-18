@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+from .actions import from_command, from_commands
 from .drivers.base import Driver, DriverError, Screen, changes_allowed
 from .heal import fingerprint, heading, left_app, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
@@ -89,32 +90,32 @@ class TapAll:
             tap = {"tapOn": sel}
             res = self.driver.do([tap])
             if not res.ok:
-                options.append({"tap": tap, "result": "failed", "note": res.message[:200]})
+                options.append({"tap": from_command(tap), "result": "failed", "note": res.message[:200]})
                 continue
             if not self.driver.app_alive():
                 fid = self.store.add_failure({
                     "run": self.run.id, "journey": "tap-all", "step": len(here.route),
-                    "step_text": f"{here.key}: {tap}", "message": "the app crashed",
-                    "screen": here.key, "route": here.route + [tap], "log": self.driver.crash_log(),
+                    "step_text": f"{here.key}: {from_command(tap)}", "message": "the app crashed",
+                    "screen": here.key, "route": from_commands(here.route + [tap]), "log": self.driver.crash_log(),
                 })
-                self.report.crashes.append({"screen": here.key, "tap": tap, "failure": fid})
-                options.append({"tap": tap, "result": "crash", "failure": fid})
+                self.report.crashes.append({"screen": here.key, "tap": from_command(tap), "failure": fid})
+                options.append({"tap": from_command(tap), "result": "crash", "failure": fid})
                 if not self._reach(here):
                     break
                 continue
             other = left_app(self.driver, self.pack.owns)
             if other:  # a system screen or another app: never walked; come back
-                self.report.left_app.append({"screen": here.key, "tap": tap, "package": other})
-                options.append({"tap": tap, "result": f"left the app for {other}"})
+                self.report.left_app.append({"screen": here.key, "tap": from_command(tap), "package": other})
+                options.append({"tap": from_command(tap), "result": f"left the app for {other}"})
                 if not self._reach(here):
                     break
                 continue
             after = self.driver.look()
             if same_screen(base, after):
-                options.append({"tap": tap, "result": "no change"})
+                options.append({"tap": from_command(tap), "result": "no change"})
                 continue
             key, known = self._key(after)
-            options.append({"tap": tap, "result": key})
+            options.append({"tap": from_command(tap), "result": key})
             if self._seen(key):
                 # A screen already found (an in-app Back or Leave to the menu): navigation, not a
                 # dead end. Back is tested once per screen, when it is first found.
@@ -124,10 +125,10 @@ class TapAll:
             self.found.append(Found(key, after, here.route + [tap], known))
             self.driver.do(["back"])
             if not (self.driver.app_alive() and same_screen(base, self.driver.look())):
-                self.report.dead_ends.append({"screen": key, "from": here.key, "tap": tap})
+                self.report.dead_ends.append({"screen": key, "from": here.key, "tap": from_command(tap)})
                 if not self._reach(here):
                     break
-        self.report.screens.append({"screen": here.key, "route": here.route, "options": options})
+        self.report.screens.append({"screen": here.key, "route": from_commands(here.route), "options": options})
 
 
 def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:

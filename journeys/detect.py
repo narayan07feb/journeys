@@ -53,7 +53,8 @@ def scan(project: Path, strict: bool = False) -> tuple[list[Found], str | None]:
                 continue  # a broken link or an unreadable file: not evidence either way
             if _ESPRESSO.search(text):
                 found.setdefault("espresso", Found("espresso", rel))
-            m = _APP_ID.search(text)
+            code = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)  # commented-out lines are not the app
+            m = _APP_ID.search(code)
             if m and not re.search(r"com\.android\.(library|test)|androidx\.benchmark|android\.test\b", text):
                 ids.setdefault(m.group(1), rel)  # an app module, not a test, library or benchmark one
         elif f.suffix in (".yaml", ".yml"):
@@ -96,7 +97,8 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
     driver, why = pick(found)
     app = app or app_id
     if not app:
-        raise ValueError("no app id: pass --app <package> (none found in the project's Gradle files)")
+        raise ValueError("no app id: pass --app <package>" + (" (none found in the project's Gradle files)"
+                                                              if project else ""))
     if not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", app):
         raise ValueError(f"{app!r} is not an Android package name (like com.example.app)")
     for sub in ("map", "journeys", "drafts"):
