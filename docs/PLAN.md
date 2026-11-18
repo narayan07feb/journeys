@@ -5,7 +5,7 @@ Journeys is a generic, open-source end-to-end test tool for Android apps. It dri
 A company keeps its own app map and journeys in a private **pack**; the public repo has the core
 and one example pack for a public demo app.
 
-Status: M0 to M7 built on 17 Nov 2026 (fake-driver tests); device checks wait for the owner. Working name; the owner may rename it.
+Status: M0 to M8 built 17 Nov 2026; the Settings smoke and a game tap-all passed on a real phone (speedrun driver). M9 to M13 (driver-generic, neutral format, detection, Maestro import/export, drafts and the skill) built 18 Nov 2026. Name: Journeys (owner OK), MIT.
 
 ## 1. Clean-room rule
 
@@ -241,6 +241,13 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M6 | MCP server | JSON-RPC tests over a pipe |
 | M7 | Droid Lite plugin | `list/run/watch` output checked against the spec |
 | M8 | Docs, README, emulator end-to-end with the example pack | owner review |
+| M9 | Driver-generic: one Driver contract, `uiautomator` driver (adb only), driver per pack + `--driver`, no silent fallback | one contract test suite passes on fake, uiautomator, maestro, speedrun (pretend phone) |
+| M10 | Neutral format: packs use Journeys' own action words and selectors; framework words are errors | validate tests |
+| M11 | Framework detection: `init --project` picks the driver from the project's tests; doctor shows it | tests on sample projects |
+| M12 | Maestro import (flows to drafts) and export (journey to flow) | round-trip tests |
+| M13 | Drafts (`new`, `validate`, `run --draft`, `promote-journey`) and the skill (`skills/journeys/`) | a fresh agent writes a valid journey from the skill alone |
+| M14 | Device check of the uiautomator driver on a real phone | owner-approved device |
+| Next | Appium driver (W3C WebDriver, host side) + export; Espresso/Compose export as an androidTest (whole journey at once: no detours or explore there) | per framework |
 
 ## 6. Tests
 

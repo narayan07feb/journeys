@@ -1,6 +1,6 @@
-# On a real phone Speedrun reads a Settings row as one button whose label joins its texts
-# ("Network & internet, Wi-Fi, mobile, data usage, and hotspot"), so the rules match the start
-# of a label with a /regex/. A landscape phone shows only the first rows of a screen.
+# Some drivers read a Settings row as one button whose label joins its texts ("Network &
+# internet, Wi-Fi, mobile, data usage, and hotspot"), others as separate texts, so the rules
+# match the start of a text with a /regex/. A landscape phone shows only the first rows.
 screens:
   SETTINGS-HOME:
     title: Settings home

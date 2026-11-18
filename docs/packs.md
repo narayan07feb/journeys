@@ -9,10 +9,14 @@ my-pack/
   map/screens.yaml
   map/edges.yaml
   journeys/*.yaml
+  drafts/*.yaml   new journeys: run only with `run NAME --draft`, never in sets or `all`
   sets.yaml
   hooks/          scripts the pack names
   fake/app.yaml   optional: a model of the app for `--driver fake`
 ```
+
+The exact format, every step and action, and a worked example are in
+[skills/journeys/references/format.md](../skills/journeys/references/format.md).
 
 ## pack.yaml
 
@@ -34,7 +38,7 @@ devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
                                     # Elsewhere --dka is refused, and Speedrun does not start when it
                                     # would change the phone (Android 13+, other agent builds, a Maestro driver)
-  animations: normal                # Speedrun's --animations: normal (default) leaves the scales at 1
+  animations: normal                # speedrun driver only: --animations normal leaves the scales at 1
 tap_all:
   allowed: true                     # false: tap-all and explore-on-failure never tap in this app
   deny: [{text: "/(?i)delete account/"}, {id: logout_button}]   # never tapped (rules as for screens)

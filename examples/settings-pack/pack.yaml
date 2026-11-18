@@ -9,7 +9,7 @@ hooks:
   note: [hooks/note.sh]     # a tiny example hook: prints its JSON argument
 devices:
   allow_settings_changes: emulator
-  animations: normal        # Speedrun keeps the animation scales at 1 (no device setting changes)
+  animations: normal        # speedrun driver only: keeps the animation scales at 1
 tap_all:
   # Settings has switches that cut a device off (Wi-Fi, airplane mode) and screens that erase it.
   # tap-all and explore-on-failure never tap here; use them on your own app.
