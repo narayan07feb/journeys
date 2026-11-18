@@ -143,7 +143,7 @@ def cmd_run(args) -> int:
         for e in pack.errors:
             print(f"FAIL {e}", file=sys.stderr)
         return 2
-    journeys = pack.select(args.target)
+    journeys = pack.select(args.target, draft=args.draft)
     store, driver = _open(args, pack)
     run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver or pack.driver,
                         serial=args.serial)
@@ -282,6 +282,65 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_validate(args) -> int:
+    pack = _load(args)
+    for e in pack.errors:
+        print(f"FAIL {e}")
+    print(f"{'OK' if not pack.errors else 'FAIL'} pack {pack.name}: {len(pack.journeys)} journeys, "
+          f"{len(pack.drafts)} drafts, {len(pack.map.screens)} screens, {len(pack.map.edges)} edges, "
+          f"{len(pack.errors)} errors")
+    return 1 if pack.errors else 0
+
+
+def cmd_new(args) -> int:
+    from .authoring import new_draft
+    print(f"draft written: {new_draft(_load(args), args.name, args.start)}")
+    return 0
+
+
+def cmd_promote_journey(args) -> int:
+    from .authoring import promote_journey
+    print(f"promoted: {promote_journey(_load(args), args.name)}")
+    return 0
+
+
+def cmd_export(args) -> int:
+    from .formats.maestro import export
+    pack = _load(args)
+    j = pack.journeys.get(args.journey) or pack.drafts.get(args.journey)
+    if not j:
+        raise PackError(f"no journey or draft named {args.journey}")
+    flow, notes = export(pack, j)
+    for n in notes:
+        print(f"NOTE {n}", file=sys.stderr)
+    if args.out:
+        Path(args.out).write_text(flow)
+        print(f"written: {args.out}", file=sys.stderr)
+    else:
+        print(flow, end="")
+    return 0
+
+
+def cmd_import(args) -> int:
+    import yaml
+    from .formats.maestro import import_flow
+    pack = _load(args)
+    files = [f for p in map(Path, args.paths) for f in (sorted(p.rglob("*.y*ml")) if p.is_dir() else [p])]
+    for f in files:
+        draft, notes = import_flow(f)
+        dest = pack.root / "drafts" / f"{draft['name']}.yaml"
+        if draft["name"] in pack.journeys or draft["name"] in pack.drafts or dest.exists():
+            print(f"SKIP {f}: a journey or draft named {draft['name']} exists")
+            continue
+        dest.parent.mkdir(exist_ok=True)
+        dest.write_text(yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
+        print(f"draft {dest}")
+        for n in notes:
+            print(f"  NOTE {n}")
+    print("next: `journeys validate`, then put expect/goto steps on the map's screens, then promote-journey")
+    return 0
+
+
 def cmd_setup(args) -> int:
     from .setup import install
     dest = Path(__file__).resolve().parents[1] / "third_party" / "speedrun"
@@ -295,6 +354,23 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--state", help="state folder (default ~/.local/state/journeys/<pack>, or JOURNEYS_STATE)")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="check the pack and the tools").set_defaults(fn=cmd_doctor)
+    sub.add_parser("validate", help="check the pack, every journey and every draft").set_defaults(fn=cmd_validate)
+    s = sub.add_parser("new", help="write a new draft journey into drafts/")
+    s.add_argument("name")
+    s.add_argument("--start", help="the screen it starts on (default: the map's first)")
+    s.set_defaults(fn=cmd_new)
+    s = sub.add_parser("promote-journey", help="move a valid draft into journeys/")
+    s.add_argument("name")
+    s.set_defaults(fn=cmd_promote_journey)
+    s = sub.add_parser("export", help="write a journey as another tool's test (maestro)")
+    s.add_argument("format", choices=["maestro"])
+    s.add_argument("journey")
+    s.add_argument("-o", "--out", help="file to write (default: print)")
+    s.set_defaults(fn=cmd_export)
+    s = sub.add_parser("import", help="turn another tool's tests into draft journeys (maestro)")
+    s.add_argument("format", choices=["maestro"])
+    s.add_argument("paths", nargs="+", help="flow files or folders")
+    s.set_defaults(fn=cmd_import)
     s = sub.add_parser("init", help="start a new pack; the driver follows the project's test framework")
     s.add_argument("--project", help="the app's project folder (its test framework picks the driver)")
     s.add_argument("--app", help="the app's package (default: applicationId from the project)")
@@ -312,6 +388,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps: read-only checks")
+    s.add_argument("--draft", action="store_true", help="the target is a draft journey (drafts never run otherwise)")
     s.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("tap-all", help="walk the app and tap every option once")

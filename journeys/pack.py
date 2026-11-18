@@ -45,6 +45,7 @@ class Pack:
     deny: list[Rule] = field(default_factory=lambda: list(DEFAULT_DENY))
     map: AppMap = field(default_factory=AppMap)
     journeys: dict[str, Journey] = field(default_factory=dict)
+    drafts: dict[str, Journey] = field(default_factory=dict)   # new journeys, not yet in sets or `all`
     sets: dict[str, dict] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
@@ -77,14 +78,16 @@ class Pack:
             p.errors.append(f"{pf}: driver is one of {', '.join(DRIVERS)}, not {p.driver}")
         p.map = AppMap.load(root / "map")
         p.errors += p.map.errors
-        for f in sorted((root / "journeys").glob("**/*.y*ml")):
-            js, errs = load_journeys(f)
-            p.errors += errs
-            for j in js:
-                if j.name in p.journeys:
-                    p.errors.append(f"{f}:{j.line}: journey {j.name} is also in {p.journeys[j.name].file}")
-                else:
-                    p.journeys[j.name] = j
+        for folder, into in (("journeys", p.journeys), ("drafts", p.drafts)):
+            for f in sorted((root / folder).glob("**/*.y*ml")):
+                js, errs = load_journeys(f)
+                p.errors += errs
+                for j in js:
+                    other = p.journeys.get(j.name) or p.drafts.get(j.name)
+                    if other:
+                        p.errors.append(f"{f}:{j.line}: journey {j.name} is also in {other.file}")
+                    else:
+                        into[j.name] = j
         sf = root / "sets.yaml"
         if sf.exists():
             p.sets = yamlio.strip_lines((yamlio.load(sf) or {}).get("sets") or {})
@@ -92,11 +95,19 @@ class Pack:
         return p
 
     def _check(self) -> None:
-        for j in self.journeys.values():
+        for j in [*self.journeys.values(), *self.drafts.values()]:
+            here = None  # the screen the journey is on, as far as the file says
             for s in j.steps:
                 at = f"{j.file}:{s.line}"
                 if s.kind in ("expect", "goto") and s.arg not in self.map.screens:
                     self.errors.append(f"{at}: {s.kind} names unknown screen {s.arg}")
+                    here = None
+                elif s.kind == "goto" and here and self.map.path(here, s.arg) is None:
+                    self.errors.append(f"{at}: goto {s.arg}: the map has no path from {here}")
+                if s.kind in ("expect", "goto"):
+                    here = s.arg if s.arg in self.map.screens else None
+                elif s.kind in ("do", "input", "hook"):
+                    here = None  # an action may move to another screen
                 try:
                     if s.kind == "do":
                         to_commands(s.arg)
@@ -125,8 +136,12 @@ class Pack:
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
 
-    def select(self, target: str) -> list[Journey]:
-        """A journey name, a set name, or `all`."""
+    def select(self, target: str, draft: bool = False) -> list[Journey]:
+        """A journey name, a set name, or `all`. Drafts run only when named with draft=True."""
+        if draft:
+            if target not in self.drafts:
+                raise PackError(f"no draft named {target} (drafts: {', '.join(self.drafts) or 'none'})")
+            return [self.drafts[target]]
         if target == "all":
             return list(self.journeys.values())
         if target in self.journeys:
