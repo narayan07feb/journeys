@@ -247,6 +247,7 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M12 | Maestro import (flows to drafts) and export (journey to flow) | round-trip tests |
 | M13 | Drafts (`new`, `validate`, `run --draft`, `promote-journey`) and the skill (`skills/journeys/`) | a fresh agent writes a valid journey from the skill alone |
 | M14 | Device check of the uiautomator driver on a real phone | owner-approved device |
+| M15 | Two-way sync, one source of truth (`sync:` in pack.yaml: source journeys (default) or framework). Journeys -> generated team-framework files with a header and hash; a developer's new flow -> draft journey; `check-sync` reports hand edits, stale or missing files, unimported flows | fake tests per drift case, mutation-checked |
 | Next | Appium driver (W3C WebDriver, host side) + export; Espresso/Compose export as an androidTest (whole journey at once: no detours or explore there) | per framework |
 
 ## 6. Tests
