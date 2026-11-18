@@ -89,6 +89,15 @@ def changes_allowed(rule, driver: Driver, serial: str | None) -> bool:
     return isinstance(rule, list) and serial in rule
 
 
+def kind_of(cls: str, clickable: bool, label: str) -> str:
+    """An element's kind from its Android class, the same for every driver. A clickable element
+    with no label (a bare View, Image or Text) is a Button."""
+    name = (cls or "").rsplit(".", 1)[-1]
+    kind = "Field" if name.endswith("EditText") else next(
+        (k for k in ("Button", "Switch", "CheckBox", "Image", "Text") if k in name), "View")
+    return "Button" if clickable and kind in ("View", "Image", "Text") and not label.strip() else kind
+
+
 def command_name(cmd) -> tuple[str, object]:
     """A flow command is a bare name ("back") or a one-key map ({tapOn: "Next"})."""
     if isinstance(cmd, str):

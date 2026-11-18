@@ -14,17 +14,7 @@ from pathlib import Path
 import yaml
 
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen
-
-
-def _short(cls: str) -> str:
-    name = (cls or "").rsplit(".", 1)[-1]
-    if name.endswith("EditText"):
-        return "Field"
-    for kind in ("Button", "Switch", "CheckBox", "Image", "Text"):
-        if kind in name:
-            return kind
-    return "View"
+from .base import CommandResult, DriverError, Element, Screen, kind_of
 
 
 def parse_hierarchy(data: dict) -> Screen:
@@ -40,9 +30,7 @@ def parse_hierarchy(data: dict) -> Screen:
             state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")
             if a.get("enabled") == "false":
                 state += ("disabled",)
-            kind = _short(a.get("class", ""))
-            if clickable and kind in ("View", "Text") and not text.strip():
-                kind = "Button"
+            kind = kind_of(a.get("class", ""), clickable, text)
             out.append(Element(f"@{len(out) + 1}", kind, text, rid, state))
         for ch in node.get("children") or []:
             walk(ch)

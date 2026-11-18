@@ -37,7 +37,7 @@ tap_all:
 
 ```yaml
 screens:
-  CART:                        # names: UPPER-CASE words with dashes
+  CART:                        # any name; the custom is UPPER-CASE words with dashes
     title: Cart
     match:
       all: [{text: "Your cart"}]              # every rule must match

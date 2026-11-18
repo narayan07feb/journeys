@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from .drivers import DRIVERS
 
 _SKIP = {".git", "build", ".gradle", "node_modules", ".idea", ".venv", "third_party", ".cxx"}
@@ -27,13 +29,15 @@ def _files(root: Path, depth: int = 6):
     root = root.resolve()
     for dirpath, dirs, files in os.walk(root):
         rel = Path(dirpath).relative_to(root)
-        dirs[:] = [] if len(rel.parts) >= depth else [d for d in dirs if d not in _SKIP]
-        for f in files:
+        dirs[:] = [] if len(rel.parts) >= depth else sorted(d for d in dirs if d not in _SKIP)
+        for f in sorted(files):
             yield Path(dirpath) / f
 
 
 def scan(project: Path) -> tuple[list[Found], str | None]:
     """Frameworks found (strongest first) and the app id from the Gradle build, if any."""
+    if not project.is_dir():
+        raise FileNotFoundError(f"project folder {project} not found")
     found: dict[str, Found] = {}
     app_id = None
     for f in _files(project):
@@ -79,10 +83,11 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> l
         raise ValueError("no app id: pass --app <package> (none found in the project's Gradle files)")
     for sub in ("map", "journeys", "drafts"):
         (dest / sub).mkdir(parents=True, exist_ok=True)
-    (dest / "pack.yaml").write_text(
-        f"name: {name}\napp: {app}\ndriver: {driver}   # {why}\n"
-        + (f"project: {os.path.relpath(project.resolve(), dest.resolve())}\n" if project else "")
-        + "devices:\n  allow_settings_changes: emulator\n")
+    head = {"name": name, "app": app, "driver": driver}
+    if project:
+        head["project"] = os.path.relpath(project.resolve(), dest.resolve())
+    (dest / "pack.yaml").write_text(f"# driver {driver}: {why}\n" + yaml.safe_dump(head, sort_keys=False)
+                                    + "devices:\n  allow_settings_changes: emulator\n")
     (dest / "map" / "screens.yaml").write_text("screens: {}\n")
     (dest / "map" / "edges.yaml").write_text("edges: []\n")
     (dest / "sets.yaml").write_text("sets: {}\n")

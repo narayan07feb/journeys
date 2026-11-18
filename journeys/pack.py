@@ -136,6 +136,12 @@ class Pack:
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
 
+    def run_errors(self, draft: str | None = None) -> list[str]:
+        """Errors that stop a run: all but other drafts' (an unfinished draft never stops a set)."""
+        drafts = str(self.root / "drafts") + "/"
+        mine = str(self.drafts[draft].file) if draft in self.drafts else None
+        return [e for e in self.errors if not e.startswith(drafts) or (mine and e.startswith(mine))]
+
     def select(self, target: str, draft: bool = False) -> list[Journey]:
         """A journey name, a set name, or `all`. Drafts run only when named with draft=True."""
         if draft:

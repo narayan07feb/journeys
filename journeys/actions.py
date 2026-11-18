@@ -41,7 +41,13 @@ def escape(text: str) -> str:
 
 def _text(t) -> str:
     t = str(t)
-    return t[1:-1] if len(t) > 1 and t.startswith("/") and t.endswith("/") else escape(t)
+    if len(t) > 1 and t.startswith("/") and t.endswith("/"):
+        try:
+            re.compile(t[1:-1])
+        except re.error as e:
+            raise ActionError(f"bad regex {t}: {e}") from None
+        return t[1:-1]
+    return "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t)  # "@3" is text, not a ref
 
 
 def to_selector(sel):
@@ -60,7 +66,7 @@ def from_selector(sel):
     """The drivers' form -> neutral (plain text when the regex is only escaped text)."""
     def text(rx: str) -> str:
         literal = re.sub(r"\\(.)", r"\1", rx)
-        return literal if escape(literal) == rx and not literal.startswith("/") else f"/{rx}/"
+        return literal if _text(literal) == rx and not literal.startswith("/") else f"/{rx}/"
     if isinstance(sel, str):
         return text(sel)
     out = dict(sel)

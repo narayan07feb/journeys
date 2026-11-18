@@ -20,10 +20,11 @@ def _done(out: bytes | str = b"", rc: int = 0) -> subprocess.CompletedProcess:
 
 
 class Phone:
-    def __init__(self, app: dict, busy: str = ""):
+    def __init__(self, app: dict, busy: str = "", ps_works: bool = True):
         self.app = FakeDriver(app)
         self.pkg = app["app"]
         self.busy = busy          # a process name `ps` shows, e.g. dev.mobile.maestro
+        self.ps_works = ps_works
         self.shell_log: list[str] = []
         self.typed: list[str] = []
 
@@ -56,8 +57,10 @@ class Phone:
             return _done(b"", 1)
         cmd = " ".join(args[1:])
         self.shell_log.append(cmd)
-        if cmd.startswith("ps "):
-            return _done(self.busy)
+        if cmd == "ps -A -o NAME" and not self.ps_works:
+            return _done(b"", 1)
+        if cmd == "ps -A -o NAME":
+            return _done("NAME\ninit\nsystem_server\ncom.android.systemui\n" + self.busy)
         if cmd.startswith("pidof "):
             return _done(b"123\n" if self.app.alive else b"", 0 if self.app.alive else 1)
         if cmd == "dumpsys window":

@@ -67,10 +67,12 @@ def cmd_doctor(args) -> int:
     wanted = pack.driver if "pack" in locals() else None
     if wanted and pack.project:
         from .detect import pick, scan
-        found, _ = scan(pack.project)
-        detected, why = pick(found)
-        rows.append(("OK" if detected == wanted else "WARN",
-                     f"project {pack.project}: {why}" + ("" if detected == wanted else f"; the pack says {wanted}")))
+        try:
+            detected, why = pick(scan(pack.project)[0])
+            rows.append(("OK" if detected == wanted else "WARN",
+                         f"project {pack.project}: {why}" + ("" if detected == wanted else f"; the pack says {wanted}")))
+        except FileNotFoundError as e:
+            rows.append(("FAIL", str(e)))
     for kind, missing in availability().items():
         if kind != "fake":
             level = "OK" if not missing else "FAIL" if kind == wanted else "WARN"
@@ -139,11 +141,12 @@ def cmd_tap_all(args) -> int:
 
 def cmd_run(args) -> int:
     pack = _load(args)
-    if pack.errors:
-        for e in pack.errors:
+    journeys = pack.select(args.target, draft=args.draft)
+    errors = pack.run_errors(args.target if args.draft else None)
+    if errors:
+        for e in errors:
             print(f"FAIL {e}", file=sys.stderr)
         return 2
-    journeys = pack.select(args.target, draft=args.draft)
     store, driver = _open(args, pack)
     run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver or pack.driver,
                         serial=args.serial)
@@ -276,7 +279,7 @@ def cmd_init(args) -> int:
     project = Path(args.project).expanduser() if args.project else None
     try:
         lines = init_pack(dest, project, args.name or dest.name, args.app)
-    except (FileExistsError, ValueError) as e:
+    except (FileExistsError, FileNotFoundError, ValueError) as e:
         raise PackError(str(e)) from None
     print("\n".join(lines))
     return 0
@@ -323,11 +326,19 @@ def cmd_export(args) -> int:
 
 def cmd_import(args) -> int:
     import yaml
+
+    from .actions import ActionError
     from .formats.maestro import import_flow
     pack = _load(args)
     files = [f for p in map(Path, args.paths) for f in (sorted(p.rglob("*.y*ml")) if p.is_dir() else [p])]
     for f in files:
-        draft, notes = import_flow(f)
+        if f.name in ("config.yaml", "config.yml"):
+            continue  # Maestro's workspace config, not a flow
+        try:
+            draft, notes = import_flow(f)
+        except (ActionError, yaml.YAMLError) as e:
+            print(f"SKIP {f}: {e}")
+            continue
         dest = pack.root / "drafts" / f"{draft['name']}.yaml"
         if draft["name"] in pack.journeys or draft["name"] in pack.drafts or dest.exists():
             print(f"SKIP {f}: a journey or draft named {draft['name']} exists")

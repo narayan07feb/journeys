@@ -22,7 +22,11 @@ def new_draft(pack: Pack, name: str, start: str | None) -> str:
                         "the map has no screens yet: add one to map/screens.yaml first")
     f = pack.root / "drafts" / f"{name}.yaml"
     f.parent.mkdir(exist_ok=True)
-    f.write_text(yaml.safe_dump({"name": name, "tags": [], "steps": [{"expect": start}]}, sort_keys=False))
+    try:
+        with open(f, "x") as out:  # never over a file that is there (it may not load: still the user's)
+            out.write(yaml.safe_dump({"name": name, "tags": [], "steps": [{"expect": start}]}, sort_keys=False))
+    except FileExistsError:
+        raise PackError(f"{f} already exists") from None
     return str(f)
 
 
@@ -34,7 +38,9 @@ def promote_journey(pack: Pack, name: str) -> str:
     """Move a valid draft into journeys/. Refuses errors, duplicates and shared draft files."""
     d = pack.drafts.get(name)
     if not d:
-        raise PackError(f"no draft named {name} (drafts: {', '.join(pack.drafts) or 'none'})")
+        broken = [e for e in pack.errors if e.startswith(str(pack.root / "drafts" / name) + ".")]
+        raise PackError("\n".join(broken) if broken else
+                        f"no draft named {name} (drafts: {', '.join(pack.drafts) or 'none'})")
     errs = [e for e in pack.errors if e.startswith(f"{d.file}:") or e.startswith(f"{d.file} ")]
     if errs:
         raise PackError(f"draft {name} has errors; fix them first:\n" + "\n".join(errs))

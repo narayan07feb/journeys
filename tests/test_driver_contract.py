@@ -71,6 +71,20 @@ def test_typing_does_not_fail(drv):
     assert drv.do([{"tapOn": {"id": "email"}}, {"inputText": "a b"}, "hideKeyboard"]).ok
 
 
+def test_every_neutral_action_runs_on_every_driver(drv):
+    from journeys.actions import to_commands
+    acts = [{"tap": {"id": "email"}}, {"type": "hi"}, {"erase": 2}, {"press": "enter"}, "hide_keyboard",
+            "scroll", {"scroll_to": "Next"}, {"scroll_to": {"element": "Welcome", "direction": "up"}},
+            "wait_idle", {"see": {"text": "Next", "index": 0}}, {"not_see": {"text": "Next", "index": 1}},
+            {"launch": {"clear_state": True}}, {"tap": "Next"}]
+    res = drv.do(to_commands(acts))
+    assert res.ok, res.message
+    assert "Second page" in texts(drv)
+    assert not drv.do(to_commands([{"scroll_to": "Not here"}])).ok
+    assert drv.do(["launchApp"]).ok and len(drv.look().elements) >= 3
+    assert not drv.do(to_commands([{"tap": "@3"}])).ok  # neutral "@3" is text, not the 3rd element
+
+
 def test_stop_and_relaunch(drv):
     assert drv.do(["stopApp"]).ok and not drv.app_alive()
     assert drv.do(["launchApp"]).ok and drv.app_alive() and "Welcome" in texts(drv)
@@ -81,11 +95,13 @@ def test_foreground_and_screenshot(drv, tmp_path):
     assert drv.screenshot(tmp_path / "s.png") is not None
 
 
-@pytest.mark.parametrize("kind", ["uiautomator"])
-def test_uiautomator_does_not_start_next_to_another_driver(kind, tmp_path):
-    phone = Phone(APP, busy="dev.mobile.maestro\n")
-    with pytest.raises(DriverError, match="another UI test driver"):
-        hooked(kind, phone, tmp_path).start("com.example.app", "R58M")
+def test_uiautomator_does_not_start_next_to_another_driver_or_blind(tmp_path):
+    with pytest.raises(DriverError, match=r"another UI test driver.*dev\.mobile\.maestro"):
+        hooked("uiautomator", Phone(APP, busy="dev.mobile.maestro\n"), tmp_path).start("com.example.app", "R58M")
+    with pytest.raises(DriverError, match="could not list"):
+        hooked("uiautomator", Phone(APP, ps_works=False), tmp_path).start("com.example.app", "R58M")
+    with pytest.raises(DriverError, match="not an Android package"):
+        hooked("uiautomator", Phone(APP), tmp_path).start("com.x; rm -rf /", "R58M")
 
 
 def test_uiautomator_writes_no_setting_and_touches_only_the_pack_app(tmp_path):
@@ -97,6 +113,7 @@ def test_uiautomator_writes_no_setting_and_touches_only_the_pack_app(tmp_path):
     assert not any(c.startswith(("settings put", "settings delete", "pm install", "rm ", "pm uninstall"))
                    for c in phone.shell_log)
     assert phone.typed == ["'it'\"'\"'s%sme'"]
+    assert not d.do([{"inputText": "naïve"}]).ok and not d.do([{"inputText": "100%s"}]).ok
     assert {c.split()[-1] for c in phone.shell_log if c.startswith("am force-stop")} == {"com.example.app"}
 
 

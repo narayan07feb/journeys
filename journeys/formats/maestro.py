@@ -5,11 +5,12 @@ what has no neutral word is listed, never guessed.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
-from ..actions import ActionError, escape, from_selector, to_commands, to_selector
+from ..actions import KEYS, ActionError, escape, from_selector, to_commands, to_selector
 from ..journey import Journey
 from ..pack import Pack
 
@@ -29,7 +30,7 @@ def _maestro(cmd):
     return cmd
 
 
-def screen_checks(pack: Pack, screen: str) -> list:
+def screen_checks(pack: Pack, screen: str, notes: list[str] | None = None) -> list:
     """Maestro asserts that stand for `expect: SCREEN` (its `all` rules with text or id). A map rule's
     /regex/ may match part of a text; Maestro's must match all of it, hence the .*(?:...).*"""
     out = []
@@ -41,6 +42,13 @@ def screen_checks(pack: Pack, screen: str) -> list:
             sel["id"] = r.id
         if sel:
             out.append({"assertVisible": sel})
+    sd = pack.map.screens[screen]
+    dropped = [k for k, rules in (("any", sd.any), ("none", sd.none)) if rules]
+    if any(r.kind for r in sd.all):
+        dropped.append("kind")
+    if notes is not None and dropped:
+        notes.append(f"screen {screen}: its {', '.join(dropped)} rules have no Maestro check; "
+                     f"the flow checks {len(out)} 'all' rule(s)")
     return out
 
 
@@ -52,7 +60,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     for s in j.steps:
         at = f"{j.file.name}:{s.line}"
         if s.kind == "expect":
-            cmds += screen_checks(pack, s.arg)
+            cmds += screen_checks(pack, s.arg, notes)
             here = s.arg
         elif s.kind == "goto":
             path = pack.map.path(here, s.arg) if here else None
@@ -61,14 +69,18 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
                 continue
             for e in path:
                 cmds += [_maestro(c) for c in to_commands(e.do)]
-            cmds += screen_checks(pack, s.arg)
+            cmds += screen_checks(pack, s.arg, notes)
             here = s.arg
-        elif s.kind in ("see", "not_see", "do"):
-            acts = {s.kind: s.arg} if s.kind != "do" else s.arg
-            cmds += [_maestro(c) for c in to_commands(acts)]
+        elif s.kind in ("see", "not_see"):
+            cmds += [_maestro(c) for c in to_commands({s.kind: s.arg})]
+        elif s.kind == "do":
+            cmds += [_maestro(c) for c in to_commands(s.arg)]
+            here = None  # an action may change the screen
         elif s.kind == "input":
             cmds.append({"inputText": str(s.arg)})
+            here = None
         else:
+            here = None
             notes.append(f"{at}: {s.kind} steps run only in Journeys (pack hooks and event checks); left out")
     body = yaml.safe_dump(cmds, sort_keys=False, allow_unicode=True)
     return f"# Exported from Journeys journey {j.name} (pack {pack.name}).\nappId: {pack.app}\n---\n{body}", notes
@@ -82,10 +94,17 @@ def _neutral_sel(arg):
     raise ActionError(f"selector {arg!r} has keys with no neutral form")
 
 
+def slug(stem: str) -> str:
+    """A journey name from a file name: "Login Flow_2" -> "login-flow-2"."""
+    return re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "flow"
+
+
 def import_flow(path: Path) -> tuple[dict, list[str]]:
     """A draft journey (as a dict to write) from one Maestro flow file, and what was left out."""
     docs = [d for d in yaml.safe_load_all(path.read_text()) if d is not None]
-    commands = docs[-1] if docs and isinstance(docs[-1], list) else []
+    if not docs or not isinstance(docs[-1], list):
+        raise ActionError(f"{path.name}: not a Maestro flow (no command list)")
+    commands = docs[-1]
     notes, steps, actions = [], [], []
     start = {"launch": False}
 
@@ -112,8 +131,11 @@ def import_flow(path: Path) -> tuple[dict, list[str]]:
             elif name == "inputText":
                 actions.append({"type": str(arg)})
             elif name == "eraseText":
-                actions.append({"erase": int(arg) if arg else 50})
+                n = arg.get("charactersToErase", 50) if isinstance(arg, dict) else (arg or 50)
+                actions.append({"erase": int(n)})
             elif name == "pressKey":
+                if str(arg).lower() not in KEYS:
+                    raise ActionError(f"pressKey {arg}: not a neutral key ({', '.join(sorted(KEYS))})")
                 actions.append({"press": str(arg).lower()})
             elif name == "scrollUntilVisible":
                 el = arg.get("element") if isinstance(arg, dict) else arg
@@ -125,10 +147,10 @@ def import_flow(path: Path) -> tuple[dict, list[str]]:
                                 "waitForAnimationToEnd": "wait_idle", "stopApp": "stop", "launchApp": "launch"}[name])
             else:
                 raise ActionError(f"{name or cmd!r} has no neutral word")
-        except ActionError as e:
+        except (ActionError, TypeError, ValueError) as e:
             notes.append(f"{path.name} command {i + 1}: {e}; left out")
     flush()
     if not steps:
         steps.append({"do": ["wait_idle"]})
         notes.append(f"{path.name}: no command could be imported; the draft holds a placeholder step")
-    return {"name": path.stem, "tags": ["imported"], "start": start, "steps": steps}, notes
+    return {"name": slug(path.stem), "tags": ["imported"], "start": start, "steps": steps}, notes

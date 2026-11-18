@@ -22,7 +22,7 @@ import yaml
 from .base import CommandResult, Driver, DriverError, Element, Screen, command_name, find
 
 CRASH = "CRASH"
-_NO_OP = {"waitForAnimationToEnd", "hideKeyboard", "inputText", "eraseText"}
+_NO_OP = {"waitForAnimationToEnd", "hideKeyboard", "inputText", "eraseText", "scroll", "pressKey"}
 
 
 class FakeDriver(Driver):

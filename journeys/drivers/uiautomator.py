@@ -13,22 +13,12 @@ import time
 import xml.etree.ElementTree as ET
 
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen, command_name, find
+from .base import CommandResult, DriverError, Element, Screen, command_name, find, kind_of
 
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _KEYS = {"back": 4, "home": 3, "enter": 66, "tab": 61, "backspace": 67, "delete": 67, "search": 84}
 _NO_OP = {"waitForAnimationToEnd"}
 OTHER_DRIVERS = "maestro|uiautomator|speedrun|instrument"
-
-
-def _kind(cls: str, clickable: bool, label: str) -> str:
-    name = (cls or "").rsplit(".", 1)[-1]
-    if name.endswith("EditText"):
-        return "Field"
-    for kind in ("Button", "Switch", "CheckBox", "Image", "Text"):
-        if kind in name:
-            return "Button" if clickable and kind in ("Image", "Text") and not label else kind
-    return "Button" if clickable else "View"
 
 
 def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
@@ -53,7 +43,7 @@ def parse_dump(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
         state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")
         if a.get("enabled") == "false":
             state += ("disabled",)
-        elements.append(Element(f"@{len(elements) + 1}", _kind(a.get("class", ""), clickable, label),
+        elements.append(Element(f"@{len(elements) + 1}", kind_of(a.get("class", ""), clickable, label),
                                 label, rid, state))
         centres.append(((x1 + x2) // 2, (y1 + y2) // 2))
     pkg = root.find("node")
@@ -77,10 +67,17 @@ class UiAutomatorDriver(AdbDriver):
 
     # Driver API
     def start(self, app_id: str, serial: str | None = None) -> None:
+        if not re.fullmatch(r"[A-Za-z][\w.]*", app_id):
+            raise DriverError(f"{app_id!r} is not an Android package name")
         self.app, self.serial = app_id, serial
-        busy = self._sh(f"ps -A -o NAME 2>/dev/null | grep -iE '{OTHER_DRIVERS}' || true").strip()
+        p = self._adb("shell", "ps -A -o NAME")  # read-only; fails closed: no list, no start
+        names = p.stdout.decode(errors="replace").split() if p.returncode == 0 else []
+        if len(names) < 2:
+            raise DriverError("could not list the device's processes, so cannot tell if another UI test "
+                              "driver runs there: not starting")
+        busy = [n for n in names if re.search(OTHER_DRIVERS, n, re.I)]
         if busy:
-            raise DriverError(f"another UI test driver runs on the device ({' '.join(busy.split())}): "
+            raise DriverError(f"another UI test driver runs on the device ({' '.join(busy)}): "
                               "uiautomator would break it, so it does not start")
 
     def look(self) -> Screen:
@@ -165,11 +162,15 @@ class UiAutomatorDriver(AdbDriver):
             i = self._wait_for(arg)
             if i is None:
                 return CommandResult(False, f"Element not found: {arg}")
+            w, h = self._screen_size()
             x, y = self._centres[i]
-            self._sh(f"input tap {x} {y}")
+            self._sh(f"input tap {min(max(x, 1), w - 1)} {min(max(y, 1), h - 1)}")  # a row cut by the screen edge
         elif name == "inputText":
-            text = str(arg).replace(" ", "%s")  # `input text` reads %s as a space
-            self._sh(f"input text {shlex.quote(text)}")
+            text = str(arg)
+            if not text.isascii() or "%s" in text:
+                return CommandResult(False, f"inputText {text!r}: adb `input text` types plain ASCII only "
+                                            "(no '%s'); use another driver for this text")
+            self._sh(f"input text {shlex.quote(text.replace(' ', '%s'))}")  # `input text` reads %s as a space
         elif name == "eraseText":
             n = int(arg if not isinstance(arg, dict) else arg.get("charactersToErase", 50)) if arg else 50
             self._sh("input keyevent " + " ".join(["67"] * n))
@@ -186,13 +187,17 @@ class UiAutomatorDriver(AdbDriver):
             self._swipe("DOWN")
         elif name == "scrollUntilVisible":
             opts = arg if isinstance(arg, dict) else {"element": arg}
-            for _ in range(int(opts.get("maxScrolls", 10)) + 1):
-                before = self.look()
+            before = self.look()
+            for _ in range(int(opts.get("maxScrolls", 10))):
                 if find(before.elements, opts["element"]) is not None:
                     return CommandResult(True)
                 self._swipe(str(opts.get("direction", "DOWN")))
-                if self.look().listing() == before.listing():
+                after = self.look()
+                if after.listing() == before.listing():
                     break  # the end of the list: nothing moved
+                before = after
+            if find(before.elements, opts["element"]) is not None:
+                return CommandResult(True)
             return CommandResult(False, f"Element not found after scrolling: {opts['element']}")
         elif name not in _NO_OP:
             return CommandResult(False, f"uiautomator driver does not know {name}")

@@ -57,8 +57,8 @@ class _Args:  # what make_driver reads
 
 def cmd_run(pack: Pack, case_id: str) -> int:
     target = case_id.removeprefix("set:")
-    if pack.errors:
-        for e in pack.errors:
+    if pack.run_errors():
+        for e in pack.run_errors():
             emit(label="pack", status="failed", message=e)
         return 1
     journeys = pack.select(target)

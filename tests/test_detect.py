@@ -39,3 +39,15 @@ def test_init_writes_a_valid_empty_pack(tmp_path, capsys):
     assert (pack.app, pack.driver, pack.errors, pack.project) == ("com.shop", "maestro", [], proj.resolve())
     assert "flows/home.yml" in capsys.readouterr().out
     assert main(["--pack", str(dest), "init", "--app", "x"]) == 2  # never overwrites a pack
+
+
+def test_init_quotes_odd_names_and_doctor_reports_a_missing_project(tmp_path, capsys):
+    dest = tmp_path / "p"
+    assert main(["--pack", str(dest), "init", "--app", "com.a", "--name", "shop: v2 #1"]) == 0
+    assert Pack.load(dest).name == "shop: v2 #1"
+    assert main(["--pack", str(tmp_path / "q"), "init", "--project", str(tmp_path / "nope"), "--app", "a"]) == 2
+    f = dest / "pack.yaml"
+    f.write_text(f.read_text() + "project: ../missing\n")
+    capsys.readouterr()
+    main(["--pack", str(dest), "doctor"])
+    assert "project folder" in capsys.readouterr().out
