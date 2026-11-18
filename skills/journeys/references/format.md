@@ -71,7 +71,7 @@ edges:
 | Action | Does |
 |---|---|
 | `{tap: SEL}` | Tap the element (waits a moment for it). |
-| `{type: "text"}` | Type into the focused field. |
+| `{type: "text"}` | Type into the focused field. The `uiautomator` driver types plain ASCII only (no `%s`). |
 | `{erase: 10}` | Delete 10 characters in the focused field. |
 | `{press: enter}` | A key: enter, back, home, tab, delete, search. |
 | `{scroll_to: SEL}` | Scroll down until the element shows. Up: `{scroll_to: {element: SEL, direction: up}}`. |

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
+from .actions import FOREIGN
 
 KINDS = ("expect", "goto", "see", "not_see", "do", "input", "hook", "event")
 
@@ -48,7 +49,13 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
         for s in item.get("steps") or []:
             body = {k: v for k, v in s.items() if k != yamlio.LINE} if isinstance(s, dict) else {}
             if len(body) != 1 or next(iter(body)) not in KINDS:
-                errors.append(f"{yamlio.where(path, s)}: a step is one of {', '.join(KINDS)}")
+                word = next(iter(body), "") if len(body) == 1 else ""
+                hint = ""
+                if word in FOREIGN:
+                    neutral = FOREIGN[word]
+                    hint = (f" ({word} is another tool's word: write `{neutral}: ...`)" if neutral in ("see", "not_see")
+                            else f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)")
+                errors.append(f"{yamlio.where(path, s)}: a step is one of {', '.join(KINDS)}{hint}")
                 ok = False
                 continue
             kind, arg = next(iter(body.items()))

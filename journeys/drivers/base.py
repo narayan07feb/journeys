@@ -136,8 +136,11 @@ def find(elements: list[Element], sel) -> int | None:
     hits = [i for i, e in enumerate(elements)
             if ("id" not in sel or id_matches(str(sel["id"]), e.id))
             and ("text" not in sel or text_matches(str(sel["text"]), e.text))]
-    idx = int(sel.get("index", 0))
-    return hits[idx] if idx < len(hits) else None
+    try:
+        idx = int(sel.get("index", 0))
+    except (TypeError, ValueError):
+        return None
+    return hits[idx] if 0 <= idx < len(hits) else None
 
 
 def focused_package(dumpsys_window: str) -> str | None:

@@ -76,7 +76,8 @@ def cmd_doctor(args) -> int:
     for kind, missing in availability().items():
         if kind != "fake":
             level = "OK" if not missing else "FAIL" if kind == wanted else "WARN"
-            rows.append((level, f"driver {kind}{' (the pack\'s)' if kind == wanted else ''}: {missing or 'can run'}"))
+            tag = " (the pack's)" if kind == wanted else ""
+            rows.append((level, f"driver {kind}{tag}: {missing or 'can run'}"))
     adb = shutil.which("adb")
     rows.append(("OK", f"adb {adb}") if adb else ("WARN", "adb not on PATH"))
     if adb:
@@ -335,7 +336,7 @@ def cmd_import(args) -> int:
         if f.name in ("config.yaml", "config.yml"):
             continue  # Maestro's workspace config, not a flow
         try:
-            draft, notes = import_flow(f)
+            draft, notes = import_flow(f, pack.app)
         except (ActionError, yaml.YAMLError) as e:
             print(f"SKIP {f}: {e}")
             continue

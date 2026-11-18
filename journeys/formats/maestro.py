@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import KEYS, ActionError, escape, from_selector, to_commands, to_selector
+from ..actions import KEYS, ActionError, escape, from_selector, to_commands
 from ..journey import Journey
 from ..pack import Pack
 
@@ -37,7 +37,8 @@ def screen_checks(pack: Pack, screen: str, notes: list[str] | None = None) -> li
     for r in pack.map.screens[screen].all:
         sel = {}
         if r.text is not None:
-            sel["text"] = f".*(?:{r.text[1:-1]}).*" if to_selector(r.text) != escape(r.text) else escape(r.text)
+            regex = len(r.text) > 1 and r.text.startswith("/") and r.text.endswith("/")
+            sel["text"] = f".*(?:{r.text[1:-1]}).*" if regex else escape(r.text)
         if r.id is not None:
             sel["id"] = r.id
         if sel:
@@ -99,12 +100,14 @@ def slug(stem: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "flow"
 
 
-def import_flow(path: Path) -> tuple[dict, list[str]]:
+def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
     """A draft journey (as a dict to write) from one Maestro flow file, and what was left out."""
     docs = [d for d in yaml.safe_load_all(path.read_text()) if d is not None]
     if not docs or not isinstance(docs[-1], list):
         raise ActionError(f"{path.name}: not a Maestro flow (no command list)")
     commands = docs[-1]
+    head = docs[0] if isinstance(docs[0], dict) else {}
+    app = app or head.get("appId")
     notes, steps, actions = [], [], []
     start = {"launch": False}
 
@@ -121,8 +124,16 @@ def import_flow(path: Path) -> tuple[dict, list[str]]:
         else:
             name, arg = None, cmd
         try:
-            if name == "launchApp" and not steps and not actions:
-                start = {"launch": True, "clear_state": bool(isinstance(arg, dict) and arg.get("clearState"))}
+            if name in ("launchApp", "stopApp"):
+                opts = arg if isinstance(arg, dict) else {}
+                if arg is not None and not isinstance(arg, dict) or set(opts) - {"appId", "clearState"} \
+                        or opts.get("appId") not in (None, app) or (name == "stopApp" and "clearState" in opts):
+                    raise ActionError(f"{name} {arg!r}: only the pack's app, with clearState for launchApp")
+                clear = bool(opts.get("clearState"))
+                if name == "launchApp" and not steps and not actions:
+                    start = {"launch": True, "clear_state": clear}
+                else:
+                    actions.append("stop" if name == "stopApp" else {"launch": {"clear_state": True}} if clear else "launch")
             elif name in ("assertVisible", "assertNotVisible"):
                 flush()
                 steps.append({"see" if name == "assertVisible" else "not_see": _neutral_sel(arg)})
@@ -138,13 +149,16 @@ def import_flow(path: Path) -> tuple[dict, list[str]]:
                     raise ActionError(f"pressKey {arg}: not a neutral key ({', '.join(sorted(KEYS))})")
                 actions.append({"press": str(arg).lower()})
             elif name == "scrollUntilVisible":
+                if isinstance(arg, dict) and set(arg) - {"element", "direction"}:
+                    raise ActionError(f"scrollUntilVisible keys {sorted(set(arg) - {'element', 'direction'})} "
+                                      "have no neutral form")
                 el = arg.get("element") if isinstance(arg, dict) else arg
                 up = isinstance(arg, dict) and str(arg.get("direction", "DOWN")).upper() == "UP"
                 sel = _neutral_sel(el)
                 actions.append({"scroll_to": {"element": sel, "direction": "up"} if up else sel})
-            elif name in ("back", "hideKeyboard", "scroll", "waitForAnimationToEnd", "stopApp", "launchApp"):
+            elif name in ("back", "hideKeyboard", "scroll", "waitForAnimationToEnd") and arg is None:
                 actions.append({"back": "back", "hideKeyboard": "hide_keyboard", "scroll": "scroll",
-                                "waitForAnimationToEnd": "wait_idle", "stopApp": "stop", "launchApp": "launch"}[name])
+                                "waitForAnimationToEnd": "wait_idle"}[name])
             else:
                 raise ActionError(f"{name or cmd!r} has no neutral word")
         except (ActionError, TypeError, ValueError) as e:

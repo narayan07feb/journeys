@@ -4,7 +4,7 @@ A pack never names a test framework. Journeys' `do:` steps and the map's edges l
 
     back | stop | hide_keyboard | wait_idle | scroll | launch
     {tap: SEL}  {type: "text"}  {erase: 10}  {press: enter}  {scroll_to: SEL}
-    {scroll_to: {element: SEL, direction: up}}  {scroll: up}  {launch: {clear_state: true}}
+    {scroll_to: {element: SEL, direction: up}}  {scroll: down}  {launch: {clear_state: true}}
     {see: SEL}  {not_see: SEL}
 
 A selector (SEL) is "Exact text", "/a regex/" (matches the whole text), {id: name}, or a map of
@@ -40,6 +40,8 @@ def escape(text: str) -> str:
 
 
 def _text(t) -> str:
+    if not isinstance(t, (str, int, float)) or isinstance(t, bool) or str(t) == "":
+        raise ActionError(f"selector text must be a non-empty text, not {t!r}")
     t = str(t)
     if len(t) > 1 and t.startswith("/") and t.endswith("/"):
         try:
@@ -52,9 +54,13 @@ def _text(t) -> str:
 
 def to_selector(sel):
     """Neutral selector -> the drivers' form (text is always a whole-text regex)."""
-    if isinstance(sel, (str, int, float)):
+    if isinstance(sel, (str, int, float)) and not isinstance(sel, bool):
         return _text(sel)
     if isinstance(sel, dict) and sel and set(sel) <= {"text", "id", "index"} and ("text" in sel or "id" in sel):
+        if "index" in sel and (type(sel["index"]) is not int or sel["index"] < 0):
+            raise ActionError(f"index is a whole number from 0 (the first match), not {sel['index']!r}")
+        if "id" in sel and not str(sel["id"]):
+            raise ActionError("id must not be empty")
         out = {k: v for k, v in sel.items() if k != "text"}
         if "text" in sel:
             out["text"] = _text(sel["text"])

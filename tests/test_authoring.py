@@ -122,3 +122,33 @@ def test_export_then_import_is_a_round_trip(pack_dir, tmp_path):
                               {"do": [{"tap": "Display (new)"}, {"type": "a b"}, {"press": "enter"},
                                       {"scroll_to": {"id": "list"}}, "back"]},
                               {"not_see": "Gone"}]
+
+
+def test_review_round_2_fixes(pack_dir, tmp_path, capsys):
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "a.yaml").write_text("name: a\nsteps:\n  - see: {text: Nope, index: -1}\n  - see: {text: X, index: x}\n"
+                              "  - see: \"\"\n  - see: true\n")
+    (d / "b.yaml").write_text("name: b\nsteps:\n  - tapOn: Display\n  - assertVisible: Foo\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert out.count("index is a whole number") == 2 and "write `do: [{tap: ...}]`" in out
+    assert "write `see: ...`" in out and "non-empty text" in out and "not True" in out
+    # import: launch/stop arguments are kept or listed, never guessed
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- launchApp\n- tapOn: Hi\n- launchApp: {clearState: true}\n"
+                 "- stopApp: {appId: other.app}\n- scrollUntilVisible: {element: X, timeout: 5000}\n- stopApp\n")
+    from journeys.formats.maestro import import_flow
+    draft, notes = import_flow(f, "com.android.settings")
+    assert draft["steps"] == [{"do": [{"tap": "Hi"}, {"launch": {"clear_state": True}}, "stop"]}]
+    assert any("command 4" in n and "only the pack's app" in n for n in notes)
+    assert any("command 5" in n and "timeout" in n for n in notes)
+
+
+def test_journeys_differing_only_in_start_are_not_duplicates(pack_dir):
+    from journeys.authoring import promote_journey
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "fresh.yaml").write_text((pack_dir / "journeys" / "display.yaml").read_text()
+                                  .replace("open-display", "fresh").replace("tags:", "start: {clear_state: true}\ntags:"))
+    promote_journey(Pack.load(pack_dir), "fresh")

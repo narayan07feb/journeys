@@ -47,13 +47,21 @@ def scan(project: Path) -> tuple[list[Found], str | None]:
         elif _APPIUM.search(rel):
             found.setdefault("appium", Found("appium", rel))
         elif f.name in ("build.gradle", "build.gradle.kts", "libs.versions.toml"):
-            text = f.read_text(errors="replace")
+            try:
+                text = f.read_text(errors="replace")
+            except OSError:
+                continue  # a broken link or an unreadable file: not evidence either way
             if _ESPRESSO.search(text):
                 found.setdefault("espresso", Found("espresso", rel))
             m = _APP_ID.search(text)
             app_id = app_id or (m.group(1) if m else None)
-        elif f.suffix in (".yaml", ".yml") and f.stat().st_size < 200_000:
-            head = f.read_text(errors="replace")[:2000]
+        elif f.suffix in (".yaml", ".yml"):
+            try:
+                if f.stat().st_size > 200_000:
+                    continue
+                head = f.read_text(errors="replace")[:2000]
+            except OSError:
+                continue
             if re.search(r"^appId:", head, re.M) and "\n---" in head:
                 found.setdefault("maestro", Found("maestro", rel))
     order = ["maestro", "appium", "espresso"]

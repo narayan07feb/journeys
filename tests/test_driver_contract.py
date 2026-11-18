@@ -130,3 +130,18 @@ def test_driver_choice_has_no_silent_fallback(monkeypatch, pack_dir, tmp_path):
     assert isinstance(cli.make_driver("uiautomator", pack, None, Store(tmp_path)), UiAutomatorDriver)
     with pytest.raises(DriverError, match="not one of"):
         cli.make_driver("espresso", pack, None, Store(tmp_path))
+
+
+def test_uiautomator_taps_only_in_the_pack_app_and_survives_odd_output(tmp_path):
+    other = dict(APP, app="com.other.app")
+    phone = Phone(other)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.app = "com.example.app"  # the pack's app is not on screen
+    phone.app.do(["launchApp"])
+    res = d.do([{"tapOn": "Next"}])
+    assert not res.ok and "com.other.app" in res.message
+    assert not any(c.startswith("input tap") for c in phone.shell_log)
+    import subprocess
+    d2 = hooked("uiautomator", Phone(APP), tmp_path)
+    d2._adb = lambda *a, **k: subprocess.CompletedProcess(a, 0, b"", b"")
+    assert d2._screen_size() == (1080, 1920)

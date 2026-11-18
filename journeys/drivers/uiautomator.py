@@ -1,7 +1,9 @@
 """Drives a device with adb and the phone's own tools only: `uiautomator dump` to read the screen,
 `input` to tap, type, swipe and press keys, `am` to start and stop the pack's app.
 
-It installs nothing, writes no device setting and deletes no file. It does not start when another
+It installs nothing and writes no device setting. The only file it writes and deletes is its own
+/data/local/tmp/journeys-window.xml, on builds that cannot dump to a tty. It taps only in the
+pack's app (and the system permission dialog). It types plain ASCII only. It does not start when another
 UI test driver (Maestro, Speedrun, an instrumentation) already runs on the device: two UiAutomation
 users on one device break each other.
 """
@@ -18,6 +20,7 @@ from .base import CommandResult, DriverError, Element, Screen, command_name, fin
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _KEYS = {"back": 4, "home": 3, "enter": 66, "tab": 61, "backspace": 67, "delete": 67, "search": 84}
 _NO_OP = {"waitForAnimationToEnd"}
+TAP_ALSO = ("com.android.permissioncontroller", "com.google.android.permissioncontroller")  # permission dialogs
 OTHER_DRIVERS = "maestro|uiautomator|speedrun|instrument"
 
 
@@ -57,6 +60,7 @@ class UiAutomatorDriver(AdbDriver):
         self.serial: str | None = None
         self.app = ""
         self._centres: list[tuple[int, int]] = []
+        self._package = ""
         self._size: tuple[int, int] | None = None
 
     def _sh(self, cmd: str) -> str:
@@ -87,6 +91,7 @@ class UiAutomatorDriver(AdbDriver):
             out = self._adb("exec-out", f"uiautomator dump {f} >/dev/null && cat {f}; rm -f {f}").stdout.decode(
                 errors="replace")
         screen, self._centres = parse_dump(out)
+        self._package = screen.header.split()[1].rstrip(",") if len(screen.header.split()) > 2 else ""
         return screen
 
     def do(self, commands: list) -> CommandResult:
@@ -114,7 +119,7 @@ class UiAutomatorDriver(AdbDriver):
 
     def _screen_size(self) -> tuple[int, int]:
         if not self._size:
-            m = re.search(r"(\d+)x(\d+)", self._sh("wm size").splitlines()[-1])
+            m = re.search(r"(\d+)x(\d+)", (self._sh("wm size").strip().splitlines() or [""])[-1])
             self._size = (int(m.group(1)), int(m.group(2))) if m else (1080, 1920)
         return self._size
 
@@ -137,7 +142,7 @@ class UiAutomatorDriver(AdbDriver):
         comp = comp.strip().splitlines()[-1] if comp.strip() else ""
         if "/" not in comp:
             return CommandResult(False, f"launchApp: no launcher activity for {app}")
-        self._sh(f"am start -W -n {comp}")
+        self._sh(f"am start -W -n {shlex.quote(comp)}")
         end = self.clock() + self.wait_s
         while self.foreground_app() != app:
             if self.clock() >= end:
@@ -162,6 +167,9 @@ class UiAutomatorDriver(AdbDriver):
             i = self._wait_for(arg)
             if i is None:
                 return CommandResult(False, f"Element not found: {arg}")
+            if self._package not in (self.app, *TAP_ALSO):
+                return CommandResult(False, f"tapOn {arg}: the screen shows {self._package or 'no app'}, not "
+                                            f"{self.app}; this driver taps only in the pack's app")
             w, h = self._screen_size()
             x, y = self._centres[i]
             self._sh(f"input tap {min(max(x, 1), w - 1)} {min(max(y, 1), h - 1)}")  # a row cut by the screen edge
@@ -173,7 +181,7 @@ class UiAutomatorDriver(AdbDriver):
             self._sh(f"input text {shlex.quote(text.replace(' ', '%s'))}")  # `input text` reads %s as a space
         elif name == "eraseText":
             n = int(arg if not isinstance(arg, dict) else arg.get("charactersToErase", 50)) if arg else 50
-            self._sh("input keyevent " + " ".join(["67"] * n))
+            self._sh("input keyevent 123 " + " ".join(["67"] * n))  # MOVE_END first, then DEL: the field's last characters
         elif name == "hideKeyboard":
             if "mInputShown=true" in self._sh("dumpsys input_method"):
                 self._sh("input keyevent 4")

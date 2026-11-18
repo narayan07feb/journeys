@@ -12,7 +12,8 @@ with the tool it already uses:
 | `fake` | nothing | A small model of the app, for tests without a device. |
 
 The pack's `driver:` picks one; `--driver` overrides it. `journeys init --project <app>` picks the
-one the project's tests already use. Maestro flows import into drafts, and journeys export back
+one the project's tests already use when Journeys has a driver for it (Maestro today); for
+Espresso or Appium projects it picks `uiautomator` and says why in `pack.yaml`. Maestro flows import into drafts, and journeys export back
 to Maestro flows, so a team keeps its tools.
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).

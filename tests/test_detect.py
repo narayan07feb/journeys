@@ -51,3 +51,10 @@ def test_init_quotes_odd_names_and_doctor_reports_a_missing_project(tmp_path, ca
     capsys.readouterr()
     main(["--pack", str(dest), "doctor"])
     assert "project folder" in capsys.readouterr().out
+
+
+def test_scan_skips_broken_links(tmp_path):
+    proj = _project(tmp_path, {"app/build.gradle": "applicationId 'com.a'"})
+    (proj / "x.yaml").symlink_to(proj / "gone.yaml")
+    (proj / "build.gradle.kts").symlink_to(proj / "gone.kts")
+    assert scan(proj) == ([], "com.a")
