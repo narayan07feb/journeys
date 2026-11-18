@@ -140,3 +140,17 @@ def test_in_app_back_to_a_known_screen_is_not_a_dead_end(t):
     assert rep.dead_ends == []
     about = next(s for s in rep.screens if s["screen"] == "SETTINGS-ABOUT")
     assert {"tap": {"tapOn": "Done"}, "result": "SETTINGS-HOME"} in about["options"]
+
+
+def test_tap_targets_skip_label_less_elements_and_name_repeated_ids():
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import selector, tap_targets
+    from journeys.pack import DEFAULT_DENY
+    s = Screen([Element("@1", "View", "", "android:id/content"),
+                Element("@2", "Text", "Row A", "com.a:id/title"), Element("@3", "Text", "Row B", "com.a:id/title"),
+                Element("@4", "Button", "", "com.a:id/icon"), Element("@5", "Button", "", "com.a:id/icon"),
+                Element("@6", "Button", "Delete account"), Element("@7", "Button", "Save", "com.a:id/save")])
+    targets = tap_targets(s, DEFAULT_DENY, 15)
+    assert [e.ref for e in targets] == ["@2", "@3", "@7"]
+    assert [selector(e, s) for e in targets] == ["Row A", "Row B", {"id": "com.a:id/save"}]
+    assert selector(s.elements[4], s) == {"id": "com.a:id/icon", "index": 1}

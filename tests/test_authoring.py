@@ -265,3 +265,25 @@ def test_init_export_import_and_shapes_are_strict(pack_dir, tmp_path, capsys):
     for want in ("steps is a list", "(true or false)", "id is a non-empty text", "scroll_to takes element",
                  "from and to are screen names", "sets is a map", "devices is a map"):
         assert want in out, want
+
+
+def test_look_hints_tags_maestro_parent_and_export_never_overwrites(pack_dir, tmp_path, capsys):
+    assert cli(pack_dir, "look", "--driver", "fake") == 0
+    out = capsys.readouterr().out
+    assert "map screen:" in out
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "h.yaml").write_text("name: h\ntags: 5\nsteps:\n  - stopApp: x\n")
+    assert cli(pack_dir, "validate") == 1
+    out = capsys.readouterr().out
+    assert "write `do: [stop]`" in out and "tags is a list" in out
+    from journeys.detect import scan
+    proj = tmp_path / ".maestro" / "p2"
+    proj.mkdir(parents=True)
+    (proj / "a.yaml").write_text("x: 1\n")
+    assert scan(proj) == ([], None)
+    (d / "h.yaml").unlink()
+    out_file = tmp_path / "flow.yaml"
+    out_file.write_text("the team's own flow\n")
+    assert cli(pack_dir, "export", "maestro", "open-display", "-o", str(out_file)) == 2
+    assert out_file.read_text() == "the team's own flow\n"

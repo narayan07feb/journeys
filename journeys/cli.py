@@ -117,9 +117,9 @@ def cmd_tap_all(args) -> int:
     from .explore import tap_all
     pack = _load(args)
     store, driver = _open(args, pack)
+    driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
     run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver or pack.driver,
                         serial=args.serial, dka=args.dka)
-    driver.start(pack.app, args.serial)
     try:
         rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
                       max_screens=args.max_screens, max_taps=args.max_taps)
@@ -286,6 +286,21 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_look(args) -> int:
+    """The screen on the device now, as Journeys reads it, and which map screen it is. Read-only."""
+    pack = _load(args)
+    _, driver = _open(args, pack)
+    driver.start(pack.app, args.serial)
+    try:
+        screen = driver.look()
+    finally:
+        driver.stop()
+    ident = pack.map.identify(screen)
+    print(screen.listing())
+    print(f"-- map screen: {ident.name or 'unknown'}")
+    return 0
+
+
 def cmd_validate(args) -> int:
     pack = _load(args)
     for e in pack.errors:
@@ -325,7 +340,11 @@ def cmd_export(args) -> int:
     for n in notes:
         print(f"NOTE {n}", file=sys.stderr)
     if args.out:
-        Path(args.out).write_text(flow)
+        try:
+            with open(args.out, "x") as out:  # never over the team's file
+                out.write(flow)
+        except FileExistsError:
+            raise PackError(f"{args.out} exists: remove it first, or print the flow and diff") from None
         print(f"written: {args.out}", file=sys.stderr)
     else:
         print(flow, end="")
@@ -377,6 +396,11 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="check the pack and the tools").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate", help="check the pack, every journey and every draft").set_defaults(fn=cmd_validate)
+    s = sub.add_parser("look", help="print the screen on the device now and which map screen it is (read-only)")
+    s.add_argument("--driver", choices=DRIVERS)
+    s.add_argument("--serial", help="adb serial of the device")
+    s.add_argument("--fake-app", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_look)
     s = sub.add_parser("new", help="write a new draft journey into drafts/")
     s.add_argument("name")
     s.add_argument("--start", help="the screen it starts on (default: the map's first)")

@@ -158,6 +158,7 @@ disabled. Selectors match `text` and `id` as on a device.
 | `journeys --pack P import maestro FLOWS...` | Maestro flows to drafts (what has no neutral word is listed). |
 | `journeys --pack P export maestro NAME [-o F]` | A journey as a Maestro flow. |
 | `journeys --pack NEW init --project APP [--app ID]` | A new pack; the driver follows the project's framework. |
+| `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. Read-only. |
 | `journeys --pack P doctor` | Tools, drivers and devices. |
 
 Global options go before the command: `--pack P` (or `$JOURNEYS_PACK`), `--state S` (results;

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
-from .actions import FOREIGN
+from .actions import BARE, FOREIGN
 
 KINDS = ("expect", "goto", "see", "not_see", "do", "input", "hook", "event")
 
@@ -50,6 +50,10 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             errors.append(f"{yamlio.where(path, item)}: start is a map of launch and clear_state (true or false), not {yamlio.strip_lines(start)!r}")
             start = {}
         steps, ok = [], True
+        tags = item.get("tags") or []
+        if not isinstance(tags, list):
+            errors.append(f"{yamlio.where(path, item)}: tags is a list, like [smoke], not {tags!r}")
+            tags = []
         if not isinstance(item.get("steps") or [], list):
             errors.append(f"{yamlio.where(path, item)}: steps is a list of steps")
             continue
@@ -60,8 +64,12 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
                 hint = ""
                 if word in FOREIGN:
                     neutral = FOREIGN[word]
-                    hint = (f" ({word} is another tool's word: write `{neutral}: ...`)" if neutral in ("see", "not_see")
-                            else f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)")
+                    if neutral in ("see", "not_see"):
+                        hint = f" ({word} is another tool's word: write `{neutral}: ...`)"
+                    elif neutral in BARE:
+                        hint = f" ({word} is another tool's word: write `do: [{neutral}]`)"
+                    else:
+                        hint = f" ({word} is another tool's word: write `do: [{{{neutral}: ...}}]`)"
                 errors.append(f"{yamlio.where(path, s)}: a step is one of {', '.join(KINDS)}{hint}")
                 continue  # the journey still loads, so its other steps are checked too (its file has errors)
             kind, arg = next(iter(body.items()))
@@ -71,7 +79,7 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             ok = False
         if ok:
             out.append(Journey(
-                str(item["name"]), path, steps, [str(t) for t in item.get("tags") or []],
+                str(item["name"]), path, steps, [str(t) for t in tags],
                 bool(start.get("launch", True)), bool(start.get("clear_state", False)),
                 item.get(yamlio.LINE, 1),
             ))

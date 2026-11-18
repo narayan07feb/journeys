@@ -2,6 +2,8 @@
 
 Each real driver is wired to one pretend phone (tests/phone_sim.py), so these run without a device.
 """
+from pathlib import Path
+
 import pytest
 
 from journeys.drivers.base import DriverError
@@ -314,3 +316,42 @@ def test_uiautomator_odd_text_counts_keyboard_and_own_app_name(tmp_path):
     assert d.do(["hideKeyboard"]).ok and "input keyevent 4" in phone.shell_log
     test_app = dict(APP, app="com.example.app.test")
     hooked("uiautomator", Phone(test_app, busy="com.example.app.test\n"), tmp_path).start("com.example.app.test", "R")
+
+
+def test_full_and_short_ids_match_on_every_driver(drv):
+    assert drv.do([{"tapOn": {"id": "com.example.app:id/next"}}]).ok and "Second page" in texts(drv)
+    assert drv.do(["back", {"tapOn": {"id": "next"}}]).ok
+
+
+def test_id_rules():
+    from journeys.appmap import Rule
+    from journeys.drivers.base import Element, id_matches
+    assert id_matches("com.x:id/foo", "foo") and id_matches("foo", "com.x:id/foo")
+    assert id_matches("com.x:id/foo", "com.x:id/foo") and not id_matches("com.x:id/foo", "com.y:id/foo")
+    assert not id_matches("foo", "foobar") and not id_matches("", "foo")
+    assert Rule.parse({"id": "com.x:id/foo"}).matches(Element("@1", "Button", "", "foo"))
+
+
+def test_uiautomator_never_shows_a_refused_text(tmp_path):
+    phone = Phone(APP)
+    d = hooked("uiautomator", phone, tmp_path)
+    d.start("com.example.app", "R58M")
+    phone.app.do(["launchApp"])
+    res = d.do([{"inputText": "hunter%s2"}])
+    assert not res.ok and "hunter" not in res.message and "9 characters" in res.message
+
+
+def test_maestro_driver_writes_maestro_selectors(tmp_path):
+    flows = []
+    phone = Phone(APP)
+    d = hooked("maestro", phone, tmp_path)
+    real = d._run
+
+    def run(*args):
+        if args[0] == "test":
+            flows.append(Path(args[1]).read_text())
+        return real(*args)
+    d._run = run
+    d.start("com.example.app", "R")
+    d.do(["launchApp", {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
+    assert "element:\n      text: Next" in flows[-1]

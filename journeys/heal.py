@@ -34,12 +34,16 @@ def same_screen(a: Screen, b: Screen) -> bool:
     return len(fa & fb) / max(len(fa | fb), 1) >= 0.8
 
 
-def selector(el) -> dict | str:
+def selector(el, screen: Screen | None = None) -> dict | str:
     """A selector that finds this element again. Flow selectors read text as a regex that must match
     the whole text, so the text is escaped. A row whose label joins its children's texts ("Wi-Fi,
-    Connected") or a label cut short ("Long text…") is not one node's text: match its first part."""
-    if el.id:
+    Connected") or a label cut short ("Long text…") is not one node's text: match its first part.
+    An id that repeats on the screen (list rows) names only the first: then the text, or id + index."""
+    same = [e for e in (screen.elements if screen else [el]) if e.id and e.id == el.id]
+    if el.id and len(same) == 1:
         return {"id": el.id}
+    if el.id and not el.text:
+        return {"id": el.id, "index": next(i for i, e in enumerate(same) if e is el)}
     text = el.text
     if text.endswith("…"):
         return escape(text[:-1].split(", ")[0]) + ".*"
@@ -58,9 +62,11 @@ def screen_name(text: str) -> str:
 
 
 def tap_targets(screen: Screen, deny: list, limit: int) -> list:
-    """The elements tap-all and explore may tap: tappable kinds, with a text or id, not denied."""
+    """The elements tap-all and explore may tap: tappable kinds with a label, not denied. A label-less
+    element (often a container) is never tapped: its centre may sit over a denied button, and the
+    deny list reads labels."""
     return [e for e in screen.elements
-            if e.kind in TAPPABLE and (e.text or e.id) and not any(r.matches(e) for r in deny)][:limit]
+            if e.kind in TAPPABLE and e.text.strip() and not any(r.matches(e) for r in deny)][:limit]
 
 
 def left_app(driver: Driver, app: str) -> str | None:
@@ -79,7 +85,7 @@ def explore(driver: Driver, amap: AppMap, app: str, deny: list, limit: int = 12)
         return []
     options = []
     for el in tap_targets(base, deny, limit):
-        tap = {"tapOn": selector(el)}
+        tap = {"tapOn": selector(el, base)}
         res = driver.do([tap])
         if not res.ok:
             options.append({"tap": tap, "leads_to": None, "note": res.message[:200]})

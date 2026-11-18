@@ -212,7 +212,7 @@ class UiAutomatorDriver(AdbDriver):
         elif name == "inputText":
             text = str(arg)
             if not (text.isascii() and text.isprintable()) or "%s" in text:
-                return CommandResult(False, f"inputText {text!r}: adb `input text` types printable ASCII only "
+                return CommandResult(False, f"inputText ({len(text)} characters, not shown): adb `input text` types printable ASCII only "
                                             "(no '%s', no line breaks); use another driver for this text")
             # `input text` reads %s as a space
             return self._input(f"input text {shlex.quote(text.replace(' ', '%s'))}", name) or CommandResult(True)

@@ -42,7 +42,7 @@ def scan(project: Path) -> tuple[list[Found], str | None]:
     app_id = None
     for f in _files(project):
         rel = f.relative_to(project.resolve()).as_posix()
-        if ".maestro" in f.parts and f.suffix in (".yaml", ".yml"):
+        if ".maestro" in Path(rel).parts and f.suffix in (".yaml", ".yml"):
             found.setdefault("maestro", Found("maestro", rel))
         elif _APPIUM.search(rel):
             found.setdefault("appium", Found("appium", rel))

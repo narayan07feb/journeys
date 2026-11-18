@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import yamlio
 from .actions import ActionError, to_commands
-from .drivers.base import Element, Screen
+from .drivers.base import Element, Screen, id_matches
 
 _RULE_KEYS = {"text", "id", "kind"}
 KINDS = ("Text", "Button", "Field", "Switch", "CheckBox", "Image", "View")  # as drivers report them
@@ -38,8 +38,8 @@ class Rule:
         return rule
 
     def matches(self, el: Element) -> bool:
-        if self.id is not None and el.id != self.id and not el.id.endswith(f":id/{self.id}"):
-            return False  # Android ids read as "<package>:id/<name>"; the short name is enough
+        if self.id is not None and not id_matches(self.id, el.id):
+            return False  # "<package>:id/<name>" or the name alone, as each driver reports it
         if self.kind is not None and el.kind != self.kind:
             return False
         if self.text is not None:

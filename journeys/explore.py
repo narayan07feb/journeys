@@ -82,7 +82,7 @@ class TapAll:
         base = self.driver.look()
         options = []
         for el in tap_targets(base, self.pack.deny, self.max_taps):
-            tap = {"tapOn": selector(el)}
+            tap = {"tapOn": selector(el, base)}
             res = self.driver.do([tap])
             if not res.ok:
                 options.append({"tap": tap, "result": "failed", "note": res.message[:200]})

@@ -40,6 +40,24 @@ def parse_hierarchy(data: dict) -> Screen:
     return Screen(out, header=f"maestro, {len(out)} elements")
 
 
+def _maestro_sel(sel):
+    """The drivers' selector -> Maestro's (text is a whole-text regex in both)."""
+    return {"text": sel} if isinstance(sel, str) else dict(sel)
+
+
+def to_maestro(cmd):
+    """One command in the drivers' shared form -> Maestro flow syntax."""
+    if isinstance(cmd, str):
+        return cmd
+    (name, arg), = cmd.items()
+    if name in ("tapOn", "assertVisible", "assertNotVisible"):
+        return {name: arg if isinstance(arg, str) else _maestro_sel(arg)}
+    if name == "scrollUntilVisible":
+        opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
+        return {name: {"element": _maestro_sel(opts["element"]), "direction": opts.get("direction", "DOWN")}}
+    return cmd
+
+
 class MaestroDriver(AdbDriver):
     def __init__(self, binary: str | None = None, timeout_s: int = 180):
         self.bin = binary or shutil.which("maestro")
@@ -65,7 +83,8 @@ class MaestroDriver(AdbDriver):
         return parse_hierarchy(json.loads(m.group(0)))
 
     def do(self, commands: list) -> CommandResult:
-        flow = f"appId: {self.app}\n---\n" + yaml.safe_dump(commands, sort_keys=False, allow_unicode=True)
+        flow = f"appId: {self.app}\n---\n" + yaml.safe_dump([to_maestro(c) for c in commands], sort_keys=False,
+                                                         allow_unicode=True)
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write(flow)
         try:

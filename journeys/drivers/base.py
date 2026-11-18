@@ -118,8 +118,13 @@ def text_matches(pattern: str, text: str) -> bool:
 
 
 def id_matches(want: str, have: str) -> bool:
-    """An id matches in full (pkg:id/name) or by its name alone."""
-    return bool(have) and (have == want or have.endswith(f":id/{want}") or have.rsplit("/", 1)[-1] == want)
+    """Ids match by name ("pkg:id/name" or "name"); a package on both sides must agree too. Some
+    drivers report the full id, others only the name."""
+    if not have or not want:
+        return False
+    w_pkg, _, w_name = want.rpartition(":id/") if ":id/" in want else ("", "", want.rsplit("/", 1)[-1])
+    h_pkg, _, h_name = have.rpartition(":id/") if ":id/" in have else ("", "", have.rsplit("/", 1)[-1])
+    return w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
 
 
 def find(elements: list[Element], sel) -> int | None:

@@ -10,25 +10,10 @@ from pathlib import Path
 
 import yaml
 
+from ..drivers.maestro import to_maestro
 from ..actions import KEYS, ActionError, escape, from_selector, to_command, to_commands, to_selector
 from ..journey import Journey
 from ..pack import Pack
-
-def _maestro_sel(sel):
-    """Internal selector -> Maestro's (text is a regex in both)."""
-    return {"text": sel} if isinstance(sel, str) else dict(sel)
-
-
-def _maestro(cmd):
-    if isinstance(cmd, str):
-        return cmd
-    (name, arg), = cmd.items()
-    if name in ("tapOn", "assertVisible", "assertNotVisible"):
-        return {name: arg if isinstance(arg, str) else _maestro_sel(arg)}
-    if name == "scrollUntilVisible":
-        return {name: {"element": _maestro_sel(arg["element"]), "direction": arg["direction"]}}
-    return cmd
-
 
 def screen_checks(pack: Pack, screen: str, notes: list[str] | None = None) -> list:
     """Maestro asserts that stand for `expect: SCREEN` (its `all` rules with text or id). A map rule's
@@ -69,13 +54,13 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
                 notes.append(f"{at}: goto {s.arg}: start screen unknown (add an expect before it); left out")
                 continue
             for e in path:
-                cmds += [_maestro(c) for c in to_commands(e.do)]
+                cmds += [to_maestro(c) for c in to_commands(e.do)]
             cmds += screen_checks(pack, s.arg, notes)
             here = s.arg
         elif s.kind in ("see", "not_see"):
-            cmds += [_maestro(c) for c in to_commands({s.kind: s.arg})]
+            cmds += [to_maestro(c) for c in to_commands({s.kind: s.arg})]
         elif s.kind == "do":
-            cmds += [_maestro(c) for c in to_commands(s.arg)]
+            cmds += [to_maestro(c) for c in to_commands(s.arg)]
             here = None  # an action may change the screen
         elif s.kind == "input":
             cmds.append({"inputText": str(s.arg)})
