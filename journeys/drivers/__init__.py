@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import shutil
 
-DRIVERS = ("uiautomator", "maestro", "speedrun", "fake")
+DRIVERS = ("maestro", "speedrun", "fake")  # Journeys drives through the team's own tool
 
 
 def availability() -> dict[str, str | None]:
@@ -11,7 +11,6 @@ def availability() -> dict[str, str | None]:
     from .speedrun import find_speedrun
     adb = None if shutil.which("adb") else "adb is not on PATH"
     return {
-        "uiautomator": adb,
         "maestro": adb or (None if shutil.which("maestro") else "maestro is not on PATH"),
         "speedrun": adb or (None if find_speedrun() else "speedrun not found: run `journeys setup`"),
         "fake": None,

@@ -23,7 +23,7 @@ APP = {
         "HELP": {"elements": [{"kind": "Text", "text": "Help"}]},
     },
 }
-DRIVERS = ["fake", "uiautomator", "speedrun", "maestro"]
+DRIVERS = ["fake", "speedrun", "maestro"]
 
 
 @pytest.fixture(params=DRIVERS)
@@ -97,202 +97,33 @@ def test_foreground_and_screenshot(drv, tmp_path):
     assert drv.screenshot(tmp_path / "s.png") is not None
 
 
-def test_uiautomator_does_not_start_next_to_another_driver_or_blind(tmp_path):
-    with pytest.raises(DriverError, match=r"another UI test driver.*dev\.mobile\.maestro"):
-        hooked("uiautomator", Phone(APP, busy="dev.mobile.maestro\n"), tmp_path).start("com.example.app", "R58M")
-    with pytest.raises(DriverError, match="could not list"):
-        hooked("uiautomator", Phone(APP, ps_works=False), tmp_path).start("com.example.app", "R58M")
-    with pytest.raises(DriverError, match="not an Android package"):
-        hooked("uiautomator", Phone(APP), tmp_path).start("com.x; rm -rf /", "R58M")
-
-
-def test_uiautomator_writes_no_setting_and_touches_only_the_pack_app(tmp_path):
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    assert d.do(["launchApp", {"tapOn": "Next"}, "back", {"inputText": "it's me"}, "stopApp"]).ok
-    assert not d.do([{"stopApp": "com.other"}]).ok and not d.do([{"launchApp": {"appId": "com.other"}}]).ok
-    assert not any(c.startswith(("settings put", "settings delete", "pm install", "rm ", "pm uninstall"))
-                   for c in phone.shell_log)
-    assert phone.typed == ["'it'\"'\"'s%sme'"]
-    assert not d.do([{"inputText": "naïve"}]).ok and not d.do([{"inputText": "100%s"}]).ok
-    assert {c.split()[-1] for c in phone.shell_log if c.startswith("am force-stop")} == {"com.example.app"}
-
-
 def test_driver_choice_has_no_silent_fallback(monkeypatch, pack_dir, tmp_path):
     from journeys import cli
     from journeys.pack import Pack
     from journeys.results import Store
     pack = Pack.load(pack_dir)
-    monkeypatch.setattr(cli, "availability", lambda: {"uiautomator": None, "maestro": "maestro is not on PATH",
-                                                      "speedrun": None, "fake": None})
-    with pytest.raises(DriverError, match="maestro is not on PATH.*these can: uiautomator, speedrun"):
+    monkeypatch.setattr(cli, "availability", lambda: {"maestro": "maestro is not on PATH", "speedrun": None,
+                                                      "fake": None})
+    with pytest.raises(DriverError, match="maestro is not on PATH.*these can: speedrun"):
         cli.make_driver("maestro", pack, None, Store(tmp_path))
-    from journeys.drivers.uiautomator import UiAutomatorDriver
-    assert isinstance(cli.make_driver("uiautomator", pack, None, Store(tmp_path)), UiAutomatorDriver)
-    with pytest.raises(DriverError, match="not one of"):
-        cli.make_driver("espresso", pack, None, Store(tmp_path))
+    for gone in ("uiautomator", "espresso"):  # Journeys has no driver of its own
+        with pytest.raises(DriverError, match="not one of"):
+            cli.make_driver(gone, pack, None, Store(tmp_path))
 
 
-def test_uiautomator_taps_only_in_the_pack_app_and_survives_odd_output(tmp_path):
-    other = dict(APP, app="com.other.app")
-    phone = Phone(other)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.app = "com.example.app"  # the pack's app is not on screen
-    phone.app.do(["launchApp"])
-    assert d.look().elements == []  # another app's texts never pass for the pack's
-    res = d.do([{"tapOn": "Next"}])
-    assert not res.ok and not any(c.startswith("input tap") for c in phone.shell_log)
-    assert not d.do([{"assertNotVisible": "Next"}]).ok  # nothing proven while another app shows
-
-
-LONG = {"app": "com.example.app", "start": "LIST", "screens": {"LIST": {"elements": [
-    {"kind": "Button", "text": f"Row {i}", **({"to": "END"} if i == 7 else {})} for i in range(10)]},
-    "END": {"elements": [{"kind": "Text", "text": "Row 7 opened"}]}}}
-
-
-@pytest.mark.parametrize("kind", ["uiautomator"])
-def test_scroll_until_visible_scrolls_and_stops_at_the_end(kind, tmp_path):
-    phone = Phone(LONG, page=3)
-    d = hooked(kind, phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    assert d.do(["launchApp", {"scrollUntilVisible": {"element": "Row 7", "direction": "DOWN"}}]).ok
-    assert "Row 7" in texts(d) and "Row 0" not in texts(d)
-    assert d.do([{"tapOn": "Row 7"}]).ok and "Row 7 opened" in texts(d)
-    assert d.do(["back"]).ok
-    swipes = sum(c.startswith("input swipe") for c in phone.shell_log)
-    res = d.do([{"scrollUntilVisible": {"element": "Row 99", "direction": "DOWN", "maxScrolls": 50}}])
-    assert not res.ok and sum(c.startswith("input swipe") for c in phone.shell_log) - swipes < 15  # stops at the end
-
-
-def test_uiautomator_waits_and_retries_a_bad_dump(tmp_path):
-    from journeys.drivers.uiautomator import UiAutomatorDriver
-    phone = Phone(APP)
-    t = [0.0]
-    d = UiAutomatorDriver(wait_s=2, poll_s=0.5, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
-    calls = {"n": 0}
-
-    def adb(*args, timeout=60):
-        if args[:2] == ("exec-out", "uiautomator"):
-            calls["n"] += 1
-            if calls["n"] <= 3:  # two bad dumps (tty + file fallback each) then a good one
-                return phone.adb("shell", "nonsense")
-        return phone.adb(*args)
-    d._adb = adb
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    assert d.do([{"assertVisible": "Welcome"}]).ok and t[0] > 0
-    t[0] = 0
-    assert not d.do([{"assertVisible": "Never"}]).ok and t[0] >= 2  # waited the full wait_s
-
-
-@pytest.mark.parametrize("cmd", [{"tapOn": "Next"}, "back", {"pressKey": "Enter"}, {"inputText": "hunter2"},
-                                 {"eraseText": 3}, "scroll",
-                                 {"scrollUntilVisible": {"element": "Not here", "direction": "DOWN"}}])
-def test_uiautomator_sends_no_input_to_another_window(cmd, tmp_path):
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    phone.focus = "com.other.app/.Dialog"
-    res = d.do([cmd])
-    assert not res.ok and "com.other.app" in res.message
-    assert not [c for c in phone.shell_log if c.startswith("input")]
-    phone.focus = "com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity"
-    assert d.do([{"pressKey": "Enter"}]).ok  # the permission-grant dialog may take input
-    phone.focus = "com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.ManagePermissionsActivity"
-    assert not d.do([{"pressKey": "Enter"}]).ok  # other permission screens may not
-
-
-def test_uiautomator_shell_commands_are_an_allowlist(tmp_path):
-    import re
-    phone = Phone(LONG, page=3)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    d.do(["launchApp", {"launchApp": {"clearState": True}}, {"scrollUntilVisible": {"element": "Row 7"}},
-          {"tapOn": "Row 7"}, "back", {"pressKey": "Enter"}, {"inputText": "a b"}, {"eraseText": 2}, "hideKeyboard",
-          "scroll", "stopApp"])
-    d.app_alive(), d.foreground_app(), d.is_emulator()
-    allowed = re.compile(r"(ps -A -o NAME|dumpsys (window|input_method)|pidof com\.example\.app|"
-                         r"getprop ro\.kernel\.qemu|cmd package resolve-activity --brief -c "
-                         r"android\.intent\.category\.LAUNCHER com\.example\.app|am start -W -n \S+|"
-                         r"am force-stop com\.example\.app|pm clear com\.example\.app|input (tap|swipe|keyevent|text) .*)")
-    assert [c for c in phone.shell_log if not allowed.fullmatch(c)] == []
-    assert any(c.startswith("pm clear") for c in phone.shell_log)
-
-
-def test_uiautomator_refuses_next_to_espresso_and_parses_control_chars(tmp_path):
-    from journeys.drivers.uiautomator import parse_dump
-    with pytest.raises(DriverError, match="another UI test driver"):
-        hooked("uiautomator", Phone(APP, busy="com.shop.test\n"), tmp_path).start("com.example.app", "R58M")
-    p = Phone(APP)
-    p.app.do(["launchApp"])
-    xml = p.dump_xml().replace('text="Welcome"', 'text="Wel&#1;come"')
-    assert "Welcome" in [e.text for e in parse_dump(xml)[0].elements]
-    with pytest.raises(DriverError, match="not valid XML"):
-        parse_dump("<hierarchy><node></hierarchy>")
-
-
-def test_uiautomator_checks_focus_right_before_each_input(tmp_path):
-    """Focus moves to another app while the driver waits for the element: no tap goes out."""
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    real = phone.adb
-    looks = {"n": 0}
-
-    def adb(*args, timeout=60):
-        if args[:2] == ("exec-out", "uiautomator"):
-            looks["n"] += 1
-            phone.focus = "com.other.app/.Dialog"  # a dialog takes focus once the wait starts
-        return real(*args)
-    d._adb = adb
-    res = d.do([{"tapOn": "Next"}])
-    assert not res.ok and "com.other.app" in res.message and looks["n"] >= 1
-    assert not [c for c in phone.shell_log if c.startswith("input")]
-
-
-def test_uiautomator_waits_for_a_brief_null_focus_and_reads_the_rotated_size(tmp_path):
-    from journeys.drivers.uiautomator import UiAutomatorDriver
-    phone = Phone(APP)
-    t = [0.0]
-    d = UiAutomatorDriver(wait_s=2, poll_s=0.5, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
-    nulls = {"left": 2}
-
-    def adb(*args, timeout=60):
-        if args[1:] == ("dumpsys", "window") and nulls["left"]:
-            nulls["left"] -= 1
-            return phone.adb("shell", "nonsense")  # no focus line, as during an activity change
-        if args[:2] == ("exec-out", "uiautomator"):
-            return phone.adb(*args).__class__(args, 0, phone.dump_xml().replace("[0,0][1080,2400]", "[0,0][2400,1080]")
-                                              .replace("[0,200][1080,290]", "[2200,200][2800,290]").encode(), b"")
-        return phone.adb(*args)
-    d._adb = adb
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    assert d.do([{"tapOn": "Next"}]).ok and t[0] > 0  # waited out the null focus
-    assert "input tap 2399 245" in phone.shell_log  # clamped to the rotated width, not 1080
+def test_a_dead_adb_link_is_a_driver_error_not_a_crash(tmp_path):
+    import subprocess
+    d = hooked("maestro", Phone(APP), tmp_path)
+    d.app = "com.example.app"
+    d._adb = lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"error: device offline")
+    with pytest.raises(DriverError, match="device offline"):
+        d.app_alive()
 
 
 def test_home_leaves_the_app_on_every_driver(drv):
     from journeys.actions import to_commands
     assert drv.do(to_commands([{"press": "home"}])).ok
     assert drv.foreground_app() != "com.example.app"
-
-
-@pytest.mark.parametrize("focus", ["NotificationShade", "Application Not Responding: com.x", "StatusBar"])
-def test_uiautomator_sends_nothing_to_system_windows(focus, tmp_path):
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    phone.focus = focus
-    assert not d.do([{"pressKey": "Enter"}]).ok and not d.do([{"inputText": "1234"}]).ok
-    assert not [c for c in phone.shell_log if c.startswith("input")]
-    phone.focus = "null"  # nothing focused (screen off, locking): the app behind does not count
-    assert not d.do([{"pressKey": "Enter"}]).ok
-    assert not [c for c in phone.shell_log if c.startswith("input")]
 
 
 def test_focused_window_rules():
@@ -304,19 +135,6 @@ def test_focused_window_rules():
     assert focused_window("mCurrentFocus=null\nmFocusedApp=ActivityRecord{12 u0 com.a/.Main t5}") == "com.a/.Main"
     assert focused_package("mCurrentFocus=Window{1 u0 com.a/com.a.Main}") == "com.a"
     assert focused_window("nothing") is None
-
-
-def test_uiautomator_odd_text_counts_keyboard_and_own_app_name(tmp_path):
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    assert not d.do([{"inputText": "a\nb"}]).ok and not d.do([{"eraseText": 10 ** 6}]).ok
-    assert not d.do([{"eraseText": [1]}]).ok
-    phone.keyboard = True
-    assert d.do(["hideKeyboard"]).ok and "input keyevent 4" in phone.shell_log
-    test_app = dict(APP, app="com.example.app.test")
-    hooked("uiautomator", Phone(test_app, busy="com.example.app.test\n"), tmp_path).start("com.example.app.test", "R")
 
 
 def test_full_and_short_ids_match_on_every_driver(drv):
@@ -333,15 +151,6 @@ def test_id_rules():
     assert Rule.parse({"id": "com.x:id/foo"}).matches(Element("@1", "Button", "", "foo"))
 
 
-def test_uiautomator_never_shows_a_refused_text(tmp_path):
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R58M")
-    phone.app.do(["launchApp"])
-    res = d.do([{"inputText": "hunter%s2"}])
-    assert not res.ok and "hunter" not in res.message and "9 characters" in res.message
-
-
 def test_maestro_driver_writes_maestro_selectors(tmp_path):
     flows = []
     phone = Phone(APP)
@@ -356,64 +165,3 @@ def test_maestro_driver_writes_maestro_selectors(tmp_path):
     d.start("com.example.app", "R")
     d.do(["launchApp", {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
     assert "element:\n      text: Next" in flows[-1]
-
-
-def test_uiautomator_app_packages_and_the_first_focus_line(tmp_path):
-    from journeys.drivers.uiautomator import UiAutomatorDriver
-    phone = Phone(APP)
-    d = UiAutomatorDriver(wait_s=0, sleep=lambda s: None, app_packages=("com.example.search",))
-    d._adb = phone.adb
-    d.start("com.example.app", "R")
-    phone.app.do(["launchApp"])
-    phone.focus = "com.example.search/.SearchActivity"
-    assert d.do([{"pressKey": "Enter"}]).ok  # a declared package of the app
-    phone.focus = "com.other/.X"
-    assert not d.do([{"pressKey": "Enter"}]).ok
-    real = phone.adb
-    d._adb = lambda *a, **k: (subprocess_done(b"mCurrentFocus=Window{1 u0 com.example.app/.Main}\n"
-                                              b"mCurrentFocus=null\n") if a[1:] == ("dumpsys", "window") else real(*a))
-    assert d.do([{"pressKey": "Enter"}]).ok  # a later display's null line does not override the first
-
-
-def subprocess_done(out):
-    import subprocess
-    return subprocess.CompletedProcess([], 0, out, b"")
-
-
-def test_adb_errors_are_driver_errors_not_crashes_or_empty(tmp_path):
-    import subprocess
-    d = hooked("uiautomator", Phone(APP), tmp_path)
-    d.app = "com.example.app"
-    d._adb = lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"error: device offline")
-    with pytest.raises(DriverError, match="device offline"):
-        d.look()
-    with pytest.raises(DriverError, match="device offline"):
-        d.app_alive()
-    d2 = hooked("uiautomator", Phone(APP), tmp_path)
-    d2.start("com.example.app", "R")
-    assert not d2.do([{"scrollUntilVisible": {}}]).ok
-
-
-def test_an_empty_app_package_never_lets_input_out(tmp_path):
-    from journeys.drivers.uiautomator import UiAutomatorDriver
-    phone = Phone(APP)
-    d = UiAutomatorDriver(wait_s=0, sleep=lambda s: None, app_packages=("",))
-    d._adb = phone.adb
-    d.start("com.example.app", "R")
-    phone.app.do(["launchApp"])
-    phone.focus = "null"
-    assert not d.do([{"pressKey": "Enter"}]).ok
-    assert not [c for c in phone.shell_log if c.startswith("input")]
-
-
-def test_a_dead_adb_link_is_a_driver_error_on_input(tmp_path):
-    import subprocess
-    phone = Phone(APP)
-    d = hooked("uiautomator", phone, tmp_path)
-    d.start("com.example.app", "R")
-    phone.app.do(["launchApp"])
-    real = phone.adb
-    d._adb = lambda *a, **k: (subprocess.CompletedProcess(a, 1, b"", b"error: device offline")
-                              if a[1:] == ("dumpsys", "window") else real(*a))
-    with pytest.raises(DriverError, match="device offline"):
-        d.do(["back"])

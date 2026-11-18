@@ -20,14 +20,19 @@ def test_maestro_flows_pick_maestro_and_the_app_id_comes_from_gradle(tmp_path):
     assert pick(found)[0] == "maestro"
 
 
-def test_frameworks_without_a_driver_yet_fall_back_to_uiautomator_and_say_so(tmp_path):
+def test_frameworks_without_a_driver_need_an_explicit_driver(tmp_path):
     proj = _project(tmp_path, {"e2e/wdio.conf.ts": "export const config = {}",
                                "build/ignored/wdio.conf.js": "", "app/build.gradle": "applicationId 'com.a'"})
     found, app = scan(proj)
     assert [f.framework for f in found] == ["appium"] and app == "com.a"
     driver, why = pick(found)
-    assert driver == "uiautomator" and "appium (e2e/wdio.conf.ts)" in why
-    assert pick([])[0] == "uiautomator"
+    assert driver is None and "appium (e2e/wdio.conf.ts)" in why and "no driver" in why
+    assert pick([])[0] is None
+    import pytest
+    from journeys.detect import init_pack
+    with pytest.raises(ValueError, match="pass --driver maestro | speedrun"):
+        init_pack(tmp_path / "p", proj, "p", None)
+    assert "chosen with --driver" in init_pack(tmp_path / "p", proj, "p", None, "maestro")[1]
 
 
 def test_init_writes_a_valid_empty_pack(tmp_path, capsys):
@@ -43,7 +48,7 @@ def test_init_writes_a_valid_empty_pack(tmp_path, capsys):
 
 def test_init_quotes_odd_names_and_doctor_reports_a_missing_project(tmp_path, capsys):
     dest = tmp_path / "p"
-    assert main(["--pack", str(dest), "init", "--app", "com.a", "--name", "shop: v2 #1"]) == 0
+    assert main(["--pack", str(dest), "init", "--app", "com.a", "--name", "shop: v2 #1", "--driver", "maestro"]) == 0
     assert Pack.load(dest).name == "shop: v2 #1"
     assert main(["--pack", str(tmp_path / "q"), "init", "--project", str(tmp_path / "nope"), "--app", "a"]) == 2
     f = dest / "pack.yaml"
@@ -69,7 +74,7 @@ def test_several_app_modules_need_app(tmp_path):
     assert scan(proj) == ([], None)
     with pytest.raises(ValueError, match="several app ids.*com.acme.one.*com.acme.two"):
         init_pack(tmp_path / "p", proj, "p", None)
-    init_pack(tmp_path / "q", proj, "q", "com.acme.two")
+    init_pack(tmp_path / "q", proj, "q", "com.acme.two", "speedrun")
 
 
 def test_an_app_module_with_a_benchmark_build_type_still_counts(tmp_path):

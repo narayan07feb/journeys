@@ -160,7 +160,7 @@ def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_di
     from journeys.heal import apply
     # a pack made by init takes promoted proposals without breaking its YAML
     new = tmp_path / "newpack"
-    init_pack(new, None, "pk", "com.example.app")
+    init_pack(new, None, "pk", "com.example.app", "maestro")
     (new / "map" / "screens.yaml").write_text("screens:\n  A:\n    match: {all: [{text: A}]}\n")
     (new / "map" / "edges.yaml").write_text("edges: []\n")  # a hand-written empty list
     apply(Pack.load(new), {"kind": "new-screen", "name": "B", "match": {"all": [{"text": "B"}]},
@@ -168,7 +168,7 @@ def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_di
     p = Pack.load(new)
     assert p.errors == [] and p.map.edges[0].do == [{"tap": "Go"}]
     with pytest.raises(ValueError, match="not an Android package"):
-        init_pack(tmp_path / "bad", None, "x", "x y")
+        init_pack(tmp_path / "bad", None, "x", "x y", "maestro")
     # import lists what it cannot carry over, and survives files it cannot read
     fl = tmp_path / "fl"
     fl.mkdir()
@@ -238,7 +238,7 @@ def test_init_export_import_and_shapes_are_strict(pack_dir, tmp_path, capsys):
     (old / "map").mkdir(parents=True)
     (old / "map" / "screens.yaml").write_text("screens:\n  A: {match: {all: [A]}}\n")
     with pytest.raises(FileExistsError):
-        init_pack(old, None, "np", "com.example.app")
+        init_pack(old, None, "np", "com.example.app", "maestro")
     assert "A:" in (old / "map" / "screens.yaml").read_text() and not (old / "pack.yaml").exists()
     d = pack_dir / "drafts"
     d.mkdir()

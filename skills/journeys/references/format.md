@@ -19,10 +19,10 @@ pack/
 ```yaml
 name: shop                     # required
 app: com.example.shop          # required: the app's package
-driver: uiautomator            # uiautomator (default) | maestro | speedrun | fake
+driver: maestro                # required: the team's tool: maestro | speedrun (fake for tests)
 project: ../shop-android       # optional: the app's project (doctor checks its test framework)
 app_packages: [com.example.shop.web]   # optional: other packages the app's own screens run in
-                               # (uiautomator sends input to the app, these, and the permission dialog only)
+                               # (they count as the app: not_see, explore and tap-all stay inside them)
 env: [SEARCH_TEXT]             # env vars journeys may use as ${SEARCH_TEXT}
 accounts:
   main: {user: SHOP_USER, password: SHOP_PASSWORD}   # ${SHOP_USER} or ${main.user}; values from env only
@@ -73,13 +73,13 @@ edges:
 | Action | Does |
 |---|---|
 | `{tap: SEL}` | Tap the element (waits a moment for it). |
-| `{type: "text"}` | Type into the focused field. The `uiautomator` driver types plain ASCII only (no `%s`). |
+| `{type: "text"}` | Type into the focused field. |
 | `{erase: 10}` | Delete 10 characters in the focused field (1 to 1000). |
 | `{press: enter}` | A key: enter, back, home, tab, delete, search. |
 | `{scroll_to: SEL}` | Scroll down until the element shows. Up: `{scroll_to: {element: SEL, direction: up}}`. |
 | `scroll` | Scroll down once. |
 | `{see: SEL}` / `{not_see: SEL}` | Check the element is / is not on screen. |
-| `back`, `hide_keyboard`, `wait_idle` | `wait_idle` lets animations end (uiautomator needs no wait: it polls for each element). |
+| `back`, `hide_keyboard`, `wait_idle` | `wait_idle` lets animations end. |
 | `launch`, `{launch: {clear_state: true}}`, `stop` | Start (fresh) or stop the pack's app. |
 
 Selector (SEL), for actions and for `see`/`not_see` steps:
@@ -164,7 +164,7 @@ disabled. Selectors match `text` and `id` as on a device.
 | `journeys --pack P import maestro FLOWS...` | Maestro flows to drafts (what has no neutral word is listed). |
 | `journeys --pack P export maestro NAME [-o F]` | A journey as a Maestro flow. |
 | `journeys --pack NEW init --project APP [--app ID]` | A new pack; the driver follows the project's framework. |
-| `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. Read-only with uiautomator; only the pack's app is listed. |
+| `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. |
 | `journeys --pack P doctor` | Tools, drivers and devices. |
 
 Global options go before the command: `--pack P` (or `$JOURNEYS_PACK`), `--state S` (results;

@@ -75,26 +75,33 @@ def scan(project: Path, strict: bool = False) -> tuple[list[Found], str | None]:
     return [found[k] for k in order if k in found], next(iter(ids), None)
 
 
-def pick(found: list[Found]) -> tuple[str, str]:
-    """The driver for a new pack, and why. A framework without a step-by-step driver yet gets
-    uiautomator (no extra tools), and the reason says so."""
+def pick(found: list[Found]) -> tuple[str | None, str]:
+    """The driver for a new pack, and why; None when the project's framework has no Journeys
+    driver yet (then the team names one with --driver)."""
     for f in found:
         if f.framework in DRIVERS:
             return f.framework, f"{f.reason} shows the project uses {f.framework}"
     if found:
         names = ", ".join(f"{f.framework} ({f.reason})" for f in found)
-        return "uiautomator", f"found {names}: no Journeys driver for it yet, so uiautomator (adb only)"
-    return "uiautomator", "no UI test framework found: uiautomator (adb only)"
+        return None, f"found {names}: Journeys has no driver for it yet"
+    return None, "no UI test framework found in the project"
 
 
-def init_pack(dest: Path, project: Path | None, name: str, app: str | None) -> list[str]:
+def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
+              driver: str | None = None) -> list[str]:
     """Write a new, empty pack. Returns what it did, line by line."""
     files = [dest / "pack.yaml", dest / "map" / "screens.yaml", dest / "map" / "edges.yaml", dest / "sets.yaml"]
     there = [str(f) for f in files if f.exists()]
     if there:
         raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
     found, app_id = scan(project, strict=not app) if project else ([], None)
-    driver, why = pick(found)
+    detected, why = pick(found)
+    if driver:
+        why = f"chosen with --driver ({why})" if detected != driver else why
+    driver = driver or detected
+    if driver not in DRIVERS:
+        raise ValueError(f"{why}: pass --driver {' | '.join(d for d in DRIVERS if d != 'fake')}"
+                         if driver is None else f"driver {driver} is not one of {', '.join(DRIVERS)}")
     app = app or app_id
     if not app:
         raise ValueError("no app id: pass --app <package>" + (" (none found in the project's Gradle files)"

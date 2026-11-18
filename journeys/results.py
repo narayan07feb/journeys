@@ -16,7 +16,30 @@ def default_state_dir(pack_name: str) -> Path:
     return Path("~/.local/state/journeys").expanduser() / pack_name
 
 
+_SECRETS: list[str] = []
+
+
+def set_secrets(values) -> None:
+    """Env values (passwords, tokens) the run knows; every string written later is masked."""
+    _SECRETS[:] = sorted({str(v) for v in values if len(str(v)) >= 3}, key=len, reverse=True)
+
+
+def mask(obj):
+    """obj with each secret, raw or regex-escaped, replaced by •••, in every string inside it."""
+    if isinstance(obj, str):
+        from .actions import escape
+        for s in _SECRETS:
+            obj = obj.replace(s, "•••").replace(escape(s), "•••")
+        return obj
+    if isinstance(obj, dict):
+        return {mask(k): mask(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [mask(v) for v in obj]
+    return obj
+
+
 def write_json(path: Path, data) -> None:
+    data = mask(data)  # nothing reaches results, proposals or the live page unmasked
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str) + "\n")

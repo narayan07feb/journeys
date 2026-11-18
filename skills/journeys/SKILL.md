@@ -7,8 +7,8 @@ description: Create, check, run and promote end-to-end journeys for an Android a
 
 Journeys tests an Android app by walking a map of its screens. A pack (a folder) holds the map and
 the journeys. The format is neutral: no step names a test framework. The pack's `driver` (or
-`--driver`) picks the tool that drives the device: `uiautomator` (adb only), `maestro`, `speedrun`,
-or `fake` (no device). Nothing here needs Speedrun.
+`--driver`) is the team's own tool that drives the device: `maestro` or `speedrun` (`fake` runs
+without a device). Every step below works the same with any driver; nothing here needs Speedrun.
 
 Read `references/format.md` before you write a step. It has the exact format and a worked example.
 
@@ -20,9 +20,8 @@ Read `references/format.md` before you write a step. It has the exact format and
    that is missing needs a rule first (format.md, "Screens"); a way between screens needs an edge.
    To see a screen's real texts and ids: with that screen open on the device (ask the user to
    open it, or let a draft run stop there), run `journeys --pack P look --serial <serial>`. It
-   prints each element (kind, "text", #id) and which map screen it matches. With the uiautomator
-   driver it changes nothing (maestro and speedrun first set up their own driver on the device), and
-   it lists only the pack's app: with another app in front the list is empty.
+   prints each element (kind, "text", #id) and which map screen it matches. It sends no input
+   (the driver may set up its own helper on the device first, as it does for any run).
 3. Start a draft: `journeys --pack P new <name> --start <SCREEN>`. It writes `drafts/<name>.yaml`.
 4. Write the steps (format.md, "Journeys"): `expect` and `goto` for screens, `see`/`not_see` for
    checks, `do:` with action words for taps and typing, `input` for text from env vars.

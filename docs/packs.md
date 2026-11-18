@@ -23,8 +23,7 @@ The exact format, every step and action, and a worked example are in
 ```yaml
 name: my-app                 # also the state folder's name
 app: com.example.app
-driver: uiautomator          # uiautomator (default), maestro, speedrun or fake
-                             # (packs without driver: ran Speedrun before 0.2; now uiautomator)
+driver: maestro              # required: the team's tool, maestro or speedrun (fake for tests)
 env: [SEARCH_TEXT]           # variables a journey may use as ${SEARCH_TEXT}
 accounts:                    # test accounts: values only from env vars, never in the pack
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}
@@ -38,7 +37,7 @@ install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-deb
 devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
                                     # --dka needs a driver that can change a setting (speedrun, fake);
-                                    # uiautomator and maestro refuse it.
+                                    # maestro refuses it.
                                     # Elsewhere --dka is refused, and Speedrun does not start when it
                                     # would change the phone (Android 13+, other agent builds, a Maestro driver)
   animations: normal                # speedrun driver only: --animations normal leaves the scales at 1

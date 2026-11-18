@@ -48,7 +48,7 @@ class FakeDriver(Driver):
     def look(self) -> Screen:
         if not self.alive or not self.stack or self.home:
             return Screen([], header="launcher")
-        return Screen(self._elements(), header=f"fake {self.stack[-1]}")
+        return Screen(self._elements(), header=f"screen {self.stack[-1]}")
 
     def do(self, commands: list) -> CommandResult:
         for cmd in commands:
@@ -136,5 +136,5 @@ class FakeDriver(Driver):
             if self._find(arg) is not None:
                 return CommandResult(False, f"Element is visible: {shown(arg)}")
         elif name not in _NO_OP:
-            return CommandResult(False, f"fake driver does not know {name}")
+            return CommandResult(False, f"this driver does not know the action {name}")
         return CommandResult(True)

@@ -3,7 +3,7 @@
 Settings come from the environment:
   JOURNEYS_PACK    the pack (default: <project>/journeys-pack if present, else the example pack)
   JOURNEYS_SERIAL  the device; without it only JOURNEYS_DRIVER=fake can run
-  JOURNEYS_DRIVER  uiautomator | maestro | speedrun | fake (default: the pack's driver)
+  JOURNEYS_DRIVER  maestro | speedrun | fake (default: the pack's driver)
   JOURNEYS_STATE   the state folder (default ~/.local/state/journeys/<pack>)
 """
 from __future__ import annotations

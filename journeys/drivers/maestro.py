@@ -1,5 +1,5 @@
 """The Maestro driver, for teams that use Maestro: each step runs as a one-off flow through its CLI
-(a JVM start per call, so slower than uiautomator).
+(a JVM start per call).
 
 `do` writes the commands as a one-off flow and runs `maestro test`; `look` reads `maestro hierarchy`.
 """
@@ -37,7 +37,7 @@ def parse_hierarchy(data: dict) -> Screen:
             walk(ch)
 
     walk(data)
-    return Screen(out, header=f"maestro, {len(out)} elements")
+    return Screen(out, header=f"{len(out)} elements")
 
 
 def _maestro_sel(sel):

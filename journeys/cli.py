@@ -28,9 +28,6 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
         others = [k for k, why in availability().items() if not why and k not in (kind, "fake")]
         raise DriverError(f"driver {kind} cannot run: {missing}"
                           + (f" (these can: {', '.join(others)}; pass --driver)" if others else ""))
-    if kind == "uiautomator":
-        from .drivers.uiautomator import UiAutomatorDriver
-        return UiAutomatorDriver(app_packages=tuple(pack.app_packages))
     if kind == "speedrun":
         from .drivers.speedrun import SpeedrunDriver, find_speedrun
         return SpeedrunDriver(find_speedrun(), store.root / "speedrun-home",
@@ -294,7 +291,7 @@ def cmd_init(args) -> int:
     dest = Path(args.pack).expanduser()
     project = Path(args.project).expanduser() if args.project else None
     try:
-        lines = init_pack(dest, project, args.name or dest.name, args.app)
+        lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver)
     except (FileExistsError, FileNotFoundError, ValueError) as e:
         raise PackError(str(e)) from None
     print("\n".join(lines))
@@ -442,6 +439,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--project", help="the app's project folder (its test framework picks the driver)")
     s.add_argument("--app", help="the app's package (default: applicationId from the project)")
     s.add_argument("--name", help="pack name (default: the folder name)")
+    s.add_argument("--driver", choices=DRIVERS, help="the team's driver (default: the one the project's tests use)")
     s.set_defaults(fn=cmd_init)
     s = sub.add_parser("setup", help="install upstream Speedrun into third_party/")
     s.add_argument("--version", help="release tag, e.g. v0.4.14 (default: latest)")

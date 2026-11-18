@@ -29,7 +29,7 @@ TOOLS = {
     "doctor": ("Check the pack (screens, edges, journeys) and list its errors.", _schema()),
     "list_journeys": ("List the pack's sets and journeys.", _schema()),
     "start_run": ("Start a run of a journey, a set, or `all` on one device; returns its run id at once. "
-                  "driver: uiautomator, maestro, speedrun or fake (default: the pack's). A real driver needs serial.",
+                  "driver: maestro, speedrun or fake (default: the pack's). A real driver needs serial.",
                   _schema({"target": _S, "serial": _S, "driver": _S}, ["target"])),
     "run_status": ("Status of a run: per journey passed/failed, failure ids and proposals.",
                    _schema({"run_id": _S}, ["run_id"])),

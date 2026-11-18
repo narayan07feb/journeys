@@ -26,7 +26,7 @@ Add the plugin by picking this repo's folder in the Tests tab (**Add plugin…**
 |---|---|
 | `JOURNEYS_PACK` | The pack. Default: `<project>/journeys-pack` if there is one, else the example pack. |
 | `JOURNEYS_SERIAL` | The device. Without it only `JOURNEYS_DRIVER=fake` runs. |
-| `JOURNEYS_DRIVER` | `uiautomator`, `maestro`, `speedrun` or `fake` (default: the pack's `driver`). |
+| `JOURNEYS_DRIVER` | `maestro`, `speedrun` or `fake` (default: the pack's `driver`). |
 | `JOURNEYS_STATE` | The state folder. |
 
 The tree shows every journey (each opens its YAML) and every set. Views: Failures, Proposals.

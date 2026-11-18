@@ -6,7 +6,6 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from xml.sax.saxutils import quoteattr
 
 import yaml
 
@@ -36,23 +35,8 @@ class Phone:
         els = self.app.look().elements
         return els if self.page is None else els[self.offset:self.offset + self.page]
 
-    def dump_xml(self) -> str:
-        nodes = "".join(
-            f'<node index="{i}" text={quoteattr(e.text)} resource-id={quoteattr(e.id)} '
-            f'class="android.widget.{ "EditText" if e.kind == "Field" else "TextView" if e.kind == "Text" else e.kind}" '
-            f'package="{self.pkg}" content-desc="" checkable="false" checked="{str("checked" in e.state).lower()}" '
-            f'clickable="{str(e.kind in ("Button", "Field", "Switch")).lower()}" enabled="{str("disabled" not in e.state).lower()}" '
-            f'focused="false" selected="false" bounds="[0,{i * ROW}][1080,{i * ROW + ROW - 10}]" />'
-            for i, e in enumerate(self._elements()))
-        return (f'<?xml version=\'1.0\' encoding=\'UTF-8\' standalone=\'yes\' ?><hierarchy rotation="0">'
-                f'<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="{self.pkg}" '
-                f'content-desc="" clickable="false" bounds="[0,0][1080,2400]">{nodes}</node></hierarchy>'
-                "UI hierchary dumped to: /dev/tty\n")
-
     # adb
     def adb(self, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
-        if args[:2] == ("exec-out", "uiautomator"):
-            return _done(self.dump_xml())
         if args[:2] == ("exec-out", "screencap"):
             return _done(b"\x89PNG fake")
         if args[0] == "logcat":
@@ -141,10 +125,7 @@ def hooked(kind: str, phone: Phone, tmp: Path):
     """A real driver of the given kind, wired to the pretend phone."""
     if kind == "fake":
         return phone.app
-    if kind == "uiautomator":
-        from journeys.drivers.uiautomator import UiAutomatorDriver
-        d = UiAutomatorDriver(wait_s=0, sleep=lambda s: None)
-    elif kind == "speedrun":
+    if kind == "speedrun":
         from journeys.drivers.speedrun import SpeedrunDriver
         d = SpeedrunDriver("/bin/true", tmp / "srhome", allow_changes="any")
         d._sr = phone.speedrun

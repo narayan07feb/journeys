@@ -58,7 +58,7 @@ class Pack:
     root: Path
     name: str
     app: str
-    driver: str = "uiautomator"
+    driver: str = ""
     build: list[list[str]] = field(default_factory=list)
     install: list[list[str]] = field(default_factory=list)
     env_names: list[str] = field(default_factory=list)
@@ -113,7 +113,7 @@ class Pack:
             if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
                 errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
         p = cls(
-            root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "uiautomator")),
+            root, str(raw["name"]), str(raw["app"]), str(raw.get("driver") or ""),
             _argvs(shaped("build", list, "a list of commands"), "build", pf, errors),
             _argvs(shaped("install", list, "a list of commands"), "install", pf, errors),
             [str(n) for n in shaped("env", list, "a list of names")], accounts,
@@ -140,7 +140,8 @@ class Pack:
             except (ValueError, re.error) as e:
                 p.errors.append(f"{pf}: tap_all.deny: {e}")
         if p.driver not in DRIVERS:
-            p.errors.append(f"{pf}: driver is one of {', '.join(DRIVERS)}, not {p.driver}")
+            p.errors.append(f"{pf}: driver is required: the team's tool, one of {', '.join(DRIVERS)}"
+                            + (f", not {p.driver}" if p.driver else ""))
         p.map = AppMap.load(root / "map")
         p.errors += p.map.errors
         for folder, into in (("journeys", p.journeys), ("drafts", p.drafts)):

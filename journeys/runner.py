@@ -8,12 +8,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
-from .actions import ActionError, escape, to_commands
+from .actions import ActionError, to_commands
 from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
 from .pack import Pack, substitute
-from .results import Run, Store, write_json
+from .results import Run, Store, mask, set_secrets, write_json
 
 
 class StepFailed(Exception):
@@ -50,6 +50,7 @@ class Runner:
         self.pack, self.driver, self.store, self.run = pack, driver, store, run
         self.serial = serial
         self.vars = pack.variables() if variables is None else variables
+        set_secrets(self.vars.values())
         self.settle_tries, self.sleep, self.on_update = settle_tries, sleep, on_update
         self.heal = heal
         self._journey: Journey | None = None
@@ -121,11 +122,7 @@ class Runner:
         return None
 
     def _mask(self, text: str) -> str:
-        """Env values (account passwords, tokens) never reach messages, results or the live page."""
-        for value in sorted(self.vars.values(), key=len, reverse=True):
-            if len(value) >= 3:
-                text = text.replace(value, "•••").replace(escape(value), "•••")
-        return text
+        return mask(text)
 
     def _sub(self, arg):
         try:
@@ -272,7 +269,7 @@ class Runner:
         if not self.pack.tap_allowed:
             return
         options = explore(self.driver, self.pack.map, self.pack.owns, self.pack.deny)
-        failure = self.store.update_failure(fid, options=json.loads(self._mask(json.dumps(options))))
+        failure = self.store.update_failure(fid, options=options)  # the store masks what it writes
         target = step.arg if step.kind in ("expect", "goto") else None
         here = failure.get("screen")
         if here is None:

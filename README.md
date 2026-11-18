@@ -6,14 +6,14 @@ with the tool it already uses:
 
 | Driver | Needs | |
 |---|---|---|
-| `uiautomator` (default) | adb | The phone's own `uiautomator dump` and `input`. Installs nothing, changes no setting; input goes only to the pack's app. |
 | `maestro` | `maestro` on PATH | Each step runs as a Maestro flow. |
 | `speedrun` | `journeys setup` | Upstream [Speedrun](https://github.com/hubastard/speedrun); fast; changes some device state (docs/packs.md). |
 | `fake` | nothing | A small model of the app, for tests without a device. |
 
-The pack's `driver:` picks one; `--driver` overrides it. `journeys init --project <app>` picks the
-one the project's tests already use when Journeys has a driver for it (Maestro today); for
-Espresso or Appium projects it picks `uiautomator` and says why in `pack.yaml`. Maestro flows import into drafts, and journeys export back
+Journeys has no device driver of its own: every feature (journeys, detours, explore, tap-all,
+look, results) runs through the driver the pack names, so a new driver brings all of them. The
+pack's `driver:` is required; `--driver` overrides it; `journeys init --project <app>` picks the
+one the project's tests already use. Maestro flows import into drafts, and journeys export back
 to Maestro flows, so a team keeps its tools.
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).
@@ -35,7 +35,7 @@ uv sync                                    # Python 3.11+, PyYAML
 export JOURNEYS_PACK=examples/settings-pack
 uv run journeys doctor
 uv run journeys run smoke --driver fake    # no phone: a small model of the app
-uv run journeys run smoke --serial emulator-5554       # the pack's driver (uiautomator)
+uv run journeys run smoke --serial emulator-5554       # the pack's driver (maestro)
 uv run journeys setup                                  # only for --driver speedrun
 ```
 
@@ -51,7 +51,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 |---|---|
 | `doctor` | Check the pack, the drivers, adb and devices. |
 | `validate` | Check the pack, every journey and draft (file:line). |
-| `look --serial S` | The screen on the device now and its map screen (read-only with uiautomator). |
+| `look --serial S` | The screen on the device now and its map screen. |
 | `new NAME --start SCREEN` / `promote-journey NAME` | Start a draft / move it into `journeys/`. |
 | `import maestro FLOWS` / `export maestro NAME` | Maestro flows to drafts / a journey to a flow. |
 | `init --project APP` | A new pack whose driver follows the project's tests. |
