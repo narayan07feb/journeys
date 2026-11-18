@@ -3,7 +3,7 @@
 Settings come from the environment:
   JOURNEYS_PACK    the pack (default: <project>/journeys-pack if present, else the example pack)
   JOURNEYS_SERIAL  the device; without it only JOURNEYS_DRIVER=fake can run
-  JOURNEYS_DRIVER  speedrun | maestro | fake (default: the pack's driver)
+  JOURNEYS_DRIVER  uiautomator | maestro | speedrun | fake (default: the pack's driver)
   JOURNEYS_STATE   the state folder (default ~/.local/state/journeys/<pack>)
 """
 from __future__ import annotations
@@ -108,15 +108,16 @@ def cmd_view(store: Store, which: str) -> None:
 
 
 def cmd_doctor(pack: Pack) -> int:
-    from .drivers.speedrun import find_speedrun
+    from .drivers import availability
     emit(label=f"pack {pack.name}", status="failed" if pack.errors else "passed",
          message="; ".join(pack.errors) or f"{len(pack.journeys)} journeys")
-    sr = find_speedrun()
-    emit(label="speedrun", status="passed" if sr else "failed", message=sr or "run `journeys setup`")
+    kind = os.environ.get("JOURNEYS_DRIVER") or pack.driver
+    missing = availability().get(kind, f"unknown driver {kind}")
+    emit(label=f"driver {kind}", status="failed" if missing else "passed", message=missing or "can run")
     serial = os.environ.get("JOURNEYS_SERIAL")
     emit(label="device", status="passed" if serial else "skipped",
          message=serial or "JOURNEYS_SERIAL not set (fake driver only)")
-    return 1 if pack.errors or not sr else 0
+    return 1 if pack.errors or missing else 0
 
 
 def main(argv: list[str] | None = None) -> int:

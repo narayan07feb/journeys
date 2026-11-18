@@ -13,7 +13,8 @@ from pathlib import Path
 
 import yaml
 
-from .base import CommandResult, Driver, DriverError, Element, Screen, changes_allowed
+from .adb import AdbDriver
+from .base import CommandResult, DriverError, Element, Screen, changes_allowed
 
 _LINE = re.compile(r'^(@\d+)\s+(\S+)(.*)$')
 _TOKEN = re.compile(r'\s*(?:"((?:[^"\\]|\\.)*)"|#(\S+)|(\w+)="(?:[^"\\]|\\.)*"|(\S+))')
@@ -63,7 +64,7 @@ def find_speedrun(repo_root: Path | None = None) -> str | None:
     return None
 
 
-class SpeedrunDriver(Driver):
+class SpeedrunDriver(AdbDriver):
     def __init__(self, binary: str | None, home: Path, timeout_s: int = 120, animations: str = "normal",
                  allow_changes="emulator"):
         if not binary:
@@ -90,13 +91,6 @@ class SpeedrunDriver(Driver):
                                   env=self._env(), timeout=self.timeout)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise DriverError(f"speedrun {args[0]}: {e}") from None
-
-    def _adb(self, *args: str) -> subprocess.CompletedProcess:
-        serial = ["-s", self.serial] if self.serial else []
-        try:
-            return subprocess.run(["adb", *serial, *args], capture_output=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            raise DriverError(f"adb {args[0]}: {e}") from None
 
     def _guard_shared_device(self) -> None:
         """Speedrun's session start changes a device in ways a shared phone must not see: it turns on
@@ -143,30 +137,6 @@ class SpeedrunDriver(Driver):
             return CommandResult(True, out)
         failed = [ln for ln in out.splitlines() if ln.startswith("FAILED") or ln.startswith("  ")]
         return CommandResult(False, "\n".join(failed[:4]) or out[-500:])
-
-    def screenshot(self, path: Path) -> Path | None:
-        p = self._adb("exec-out", "screencap", "-p")
-        if p.returncode != 0 or not p.stdout.startswith(b"\x89PNG"):
-            return None
-        path.write_bytes(p.stdout)
-        return path
-
-    def app_alive(self) -> bool:
-        return self._adb("shell", "pidof", self.app).returncode == 0
-
-    def foreground_app(self) -> str | None:
-        out = self._adb("shell", "dumpsys", "window").stdout.decode(errors="replace")  # read-only
-        m = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", out) or re.search(r"mFocusedApp=.*? ([\w.]+)/", out)
-        return m.group(1) if m else None
-
-    def crash_log(self) -> str:
-        p = self._adb("logcat", "-d", "-b", "crash", "-t", "60")  # read-only: no -c, no -G
-        return p.stdout.decode(errors="replace")[-4000:] if p.returncode == 0 else ""
-
-    def is_emulator(self) -> bool:
-        if (self.serial or "").startswith("emulator-"):
-            return True
-        return self._adb("shell", "getprop", "ro.kernel.qemu").stdout.strip() == b"1"
 
     def global_setting(self, name: str, value: str | None = None) -> str:
         old = self._adb("shell", "settings", "get", "global", name).stdout.decode().strip()

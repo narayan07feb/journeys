@@ -19,7 +19,7 @@ my-pack/
 ```yaml
 name: my-app                 # also the state folder's name
 app: com.example.app
-driver: speedrun             # or maestro
+driver: uiautomator          # uiautomator (default), maestro, speedrun or fake
 env: [SEARCH_TEXT]           # variables a journey may use as ${SEARCH_TEXT}
 accounts:                    # test accounts: values only from env vars, never in the pack
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}

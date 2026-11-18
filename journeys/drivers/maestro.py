@@ -13,7 +13,8 @@ from pathlib import Path
 
 import yaml
 
-from .base import CommandResult, Driver, DriverError, Element, Screen
+from .adb import AdbDriver
+from .base import CommandResult, DriverError, Element, Screen
 
 
 def _short(cls: str) -> str:
@@ -50,7 +51,7 @@ def parse_hierarchy(data: dict) -> Screen:
     return Screen(out, header=f"maestro, {len(out)} elements")
 
 
-class MaestroDriver(Driver):
+class MaestroDriver(AdbDriver):
     def __init__(self, binary: str | None = None, timeout_s: int = 180):
         self.bin = binary or shutil.which("maestro")
         if not self.bin:
@@ -63,10 +64,6 @@ class MaestroDriver(Driver):
             return subprocess.run([self.bin, *dev, *args], capture_output=True, text=True, timeout=self.timeout)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise DriverError(f"maestro {args[0]}: {e}") from None
-
-    def _adb(self, *args: str) -> subprocess.CompletedProcess:
-        serial = ["-s", self.serial] if self.serial else []
-        return subprocess.run(["adb", *serial, *args], capture_output=True, timeout=60)
 
     def start(self, app_id: str, serial: str | None = None) -> None:
         self.app, self.serial = app_id, serial
@@ -88,16 +85,6 @@ class MaestroDriver(Driver):
             Path(f.name).unlink(missing_ok=True)
         out = (p.stdout + p.stderr).strip()
         return CommandResult(p.returncode == 0, out[-500:] if p.returncode else "")
-
-    def screenshot(self, path: Path) -> Path | None:
-        p = self._adb("exec-out", "screencap", "-p")
-        if p.returncode != 0 or not p.stdout.startswith(b"\x89PNG"):
-            return None
-        path.write_bytes(p.stdout)
-        return path
-
-    def app_alive(self) -> bool:
-        return self._adb("shell", "pidof", self.app).returncode == 0
 
     def stop(self) -> None:
         pass

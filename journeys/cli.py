@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .drivers import DRIVERS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
 from .pack import Pack, PackError
@@ -17,25 +18,30 @@ from .runner import Runner
 
 
 def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
+    """The driver the pack names, or the --driver override. No silent fallback to another one."""
+    if kind not in DRIVERS:
+        raise DriverError(f"driver {kind} is not one of {', '.join(DRIVERS)}")
+    missing = availability()[kind]
+    if missing:
+        others = [k for k, why in availability().items() if not why and k not in (kind, "fake")]
+        raise DriverError(f"driver {kind} cannot run: {missing}"
+                          + (f" (these can: {', '.join(others)}; pass --driver)" if others else ""))
+    if kind == "uiautomator":
+        from .drivers.uiautomator import UiAutomatorDriver
+        return UiAutomatorDriver()
     if kind == "speedrun":
         from .drivers.speedrun import SpeedrunDriver, find_speedrun
-        binary = find_speedrun()
-        if binary or not shutil.which("maestro"):
-            return SpeedrunDriver(binary, store.root / "speedrun-home",
-                                  animations=str(pack.devices.get("animations", "normal")),
-                                  allow_changes=pack.devices.get("allow_settings_changes", "emulator"))
-        print("speedrun not found: falling back to maestro (slower)", file=sys.stderr)
-        kind = "maestro"
+        return SpeedrunDriver(find_speedrun(), store.root / "speedrun-home",
+                              animations=str(pack.devices.get("animations", "normal")),
+                              allow_changes=pack.devices.get("allow_settings_changes", "emulator"))
     if kind == "maestro":
         from .drivers.maestro import MaestroDriver
         return MaestroDriver()
-    if kind == "fake":
-        app = Path(args.fake_app) if args.fake_app else pack.root / "fake" / "app.yaml"
-        if not app.exists():
-            raise DriverError(f"{app} not found: the fake driver needs a fake app file")
-        from .drivers.fake import FakeDriver
-        return FakeDriver.from_file(app)
-    raise DriverError(f"driver {kind} is not available yet")
+    app = Path(args.fake_app) if args.fake_app else pack.root / "fake" / "app.yaml"
+    if not app.exists():
+        raise DriverError(f"{app} not found: the fake driver needs a fake app file")
+    from .drivers.fake import FakeDriver
+    return FakeDriver.from_file(app)
 
 
 def _load(args) -> Pack:
@@ -58,9 +64,11 @@ def cmd_doctor(args) -> int:
     except PackError as e:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
-    from .drivers.speedrun import find_speedrun
-    sr = find_speedrun()
-    rows.append(("OK", f"speedrun {sr}") if sr else ("WARN", "speedrun not found: run `journeys setup`"))
+    wanted = pack.driver if "pack" in locals() else None
+    for kind, missing in availability().items():
+        if kind != "fake":
+            level = "OK" if not missing else "FAIL" if kind == wanted else "WARN"
+            rows.append((level, f"driver {kind}{' (the pack\'s)' if kind == wanted else ''}: {missing or 'can run'}"))
     adb = shutil.which("adb")
     rows.append(("OK", f"adb {adb}") if adb else ("WARN", "adb not on PATH"))
     if adb:
@@ -275,14 +283,14 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_list)
     s = sub.add_parser("run", help="run a journey, a set, or all")
     s.add_argument("target")
-    s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
+    s.add_argument("--driver", choices=DRIVERS)
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps: read-only checks")
     s.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("tap-all", help="walk the app and tap every option once")
-    s.add_argument("--driver", choices=["speedrun", "maestro", "fake"])
+    s.add_argument("--driver", choices=DRIVERS)
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.add_argument("--dka", action="store_true", help="turn on don't-keep-activities for the walk")

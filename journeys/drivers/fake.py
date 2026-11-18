@@ -15,33 +15,14 @@
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import yaml
 
-from .base import CommandResult, Driver, DriverError, Element, Screen
+from .base import CommandResult, Driver, DriverError, Element, Screen, command_name, find
 
 CRASH = "CRASH"
 _NO_OP = {"waitForAnimationToEnd", "hideKeyboard", "inputText", "eraseText"}
-
-
-def _text_matches(pattern: str, text: str) -> bool:
-    """Flow selectors treat text as a regex that must match the whole text."""
-    if pattern == text:
-        return True
-    try:
-        return re.fullmatch(pattern, text) is not None
-    except re.error:
-        return False
-
-
-def command_name(cmd) -> tuple[str, object]:
-    if isinstance(cmd, str):
-        return cmd, None
-    if isinstance(cmd, dict) and len(cmd) == 1:
-        return next(iter(cmd.items()))
-    raise ValueError(f"not a flow command: {cmd!r}")
 
 
 class FakeDriver(Driver):
@@ -117,21 +98,8 @@ class FakeDriver(Driver):
     def _find(self, sel) -> dict | None:
         if not self.alive or not self.stack:
             return None
-        raw = self._raw()
-        if isinstance(sel, str) and sel.startswith("@") and sel[1:].isdigit():
-            i = int(sel[1:]) - 1
-            return raw[i] if 0 <= i < len(raw) else None
-        if isinstance(sel, str):
-            sel = {"text": sel}
-        if isinstance(sel, dict) and "element" in sel:
-            sel = sel["element"] if isinstance(sel["element"], dict) else {"text": sel["element"]}
-        hits = [
-            e for e in raw
-            if ("id" not in sel or e.get("id") == sel["id"])
-            and ("text" not in sel or _text_matches(sel["text"], e.get("text", "")))
-        ]
-        idx = sel.get("index", 0)
-        return hits[idx] if idx < len(hits) else None
+        i = find(self._elements(), sel)
+        return None if i is None else self._raw()[i]
 
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)

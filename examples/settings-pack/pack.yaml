@@ -3,7 +3,7 @@
 # with `journeys doctor` and a first run, and adjust the texts for your Android version.
 name: settings-demo
 app: com.android.settings
-driver: speedrun
+driver: uiautomator   # or maestro, speedrun (the team picks; --driver overrides)
 env: [DEMO_SEARCH]          # optional variable used by the search journey
 hooks:
   note: [hooks/note.sh]     # a tiny example hook: prints its JSON argument

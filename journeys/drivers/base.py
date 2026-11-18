@@ -1,6 +1,7 @@
 """What every driver gives the runner: read the screen, run flow commands, take a screenshot."""
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,3 +87,52 @@ def changes_allowed(rule, driver: Driver, serial: str | None) -> bool:
     if rule == "emulator":
         return driver.is_emulator()
     return isinstance(rule, list) and serial in rule
+
+
+def command_name(cmd) -> tuple[str, object]:
+    """A flow command is a bare name ("back") or a one-key map ({tapOn: "Next"})."""
+    if isinstance(cmd, str):
+        return cmd, None
+    if isinstance(cmd, dict) and len(cmd) == 1:
+        return next(iter(cmd.items()))
+    raise ValueError(f"not a flow command: {cmd!r}")
+
+
+def text_matches(pattern: str, text: str) -> bool:
+    """Flow selectors treat text as a regex that must match the whole text."""
+    if pattern == text:
+        return True
+    try:
+        return re.fullmatch(pattern, text) is not None
+    except re.error:
+        return False
+
+
+def id_matches(want: str, have: str) -> bool:
+    """An id matches in full (pkg:id/name) or by its name alone."""
+    return bool(have) and (have == want or have.endswith(f":id/{want}") or have.rsplit("/", 1)[-1] == want)
+
+
+def find(elements: list[Element], sel) -> int | None:
+    """Index of the element a selector names: "@3", "text or /regex/", or {text, id, index}."""
+    if isinstance(sel, str) and sel.startswith("@") and sel[1:].isdigit():
+        i = int(sel[1:]) - 1
+        return i if 0 <= i < len(elements) else None
+    if isinstance(sel, dict) and "element" in sel:
+        sel = sel["element"]
+    if isinstance(sel, str):
+        sel = {"text": sel}
+    if not isinstance(sel, dict):
+        return None
+    hits = [i for i, e in enumerate(elements)
+            if ("id" not in sel or id_matches(str(sel["id"]), e.id))
+            and ("text" not in sel or text_matches(str(sel["text"]), e.text))]
+    idx = int(sel.get("index", 0))
+    return hits[idx] if idx < len(hits) else None
+
+
+def focused_package(dumpsys_window: str) -> str | None:
+    """The package on screen, from `dumpsys window` (read-only)."""
+    m = (re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", dumpsys_window)
+         or re.search(r"mFocusedApp=.*? ([\w.]+)/", dumpsys_window))
+    return m.group(1) if m else None

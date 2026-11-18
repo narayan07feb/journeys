@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import yamlio
 from .appmap import AppMap, Rule
+from .drivers import DRIVERS
 from .journey import Journey, load_journeys
 
 # Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
@@ -30,7 +31,7 @@ class Pack:
     root: Path
     name: str
     app: str
-    driver: str = "speedrun"
+    driver: str = "uiautomator"
     build: list[list[str]] = field(default_factory=list)
     install: list[list[str]] = field(default_factory=list)
     env_names: list[str] = field(default_factory=list)
@@ -55,7 +56,7 @@ class Pack:
         if not raw.get("name") or not raw.get("app"):
             raise PackError(f"{pf}: name and app are required")
         p = cls(
-            root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "speedrun")),
+            root, str(raw["name"]), str(raw["app"]), str(raw.get("driver", "uiautomator")),
             list(raw.get("build") or []), list(raw.get("install") or []),
             [str(n) for n in raw.get("env") or []], dict(raw.get("accounts") or {}),
             dict(raw.get("hooks") or {}), (raw.get("events") or {}).get("check"),
@@ -68,8 +69,8 @@ class Pack:
                 p.deny.append(Rule.parse(r))
             except (ValueError, re.error) as e:
                 p.errors.append(f"{pf}: tap_all.deny: {e}")
-        if p.driver not in ("speedrun", "maestro"):
-            p.errors.append(f"{pf}: driver is speedrun or maestro, not {p.driver}")
+        if p.driver not in DRIVERS:
+            p.errors.append(f"{pf}: driver is one of {', '.join(DRIVERS)}, not {p.driver}")
         p.map = AppMap.load(root / "map")
         p.errors += p.map.errors
         for f in sorted((root / "journeys").glob("**/*.y*ml")):
