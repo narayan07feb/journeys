@@ -52,7 +52,8 @@ tap_all:
 
 Tap-all and explore always skip a built-in deny list (reset, erase, uninstall, Wi-Fi, airplane mode,
 Bluetooth, sign out, pay, buy, send, share, ...); `deny` adds to it. After each tap, when another app
-or a system screen is in front, they go back and never tap inside it.
+or a system screen is in front, they never tap inside it: explore goes back, tap-all restarts the app
+and replays the route to the screen it was on.
 
 Hooks and the event checker run in the pack folder with `JOURNEYS_APP`, `JOURNEYS_SERIAL` and
 `JOURNEYS_PACK` in their environment. Exit 0 means it worked.

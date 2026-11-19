@@ -17,14 +17,14 @@ from .journey import Journey, load_journeys
 _S = r"[\s\-\u2010-\u2015]"  # a space or dash of any kind: NBSP, U+2011 ("Log\u2011out") as on real devices
 DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too; "_" is any space or dash
-    r"/(?i)\b(reset|erase|factory|wipe|delet|remov|uninstall|clear_(all_)?(data|storage|cache)|force_stop|"
+    r"/(?i)\b(reset|erase|factory|wipe|delet|remov|uninstall|clear|force_stop|"
     r"deactivat|disabl|terminat|close_account|unlink|revoke|forget|reboot|restart|power_off|shut_?down|turn_off|"
-    r"block|clear_(all|history)|clear$|discard|empty|format|install|opt_?out|"
+    r"block|discard|empty|format|install|opt_?out|unfollow|unfriend|unpair|leave|exit|quit|switch_off|"
     r"cancel_(plan|subscription|membership|order|booking|payment))/",
     r"/(?i)\b(wi_?fi|airplane|aeroplane|flight_mode|bluetooth|mobile_data|hotspot|usb_debugging"
-    r"|developer_options|disconnect)/",
+    r"|developer_options|disconnect|wlan|mobile_network|network_reset)/",
     r"/(?i)\b(sign_?(out|off)|log_?(out|off)|pay|buy|purchase|(un)?subscri|send|call|share|rate_us|report|"
-    r"order|checkout|transfer|withdraw|donat|top_?up|add_money)/",
+    r"order|checkout|transfer|withdraw|donat|top_?up|add_money|submit|publish|post$|hang_?up|end_call)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")

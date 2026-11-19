@@ -3,7 +3,7 @@
 Settings come from the environment:
   JOURNEYS_PACK    the pack (default: <project>/journeys-pack if present, else the example pack)
   JOURNEYS_SERIAL  the device; without it only JOURNEYS_DRIVER=fake can run
-  JOURNEYS_DRIVER  maestro | speedrun | fake (default: the pack's driver)
+  JOURNEYS_DRIVER  maestro | speedrun | fake (default: the pack's driver; with neither, ask the user)
   JOURNEYS_STATE   the state folder (default ~/.local/state/journeys/<pack>)
 """
 from __future__ import annotations
@@ -36,6 +36,19 @@ def pack_path() -> Path:
     return REPO / "examples" / "settings-pack"
 
 
+def driver_kind(pack: Pack) -> str | None:
+    """JOURNEYS_DRIVER or the pack's driver: the user's answer. The example pack's own driver is not
+    an answer: Droid Lite falls back to that pack without anyone choosing it."""
+    if os.environ.get("JOURNEYS_DRIVER"):
+        return os.environ["JOURNEYS_DRIVER"]
+    example = pack.root.resolve() == (REPO / "examples" / "settings-pack").resolve()
+    return None if example and not os.environ.get("JOURNEYS_PACK") else pack.driver or None
+
+
+ASK = ("no driver: ask the user which tool their team uses (maestro or speedrun), then set "
+       "JOURNEYS_DRIVER or driver: in pack.yaml; Journeys never picks one")
+
+
 def state_store(pack: Pack) -> Store:
     env = os.environ.get("JOURNEYS_STATE")
     return Store(Path(env).expanduser() if env else default_state_dir(pack.name))
@@ -63,7 +76,10 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         return 1
     journeys = pack.select(target)
     serial = os.environ.get("JOURNEYS_SERIAL") or None
-    kind = os.environ.get("JOURNEYS_DRIVER") or pack.driver
+    kind = driver_kind(pack)
+    if not kind:
+        emit(case=case_id, status="failed", message=ASK)
+        return 1
     if kind != "fake" and not serial:
         emit(case=case_id, status="failed", message="set JOURNEYS_SERIAL (or JOURNEYS_DRIVER=fake)")
         return 1
@@ -112,9 +128,9 @@ def cmd_doctor(pack: Pack) -> int:
     errors = pack.run_errors()  # an unfinished draft is not a broken pack
     emit(label=f"pack {pack.name}", status="failed" if errors else "passed",
          message="; ".join(errors) or f"{len(pack.journeys)} journeys, {len(pack.drafts)} drafts")
-    kind = os.environ.get("JOURNEYS_DRIVER") or pack.driver
-    missing = availability().get(kind, f"unknown driver {kind}")
-    emit(label=f"driver {kind}", status="failed" if missing else "passed", message=missing or "can run")
+    kind = driver_kind(pack)
+    missing = availability().get(kind, f"unknown driver {kind}") if kind else ASK
+    emit(label=f"driver {kind or '(not chosen)'}", status="failed" if missing else "passed", message=missing or "can run")
     serial = os.environ.get("JOURNEYS_SERIAL")
     emit(label="device", status="passed" if serial else "skipped",
          message=serial or "JOURNEYS_SERIAL not set (fake driver only)")

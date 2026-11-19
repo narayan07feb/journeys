@@ -13,8 +13,9 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .heal import PromoteError, promote, reject
-from .pack import Pack, PackError
+from .drivers import DRIVERS
+from .heal import promote, reject
+from .pack import Pack
 from .results import Store, read_json, write_json
 
 PROTOCOL = "2025-06-18"
@@ -74,6 +75,8 @@ class Server:
     def start_run(self, target: str, serial: str | None = None, driver: str | None = None) -> dict:
         pack = self._pack()
         pack.select(target)  # raises for an unknown target before anything starts
+        if driver and driver not in DRIVERS:
+            raise ValueError(f"driver {driver} is not one of {', '.join(DRIVERS)}")
         if not (driver or pack.driver):
             raise ValueError(f"pack {pack.name} has no driver: ask the user which tool their team uses "
                              "(maestro or speedrun) and pass it as driver; never pick one yourself")
@@ -178,7 +181,7 @@ class Server:
             out = getattr(self, name)(**args)
             text = out if isinstance(out, str) else json.dumps(out, indent=1, default=str)
             return {"content": [{"type": "text", "text": text}]}
-        except (PackError, PromoteError, ValueError, TypeError, OSError) as e:
+        except Exception as e:  # a bad call or a corrupt store is the caller's error, never the server's end
             return {"content": [{"type": "text", "text": f"error: {e}"}], "isError": True}
 
 

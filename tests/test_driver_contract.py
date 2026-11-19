@@ -179,3 +179,23 @@ def test_unreadable_maestro_hierarchy_is_a_driver_error(tmp_path):
     d._run = lambda *a: subprocess.CompletedProcess(a, 0, '{"attributes": "not a map"}', "")
     with pytest.raises(DriverError, match="unreadable output"):
         d.look()
+
+
+@pytest.mark.parametrize("kind", DRIVERS)
+def test_tap_all_and_a_journey_run_the_same_on_every_driver(kind, tappable_pack_dir, tmp_path):
+    """Every feature goes through the driver: tap-all and the runner give the same result on each."""
+    import yaml
+    from journeys.explore import tap_all
+    from journeys.pack import Pack
+    from journeys.results import Store
+    from journeys.runner import Runner
+    pack = Pack.load(tappable_pack_dir)
+    app = yaml.safe_load((tappable_pack_dir / "fake" / "app.yaml").read_text())
+    d = hooked(kind, Phone(app), tmp_path)
+    d.start(pack.app, "emulator-5554")
+    store = Store(tmp_path / "state")
+    rep = tap_all(pack, d, store, store.new_run())
+    assert {s["screen"] for s in rep.screens} == {
+        "SETTINGS-HOME", "SETTINGS-SEARCH", "SETTINGS-DISPLAY", "SETTINGS-ABOUT"}, kind
+    outs = Runner(pack, d, store, store.new_run(), heal=False).run_all(pack.select("smoke"))
+    assert [o.status for o in outs] == ["passed", "passed"], [o.message for o in outs]

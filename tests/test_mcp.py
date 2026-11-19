@@ -73,3 +73,14 @@ def test_start_run_asks_for_a_driver_the_pack_does_not_name(pack_dir, tmp_path):
     with pytest.raises(ValueError, match="ask the user which tool"):
         srv.start_run("smoke", serial="emulator-5554")
     assert not (tmp_path / "s").exists()
+
+
+def test_start_run_refuses_an_unknown_driver_and_a_bad_store_is_an_error_not_the_end(pack_dir, tmp_path):
+    import pytest
+    from journeys.mcp_server import Server
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    with pytest.raises(ValueError, match="not one of"):
+        srv.start_run("smoke", driver="nonsense", serial="emulator-5554")
+    srv.promote = lambda **k: {}["dst"]  # a corrupt proposal
+    out = srv._call("promote", {})
+    assert out["isError"] and "dst" in out["content"][0]["text"]

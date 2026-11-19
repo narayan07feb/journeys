@@ -282,3 +282,29 @@ def test_a_new_screen_key_never_shows_a_secret(t):
     finally:
         set_secrets([])
     assert rep.new_screens and not any("HUNTER2" in n.upper() for n in rep.new_screens)
+
+
+def test_more_destructive_words_are_never_tapped():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Clear browsing data", "Clear app data", "Clear notifications", "Submit", "Publish", "Post",
+                 "Unfollow", "Unfriend", "Leave group", "Unpair", "Switch off", "Hang up", "WLAN",
+                 "Mobile network", "Exit"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    for text in ("Display", "About phone", "Posts and photos", "Next"):
+        assert not any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_tap_all_console_masks_like_the_store(tappable_pack_dir, capsys, monkeypatch):
+    from journeys.cli import main
+    f = tappable_pack_dir / "fake" / "app.yaml"
+    app = yaml.safe_load(f.read_text())
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "hunter2 account", "to": "CRASH"})
+    f.write_text(yaml.safe_dump(app))
+    monkeypatch.setenv("DEMO_SEARCH", "hunter2")
+    args = ["--pack", str(tappable_pack_dir), "--state", str(tappable_pack_dir / "s"), "tap-all", "--driver", "fake"]
+    assert main(args) == 1
+    out = capsys.readouterr().out
+    assert "crash" in out and "hunter2" not in out
+    with pytest.raises(SystemExit):  # a bad run id is a usage error, not a traceback after the driver started
+        main(["--pack", str(tappable_pack_dir), "run", "all", "--driver", "fake", "--run-id", "../x"])

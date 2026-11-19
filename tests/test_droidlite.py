@@ -62,3 +62,18 @@ def test_list_run_views_doctor(pack_dir, tmp_path):
     d = lines(run_cmd("actions", pack_dir, tmp_path, view="Doctor").stdout)
     assert d[0]["status"] == "passed" and d[2]["status"] == "skipped"
     assert sorted(p.name for p in PLUGIN.iterdir()) == ["plugin.json"]  # runs wrote nothing there
+
+
+def test_droid_lite_never_takes_a_driver_nobody_chose(pack_dir, tmp_path, monkeypatch):
+    from journeys import droidlite
+    from journeys.pack import Pack
+    f = pack_dir / "pack.yaml"
+    f.write_text("\n".join(ln for ln in f.read_text().splitlines() if not ln.startswith("driver:")) + "\n")
+    p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_SERIAL": "emulator-5554"}, id="open-display")
+    assert p.returncode == 1 and "ask the user which tool" in p.stdout
+    for k in ("JOURNEYS_PACK", "JOURNEYS_DRIVER", "DROID_LITE_PROJECT"):
+        monkeypatch.delenv(k, raising=False)
+    example = Pack.load(droidlite.pack_path())  # the fallback: its own driver: maestro is not an answer
+    assert example.driver == "maestro" and droidlite.driver_kind(example) is None
+    monkeypatch.setenv("JOURNEYS_DRIVER", "speedrun")
+    assert droidlite.driver_kind(example) == "speedrun"

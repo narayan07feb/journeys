@@ -15,7 +15,7 @@ from .drivers import DRIVERS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
 from .pack import Pack, PackError
-from .results import Store, default_state_dir, set_secrets
+from .results import Store, default_state_dir, mask, set_secrets
 from .runner import Runner
 
 
@@ -125,6 +125,13 @@ def _at_least_1(text: str) -> int:
     return n
 
 
+def _run_id(text: str) -> str:
+    import re
+    if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", text):
+        raise argparse.ArgumentTypeError(f"bad run id {text!r}: letters, digits and dashes")
+    return text
+
+
 def _refuse_errors(pack: Pack) -> None:
     errors = pack.run_errors()
     if errors:
@@ -159,7 +166,7 @@ def _open(args, pack: Pack) -> tuple[Store, Driver]:
 
 
 def cmd_tap_all(args) -> int:
-    from .explore import dka_allowed, tap_all
+    from .explore import TapAllReport, dka_allowed, tap_all
     pack = _load(args)
     _refuse_errors(pack)  # a broken deny rule must not leave its buttons tappable
     if not pack.tap_allowed:
@@ -170,13 +177,14 @@ def cmd_tap_all(args) -> int:
         driver.stop()
         raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
                           "does not allow it on this device")
-    run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver,
-                        serial=args.serial, dka=args.dka)
     try:
+        run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver,
+                            serial=args.serial, dka=args.dka)
         rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
                       max_screens=args.max_screens, max_taps=args.max_taps)
     finally:
         driver.stop()
+    rep = TapAllReport(**mask(rep.__dict__))  # the console never shows what the store masks
     print(f"run {run.id}: {len(rep.screens)} screens walked, {len(rep.crashes)} crashes, "
           f"{len(rep.dead_ends)} dead ends, {len(rep.new_screens)} new screens")
     for c in rep.crashes:
@@ -202,10 +210,10 @@ def cmd_run(args) -> int:
         return 2
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
-    run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
-                        serial=args.serial)
-    print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     try:
+        run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
+                            serial=args.serial)
+        print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
         outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys)
     finally:
         driver.stop()
@@ -506,7 +514,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
     s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps: read-only checks")
     s.add_argument("--draft", action="store_true", help="the target is a draft journey (drafts never run otherwise)")
-    s.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the MCP server for detached runs
+    s.add_argument("--run-id", type=_run_id, help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("tap-all", help="walk the app and tap every option once")
     s.add_argument("--driver", choices=DRIVERS)
@@ -548,8 +556,20 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def on_kill() -> None:
+    """SIGTERM/SIGHUP raise SystemExit, so a killed run or tap-all still ends as failed, never 'running'."""
+    import signal
+
+    def stop(signum, _frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, stop)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.fn in (cmd_run, cmd_tap_all):
+        on_kill()
     try:
         return args.fn(args)
     except (PackError, DriverError, RuntimeError, PromoteError) as e:

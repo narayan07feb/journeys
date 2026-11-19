@@ -95,7 +95,8 @@ class SpeedrunDriver(AdbDriver):
     def _guard_shared_device(self) -> None:
         """Speedrun's session start changes a device in ways a shared phone must not see: it turns on
         its accessibility service on Android 13+, deletes other speedrun-agent builds from
-        /data/local/tmp and force-stops a running Maestro driver. Refuse instead."""
+        /data/local/tmp, force-stops a running Maestro driver and writes the animation scales.
+        Refuse instead (reads only)."""
         sh = lambda cmd: self._adb("shell", cmd).stdout.decode(errors="replace").strip()  # read-only
         why = []
         sdk = sh("getprop ro.build.version.sdk")
@@ -105,6 +106,14 @@ class SpeedrunDriver(AdbDriver):
             why.append(f"Speedrun deletes other agent builds: {' '.join(apks.split())}")
         if sh("pidof dev.mobile.maestro dev.mobile.maestro.test"):
             why.append("a Maestro driver is running; Speedrun would stop it")
+        # Speedrun writes the three animation scales at session start: allowed only as a no-op, when
+        # the pack asks for normal (1) and the device already reads 1 for each
+        names = ("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
+        scales = [sh(f"settings get global {n}") for n in names]
+        if self.animations != "normal":
+            why.append(f"devices.animations {self.animations} would change the animation scales")
+        elif any(v not in ("1", "1.0", "null", "") for v in scales):
+            why.append(f"the animation scales read {' '.join(scales)}; Speedrun would set them to 1")
         if why:
             raise DriverError("this device is not allowed to change (pack.yaml devices.allow_settings_changes): "
                               + "; ".join(why))

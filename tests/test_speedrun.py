@@ -120,3 +120,24 @@ def test_shared_device_guard_refuses_what_speedrun_would_change(tmp_path, monkey
     d.allow_changes = ["192.168.0.5:5555"]  # a listed serial: no guard
     d.start("com.example", "192.168.0.5:5555")
     assert started
+
+
+def test_shared_device_guard_refuses_any_animation_scale_write(tmp_path, monkeypatch):
+    """Speedrun writes the scales at session start: only a no-op (normal on a device at 1) may run."""
+    import subprocess as sp
+    phone = {"getprop ro.build.version.sdk": b"30", "settings get global window_animation_scale": b"1.0",
+             "settings get global transition_animation_scale": b"1.0",
+             "settings get global animator_duration_scale": b"0.5"}
+    adb = lambda *a: sp.CompletedProcess(a, 0, phone.get(" ".join(a[1:]), b""), b"")
+    started = []
+    for animations, scale, ok in (("normal", b"0.5", False), ("off", b"1", False), ("normal", b"1", True)):
+        phone["settings get global animator_duration_scale"] = scale
+        d = SpeedrunDriver("/bin/true", tmp_path / "h", animations=animations)
+        monkeypatch.setattr(d, "_adb", adb)
+        monkeypatch.setattr(d, "_sr", lambda *a, **k: started.append(a) or sp.CompletedProcess(a, 0, "", ""))
+        if ok:
+            d.start("com.example", "192.168.0.5:5555")
+        else:
+            with pytest.raises(DriverError, match="animation"):
+                d.start("com.example", "192.168.0.5:5555")
+    assert len(started) == 1

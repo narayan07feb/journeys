@@ -67,3 +67,27 @@ def test_build_and_install_steps(pack_dir, tmp_path, capsys):
     assert main(base + ["install"]) == 2  # needs a serial
     assert main(base + ["install", "--serial", "emu-1"]) == 1  # second step fails
     assert (pack_dir / "out.txt").read_text() == "built\nemu-1 emu-1\n"
+
+
+def test_a_killed_run_ends_failed_not_running(pack_dir, tmp_path):
+    """SIGTERM (an MCP child stopped, a closed terminal) ends the run as failed with an end time."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    import yaml
+    (pack_dir / "hooks" / "note.sh").write_text("#!/bin/sh\nsleep 30\n")
+    state = tmp_path / "s"
+    proc = subprocess.Popen([sys.executable, "-m", "journeys", "--pack", str(pack_dir), "--state", str(state),
+                             "run", "android-version", "--driver", "fake"], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, env={**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    for _ in range(100):
+        runs = list(state.rglob("run.json"))
+        if runs and "running" in runs[0].read_text():
+            break
+        time.sleep(0.1)
+    time.sleep(1.0)  # inside the slow hook
+    proc.send_signal(signal.SIGTERM)
+    assert proc.wait(timeout=20) != 0
+    data = yaml.safe_load(runs[0].read_text())
+    assert data["status"] == "failed" and data.get("ended")
