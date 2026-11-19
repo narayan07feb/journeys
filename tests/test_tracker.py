@@ -64,8 +64,10 @@ def test_decisions_count_as_solved_and_the_queue_lists_open_work(pack_dir, monke
     assert cli(pack_dir, "tracker", "--json") == 0
     t = json.loads(capsys.readouterr().out)
     assert t["usage"]["actors"]["triage-agent"]["decided"] == 1
+    assert t["usage"]["actors"]["triage-agent"]["solved"] == 0  # a reject solves nothing
     assert [p["summary"] for p in t["queue"]["proposals"]] == ["still open"]
-    assert t["queue"]["failures"] == [] and t["queue"]["drafts"] == ["wip"]  # a decided failure is not open work
+    assert [f["id"] for f in t["queue"]["failures"]] == ["F-1"]  # rejected: it still needs a heal by hand
+    assert t["queue"]["drafts"] == ["wip"]
 
 
 def test_the_activity_log_masks_secrets_and_survives_a_cut_line(tmp_path, monkeypatch):
@@ -142,3 +144,46 @@ def test_a_fix_goes_to_whoever_promoted_it_not_the_run_that_showed_it(pack_dir, 
     assert cli(pack_dir, "tracker", "--json") == 0
     u = json.loads(capsys.readouterr().out)["usage"]["actors"]
     assert u["healer-agent"]["decided"] == 1 and u["healer-agent"]["fixed"] == 1 and u["ci"]["fixed"] == 0
+    assert u["healer-agent"]["solved"] == 1  # one issue, counted once
+
+
+def test_odd_state_files_never_break_the_tracker_and_logging_never_breaks_a_command(pack_dir, monkeypatch, capsys):
+    from journeys.heal import reject
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    (pack_dir / "s" / "runs" / "a").mkdir(parents=True)
+    (pack_dir / "s" / "runs" / "a" / "run.json").write_text("[1]")
+    (pack_dir / "s" / "runs" / "b").mkdir()
+    (pack_dir / "s" / "runs" / "b" / "run.json").write_text(json.dumps(
+        {"id": "b", "started": "x", "ended": "y", "actor": ["a"], "journeys": [None, {"name": 3, "status": "passed"}]}))
+    (pack_dir / "s" / "failures.json").write_text(json.dumps({"a": 1}))
+    (pack_dir / "s" / "activity.jsonl").write_text('{"time": "x", "action": "draft.new", "actor": ["a"]}\n'
+                                                   '{"action": 5}\n[1]\n')
+    t = summary(store, [])
+    assert len(t["runs"]) == 1 and t["queue"]["failures"] == []
+    assert cli(pack_dir, "tracker") == 0
+    (pack_dir / "s" / "activity.jsonl").unlink()
+    (pack_dir / "s" / "activity.jsonl").mkdir()  # the log cannot be written
+    pid = store.add_proposal({"summary": "x", "change": {}})
+    reject(store, pid, "not this one")  # the decision still stands, without its log line
+    assert store.proposal(pid)["status"] == "rejected"
+    assert cli(pack_dir, "new", "logless", "--start", "SETTINGS-HOME") == 0
+
+
+def test_cli_and_mcp_mask_what_they_log(pack_dir, tmp_path, monkeypatch):
+    from journeys.mcp_server import Server
+    from journeys.results import set_secrets
+    set_secrets([])
+    monkeypatch.setenv("DEMO_SEARCH", "hunter2")
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    pid = Store(tmp_path / "s").add_proposal({"summary": "x", "change": {}})
+    srv._call("reject", {"id": pid, "why": "password hunter2 was on screen"})
+    set_secrets([])
+    monkeypatch.setenv("JOURNEYS_ACTOR", "a")
+    (pack_dir / "drafts").mkdir(exist_ok=True)
+    (pack_dir / "drafts" / "d.yaml").write_text("name: d\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    Store(pack_dir / "s").add_proposal({"summary": "y", "change": {}})
+    assert cli(pack_dir, "reject", "P-1", "--why", "hunter2 seen") == 0  # the CLI path masks too
+    for f in (tmp_path / "s" / "activity.jsonl", tmp_path / "s" / "proposals.json", pack_dir / "s" / "activity.jsonl"):
+        assert "hunter2" not in f.read_text(), f
+    set_secrets([])

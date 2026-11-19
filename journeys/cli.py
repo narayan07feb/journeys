@@ -54,6 +54,7 @@ def _load(args) -> Pack:
 
 
 def _store(args, pack: Pack) -> Store:
+    set_secrets(pack.variables().values())  # every store write, the activity log too, masks env values
     return Store(Path(args.state).expanduser() if args.state else default_state_dir(pack.name))
 
 
@@ -313,7 +314,7 @@ def cmd_history(args) -> int:
 
 
 def cmd_tracker(args) -> int:
-    from .tracker import summary
+    from .tracker import _t, summary
     pack = _load(args)
     t = summary(_store(args, pack), list(pack.drafts))
     if args.json:
@@ -329,7 +330,7 @@ def cmd_tracker(args) -> int:
         print(f"  {who}: {u['drafts']} / {u['journeys_built']} / {u['decided']} / {u['fixed']} / {u['runs']} / "
               f"{u['tool_calls']}{fix}")
     for a in t["activity"][:10]:
-        print(f"  {time.strftime('%m-%d %H:%M', time.localtime(a.get('time') or 0))}  {a.get('actor')}  "
+        print(f"  {time.strftime('%m-%d %H:%M', time.localtime(_t(a.get('time'))))}  {a.get('actor')}  "
               f"{a.get('action')}  {a.get('target') or a.get('journey') or a.get('id') or a.get('tool') or ''}")
     return 0
 

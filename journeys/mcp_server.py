@@ -58,10 +58,12 @@ class Server:
         return Pack.load(self.pack_path)
 
     def _store(self, pack: Pack | None = None) -> Store:
-        from .results import default_state_dir
+        from .results import default_state_dir, set_secrets
+        pack = pack or self._pack()
+        set_secrets(pack.variables().values())  # what this server writes (activity, proposals) is masked
         if self.state:
             return Store(Path(self.state).expanduser())
-        return Store(default_state_dir((pack or self._pack()).name))
+        return Store(default_state_dir(pack.name))
 
     # tools
     def doctor(self) -> dict:

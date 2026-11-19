@@ -37,9 +37,10 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 <div class="wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead>
 <tbody id="acts"></tbody></table></div>
 <h2 id="usage">Agent usage</h2><p class="muted">Journeys built and issues solved, per person or agent.
-Solved = proposals decided + failures whose journey passed again.</p>
+Fixed: failures whose journey passed again (each failure once). Solved: fixed, plus promoted proposals
+not already counted there. Decided: promotes and rejects. Who fixed a failure is a best guess.</p>
 <div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
-<th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Avg fix (min)</th>
+<th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Solved</th><th class="n">Avg fix (min)</th>
 <th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
 <h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Built</th>
 <th class="n">Solved</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="days"></tbody></table></div>
@@ -69,7 +70,7 @@ async function tick(){
     set("acts",t.activity.map(a=>`<tr><td>${esc(when(a.time))}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td>`+
       `<td>${detail(a)}</td></tr>`).join(""));
     set("actors",Object.entries(t.usage.actors).map(([k,u])=>`<tr><td>${esc(k)}</td><td class="n">${u.drafts}</td>`+
-      `<td class="n">${u.journeys_built}</td><td class="n">${u.decided}</td><td class="n">${u.fixed}</td>`+
+      `<td class="n">${u.journeys_built}</td><td class="n">${u.decided}</td><td class="n">${u.fixed}</td><td class="n">${u.solved}</td>`+
       `<td class="n">${num(u.avg_fix_minutes)}</td><td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`).join(""));
     set("days",Object.entries(t.usage.days).reverse().flatMap(([d,rows])=>Object.entries(rows).map(([k,u])=>
       `<tr><td>${esc(d)}</td><td>${esc(k)}</td><td class="n">${u.drafts+u.journeys_built}</td><td class="n">${u.solved}</td>`+
@@ -105,7 +106,11 @@ def make_handler(store: Store, drafts=lambda: []):
                                   "application/json")
             if path == "/tracker.json":
                 from .tracker import summary
-                return self._send(200, json.dumps(summary(store, drafts()), default=str).encode(), "application/json")
+                try:
+                    body = json.dumps(summary(store, drafts()), default=str).encode()
+                except Exception as e:  # the page says what broke, the server keeps serving
+                    return self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
+                return self._send(200, body, "application/json")
             if path == "/history.json":
                 return self._send(200, json.dumps(store.history()).encode(), "application/json")
             self._send(404, b"not found", "text/plain")

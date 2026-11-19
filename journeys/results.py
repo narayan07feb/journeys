@@ -118,7 +118,8 @@ class Store:
 
     def runs(self) -> list[dict]:
         out = [read_json(p, None) for p in (self.root / "runs").glob("*/run.json")]
-        return sorted((r for r in out if r), key=lambda r: r.get("started", 0))
+        out = [r for r in out if isinstance(r, dict)]  # a run file of the wrong shape is skipped
+        return sorted(out, key=lambda r: r.get("started") if isinstance(r.get("started"), (int, float)) else 0)
 
     def history(self, last: int = 10) -> dict[str, dict]:
         """Per journey: its last results (oldest first) and whether it is flaky.
@@ -127,8 +128,8 @@ class Store:
         them at least twice (pass, fail, pass), so one real break that stays broken is not flaky."""
         seq: dict[str, list[str]] = {}
         for r in self.runs():
-            for j in r.get("journeys", []):
-                if j.get("status") in ("passed", "failed"):
+            for j in r.get("journeys") or []:
+                if isinstance(j, dict) and j.get("status") in ("passed", "failed"):
                     seq.setdefault(j["name"], []).append(j["status"])
         out = {}
         for name, results in seq.items():
@@ -145,11 +146,16 @@ class Store:
 
     # activity: who did what (drafts, promotes, decisions, agent tool calls), one JSON line each
     def log(self, action: str, **detail) -> None:
+        """Never fails the command that did the work: a log that cannot be written is skipped."""
         if "args" in detail:  # a caller's values: no field is Journeys' own there
             detail["args"] = mask(detail["args"], plain=False)
+        detail = {k: v[:500] if isinstance(v, str) else v for k, v in detail.items()}  # a long reason stays short
         line = mask({"time": time.time(), "actor": current_actor(), "action": action, **detail})
-        with open(self.root / "activity.jsonl", "a") as f:
-            f.write(json.dumps(line, default=str) + "\n")
+        try:
+            with open(self.root / "activity.jsonl", "a") as f:
+                f.write(json.dumps(line, default=str) + "\n")
+        except OSError:
+            pass
 
     def activity(self) -> list[dict]:
         try:
@@ -168,7 +174,8 @@ class Store:
 
     # failures (F-n) and proposals (P-n): lists of records in one JSON file each
     def _items(self, kind: str) -> list[dict]:
-        return read_json(self.root / f"{kind}.json", [])
+        items = read_json(self.root / f"{kind}.json", [])
+        return [i for i in items if isinstance(i, dict) and "id" in i] if isinstance(items, list) else []
 
     def _add(self, kind: str, prefix: str, item: dict) -> str:
         new_id = self.next_id(prefix)

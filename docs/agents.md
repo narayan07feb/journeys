@@ -27,10 +27,13 @@ Who did it: `JOURNEYS_ACTOR` when set (a person's or an agent's name); the MCP c
 (from its `initialize`), which runs it starts also carry; `droid-lite` for Droid Lite runs; an agent
 whose shell sets `AI_AGENT` or `CLAUDECODE`; else `person`.
 
-Agent usage counts journeys built (drafts written or imported, drafts promoted) and issues solved:
-proposals promoted or rejected, and failures whose journey passed again. A fixed failure goes to
-whoever last decided a proposal or promoted that journey before the pass, else to whoever ran the
-passing run; the time from failure to that pass is the fix time. Journeys does not see tokens or cost.
+Agent usage counts journeys built (drafts written or imported, drafts promoted) and issues solved,
+each issue once: failures whose journey passed again (each failure counts, so one pass can fix two),
+plus promoted proposals not already counted that way. Decided counts promotes and rejects; a reject
+solves nothing, and its failure stays in the work queue for a heal by hand. Who fixed a failure is a
+best guess: whoever last decided its proposal or promoted that journey before the pass, else whoever
+ran the passing run; the time from failure to that pass is the fix time. Journeys does not see
+tokens or cost.
 
 ## Droid Lite
 

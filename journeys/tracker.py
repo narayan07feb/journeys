@@ -1,119 +1,161 @@
 """The tracker page's data: runs, the work queue, agent activity and agent usage, from the state folder.
 
-Read-only: it only reads what runs, failures, proposals and the activity log already hold.
+Read-only: it reads what runs, failures, proposals and the activity log already hold, once per call,
+and skips any record of the wrong shape (a hand-edited or half-written file never breaks the page).
 """
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 from .results import Store
 
-# what counts as building a journey, and as solving an issue (a failure or a proposal)
-BUILD = {"draft.new", "draft.import", "journey.promote"}
+# what counts as building a journey, and as deciding a proposal
 DECIDE = {"proposal.promote", "proposal.reject"}
+
+
+def _t(v) -> float:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+
+
+def _s(v) -> str:
+    return v if isinstance(v, str) else "?"
 
 
 def _day(t: float) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(t))
 
 
-def runs(store: Store, last: int = 30) -> list[dict]:
+@dataclass
+class State:
+    runs: list[dict]
+    failures: list[dict]
+    proposals: list[dict]
+    activity: list[dict]
+
+    @classmethod
+    def read(cls, store: Store) -> "State":
+        acts = [a for a in store.activity() if isinstance(a.get("action"), str)]
+        return cls(store.runs(), store.failures(), store.proposals(), acts)
+
+
+def _journeys(run: dict) -> list[dict]:
+    js = run.get("journeys")
+    return [j for j in js if isinstance(j, dict)] if isinstance(js, list) else []
+
+
+def runs(st: State, last: int = 30) -> list[dict]:
     out = []
-    for r in store.runs()[-last:]:
-        js = r.get("journeys") or []
-        start, end = r.get("started"), r.get("ended")
+    for r in st.runs[-last:]:
+        js = _journeys(r)
+        start, end = _t(r.get("started")), _t(r.get("ended"))
         out.append({"id": r.get("id"), "target": r.get("target"), "status": r.get("status"),
-                    "actor": r.get("actor", "?"), "started": start,
+                    "actor": _s(r.get("actor")), "started": start or None,
                     "seconds": round(end - start) if start and end else None,
                     "passed": sum(j.get("status") == "passed" for j in js),
                     "failed": sum(j.get("status") == "failed" for j in js), "error": r.get("error")})
     return out
 
 
-def _fixes(store: Store) -> dict[str, dict]:
-    """Per failure id: when its journey next passed, and who fixed it. A failure is fixed by the
-    last decision or journey edit between the failure and that pass, else by whoever ran the pass."""
+def fixes(st: State) -> dict[str, dict]:
+    """Per failure id: when its journey next passed, and who fixed it. Best effort: the fix goes to
+    whoever last decided this failure's proposal or promoted that journey between the failure and
+    the pass, else to whoever ran the passing run."""
     passes: dict[str, list[tuple[float, str]]] = {}
-    for r in store.runs():
-        for j in r.get("journeys") or []:
-            if j.get("status") == "passed":
-                passes.setdefault(j.get("name"), []).append((r.get("ended") or r.get("started") or 0,
-                                                             r.get("actor", "?")))
-    work = [a for a in store.activity() if a.get("action") in DECIDE | {"journey.promote"}]
+    for r in st.runs:
+        when = _t(r.get("ended")) or _t(r.get("started"))
+        for j in _journeys(r):
+            if j.get("status") == "passed" and isinstance(j.get("name"), str):
+                passes.setdefault(j["name"], []).append((when, _s(r.get("actor"))))
+    work: dict[str, list[dict]] = {}  # failure id or journey name -> decisions and promotes, by time
+    for a in st.activity:
+        if a["action"] in DECIDE | {"journey.promote"}:
+            for key in (a.get("failure"), a.get("journey")):
+                if isinstance(key, str):
+                    work.setdefault(key, []).append(a)
     out = {}
-    for f in store.failures():
-        if f.get("journey") == "tap-all":
+    for f in st.failures:
+        if f.get("journey") == "tap-all" or not isinstance(f.get("journey"), str):
             continue  # a tap-all crash has no journey to pass again
-        t = f.get("time") or 0
-        later = sorted(p for p in passes.get(f.get("journey"), []) if p[0] > t)
+        t = _t(f.get("time"))
+        later = sorted(p for p in passes.get(f["journey"], []) if p[0] > t)
         if not later:
             continue
         when, runner = later[0]
-        by = [a for a in work if t < (a.get("time") or 0) <= when
-              and (a.get("failure") == f["id"] or a.get("journey") == f.get("journey"))]
+        by = sorted((a for a in work.get(f["id"], []) + work.get(f["journey"], []) if t < _t(a.get("time")) <= when),
+                    key=lambda a: _t(a.get("time")))
         out[f["id"]] = {"fixed": when, "minutes": round((when - t) / 60, 1),
-                        "by": by[-1]["actor"] if by else runner}
+                        "by": _s(by[-1].get("actor")) if by else runner}
     return out
 
 
-def queue(store: Store, drafts: list[str]) -> dict:
-    fixed = _fixes(store)
-    decided = {p.get("failure") for p in store.proposals() if p.get("status") != "proposed"}
+def queue(st: State, drafts: list[str], fixed: dict) -> dict:
+    """Open work. A failure stays open until its journey passes again or its proposal is promoted:
+    a rejected proposal means "not this heal", so the failure still needs one by hand."""
+    healed = {p.get("failure") for p in st.proposals if p.get("status") == "promoted"}
     return {
-        "failures": [{k: f.get(k) for k in ("id", "journey", "message", "time")} for f in store.failures()
-                     if f["id"] not in fixed and f["id"] not in decided][-50:],
-        "proposals": [{k: p.get(k) for k in ("id", "summary", "time", "failure")} for p in store.proposals()
+        "failures": [{k: f.get(k) for k in ("id", "journey", "message", "time")} for f in st.failures
+                     if f["id"] not in fixed and f["id"] not in healed][-50:],
+        "proposals": [{k: p.get(k) for k in ("id", "summary", "time", "failure")} for p in st.proposals
                       if p.get("status") == "proposed"],
         "drafts": sorted(drafts),
     }
 
 
-def activity(store: Store, last: int = 200) -> list[dict]:
+def activity(st: State, last: int = 200) -> list[dict]:
     """What people and agents did, newest first: the log plus run starts and ends."""
-    items = list(store.activity())
-    for r in store.runs():
-        items.append({"time": r.get("started"), "actor": r.get("actor", "?"), "action": "run.start",
-                      "target": r.get("target"), "run": r.get("id")})
-        if r.get("ended"):
-            items.append({"time": r["ended"], "actor": r.get("actor", "?"), "action": "run.end",
-                          "target": r.get("target"), "run": r.get("id"), "status": r.get("status")})
-    return sorted(items, key=lambda a: a.get("time") or 0, reverse=True)[:last]
+    items = list(st.activity)
+    for r in st.runs:
+        base = {"actor": _s(r.get("actor")), "target": r.get("target"), "run": r.get("id")}
+        if _t(r.get("started")):
+            items.append({"time": _t(r["started"]), "action": "run.start", **base})
+        if _t(r.get("ended")):
+            items.append({"time": _t(r["ended"]), "action": "run.end", "status": r.get("status"), **base})
+    return sorted(items, key=lambda a: _t(a.get("time")), reverse=True)[:last]
 
 
-def usage(store: Store) -> dict:
-    """Per actor and per day: journeys built, issues solved, runs, agent tool calls, fix time."""
+def usage(st: State, fixed: dict) -> dict:
+    """Per actor and per day: journeys built and issues solved, runs, agent tool calls, fix time.
+
+    solved counts each issue once: failures fixed (a journey passing again), plus promoted proposals
+    whose failure is not among them. "decided" counts promotes and rejects; a reject solves nothing."""
     def blank() -> dict:
-        return {"drafts": 0, "journeys_built": 0, "decided": 0, "fixed": 0, "runs": 0, "tool_calls": 0,
-                "fix_minutes": []}
+        return {"drafts": 0, "journeys_built": 0, "decided": 0, "fixed": 0, "healed": 0, "runs": 0,
+                "tool_calls": 0, "fix_minutes": []}
     per: dict[str, dict] = {}
     days: dict[str, dict[str, dict]] = {}
 
     def add(actor: str, t: float, key: str, n=1) -> None:
-        for row in (per.setdefault(actor, blank()), days.setdefault(_day(t), {}).setdefault(actor, blank())):
+        rows = [per.setdefault(actor, blank())]
+        if t:  # an entry without a time still counts for its actor, not for a day
+            rows.append(days.setdefault(_day(t), {}).setdefault(actor, blank()))
+        for row in rows:
             if key == "fix_minutes":
                 row[key].append(n)
             else:
                 row[key] += n
 
-    for a in store.activity():
-        act, who, t = a.get("action"), a.get("actor", "?"), a.get("time") or 0
+    for a in st.activity:
+        act, who, t = a["action"], _s(a.get("actor")), _t(a.get("time"))
         if act in ("draft.new", "draft.import"):
             add(who, t, "drafts")
         elif act == "journey.promote":
             add(who, t, "journeys_built")
         elif act in DECIDE:
             add(who, t, "decided")
+            if act == "proposal.promote" and a.get("failure") not in fixed:
+                add(who, t, "healed")  # solved by the promote itself: no later pass counts it again
         elif act == "mcp.call":
             add(who, t, "tool_calls")
-    for r in store.runs():
-        add(r.get("actor", "?"), r.get("started") or 0, "runs")
-    for fix in _fixes(store).values():
+    for r in st.runs:
+        add(_s(r.get("actor")), _t(r.get("started")), "runs")
+    for fix in fixed.values():
         add(fix["by"], fix["fixed"], "fixed")
         add(fix["by"], fix["fixed"], "fix_minutes", fix["minutes"])
 
     def done(row: dict) -> dict:
         m = row.pop("fix_minutes")
-        row["solved"] = row["decided"] + row["fixed"]
+        row["solved"] = row["fixed"] + row.pop("healed")
         row["avg_fix_minutes"] = round(sum(m) / len(m), 1) if m else None
         return row
     return {"actors": {k: done(v) for k, v in sorted(per.items())},
@@ -121,5 +163,7 @@ def usage(store: Store) -> dict:
 
 
 def summary(store: Store, drafts: list[str] | None = None) -> dict:
-    return {"runs": runs(store), "queue": queue(store, drafts or []), "activity": activity(store),
-            "usage": usage(store)}
+    st = State.read(store)
+    fixed = fixes(st)
+    return {"runs": runs(st), "queue": queue(st, drafts or [], fixed), "activity": activity(st),
+            "usage": usage(st, fixed)}
