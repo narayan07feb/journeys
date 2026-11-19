@@ -30,7 +30,7 @@ Read `references/format.md` before you write a step. It has the exact format and
    checks, `do:` with action words for taps and typing, `input` for text from env vars.
 5. Run `journeys --pack P validate` until it prints `OK`. Each FAIL names file:line and the fix.
 6. Run the draft: `journeys --pack P run <name> --draft --serial <adb serial> --no-heal` (the pack's
-   driver; `--no-heal` keeps a first device run read-only: no detours and no explore taps),
+   driver; `--no-heal`: no detours and no explore taps, so only the draft's own steps touch the app),
    or `--driver fake` when the pack has `fake/app.yaml`. A device run needs the user's device
    serial; never pick a device yourself. Results go to `--state <folder>` (default
    `~/.local/state/journeys/<pack name>/`).

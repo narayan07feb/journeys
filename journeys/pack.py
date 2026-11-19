@@ -75,7 +75,8 @@ def fake_app_errors(app, f) -> list[str]:
             if bad or e.get("kind", "Text") not in KINDS or not isinstance(e.get("state", []), list):
                 errors.append(f"{f}: screen {name}: element {e} needs text and id as quoted text, kind one "
                           f"of {', '.join(KINDS)} and state as a list")
-        targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
+        targets = [e.get("to") for e in els] + [sd.get("back")]
+        targets = [t for t in targets if t != "CRASH"]  # CRASH: the tap (or back) kills the app
         for t in targets:
             if t is not None and (not isinstance(t, str) or t not in screens):
                 errors.append(f"{f}: screen {name} points to unknown screen {t}")

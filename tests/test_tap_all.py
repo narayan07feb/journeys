@@ -520,3 +520,37 @@ def test_the_live_view_follows_a_walk_and_its_stop(t):
         walk()
     assert seen[0] == "running"
     assert json.loads((store.root / "live.json").read_text())["status"] == "failed"
+
+
+def test_round_26_minors(t, tappable_pack_dir, tmp_path, monkeypatch):
+    import json
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import new_denied, tap_targets
+    from journeys.pack import DEFAULT_DENY, fake_app_errors
+    app, driver, store, walk = t
+    # back: CRASH is a valid fake app value
+    assert fake_app_errors({"start": "A", "screens": {"A": {"elements": [], "back": "CRASH"}}}, "f") == []
+    # warning words without a denied word still protect their confirm buttons
+    for warn, ok in (("Are you sure?", "Proceed"), ("Permanently lose your photos", "Confirm"),
+                     ("Account closure", "I agree")):
+        s = Screen([Element("@1", "Text", warn), Element("@2", "Button", ok), Element("@3", "Button", "Back")])
+        assert [e.text for e in tap_targets(s, DEFAULT_DENY, 9)] == ["Back"], warn
+    # a dialog over a screen that already showed denied words still makes the option list stale
+    base = Screen([Element("@1", "Button", "Delete account")] + [Element(f"@{i}", "Text", f"Row {i}") for i in range(9)])
+    after = Screen(base.elements + [Element("@99", "Button", "Yes")])
+    assert new_denied(base, after, DEFAULT_DENY)
+    # tap_allowed false through the API ends the run failed
+    pack = Pack.load(tappable_pack_dir)
+    pack.tap_allowed = False
+    run = store.new_run()
+    with pytest.raises(DriverError):
+        tap_all(pack, driver, store, run)
+    assert store.run(run.id)["status"] == "failed"
+    # a failed dka restore fails the run and the live view
+    real = driver.global_setting
+    monkeypatch.setattr(driver, "global_setting",
+                        lambda name, value=None: (_ for _ in ()).throw(DriverError("gone")) if value == "0"
+                        else real(name, value))
+    rep, run = walk(dka=True)
+    assert store.run(run.id)["status"] == "failed"
+    assert json.loads((store.root / "live.json").read_text())["status"] == "failed"

@@ -547,7 +547,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--driver", choices=DRIVERS)
     s.add_argument("--serial", help="adb serial of the device")
     s.add_argument("--fake-app", help="fake app file (default <pack>/fake/app.yaml)")
-    s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps: read-only checks")
+    s.add_argument("--no-heal", action="store_true", help="no detours and no explore taps (the journey's own steps still run)")
     s.add_argument("--draft", action="store_true", help="the target is a draft journey (drafts never run otherwise)")
     s.add_argument("--run-id", type=_run_id, help=argparse.SUPPRESS)  # set by the MCP server for detached runs
     s.set_defaults(fn=cmd_run)

@@ -106,3 +106,15 @@ def test_a_stopped_droid_lite_run_ends_failed(pack_dir, tmp_path):
 def test_droid_lite_names_a_bad_driver(pack_dir, tmp_path):
     p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_DRIVER": "foo"}, id="open-display")
     assert p.returncode == 1 and "driver foo is not one of" in p.stdout
+
+
+def test_droid_lite_a_failing_stop_keeps_the_results(pack_dir, tmp_path, monkeypatch, capsys):
+    from journeys import droidlite
+    from journeys.drivers.base import DriverError
+    from journeys.drivers.fake import FakeDriver
+    from journeys.pack import Pack
+    monkeypatch.setattr(FakeDriver, "stop", lambda self: (_ for _ in ()).throw(DriverError("timeout")))
+    monkeypatch.setenv("JOURNEYS_DRIVER", "fake")
+    monkeypatch.setenv("JOURNEYS_STATE", str(tmp_path / "s"))
+    assert droidlite.cmd_run(Pack.load(pack_dir), "set:smoke") == 0
+    assert '"case": "set:smoke", "status": "passed"' in capsys.readouterr().out

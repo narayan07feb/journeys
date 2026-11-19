@@ -198,10 +198,10 @@ def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:
 def tap_all(pack: Pack, driver: Driver, store: Store, run: Run, *, serial: str | None = None,
             dka: bool = False, **limits) -> TapAllReport:
     """With dka, turn on "don't keep activities" for the walk and put the old value back after."""
-    if not pack.tap_allowed:
-        raise DriverError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     old = None
     try:
+        if not pack.tap_allowed:
+            raise DriverError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe here)")
         if dka:
             if not dka_allowed(pack, driver, serial):
                 raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
@@ -211,13 +211,16 @@ def tap_all(pack: Pack, driver: Driver, store: Store, run: Run, *, serial: str |
         run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
         run.save()
         raise
+    walker = TapAll(pack, driver, store, run, **limits)
     try:
-        return TapAll(pack, driver, store, run, **limits).walk()
+        return walker.walk()
     finally:
         if dka:
             back = "0" if old in (None, "", "null") else old
             try:
                 driver.global_setting(DKA, back)
             except DriverError as e:  # never hides the walk's own error; the run says what to put back
-                run.data["dka_restore_error"] = f"{e}: set {DKA} back to {back} by hand"
+                msg = f"{e}: set {DKA} back to {back} by hand"
+                run.data.update(status="failed", dka_restore_error=msg)  # a device left changed is not a pass
                 run.save()
+                walker._live("failed", msg)

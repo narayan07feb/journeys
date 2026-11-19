@@ -8,6 +8,7 @@ Proposal kinds (field `change`):
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -90,6 +91,14 @@ def denied(el, deny: list) -> bool:
 
 
 _ZW = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")  # zero-width characters and soft hyphens
+# Warning words with no denied word in them ("Are you sure?" [Proceed]): their confirm buttons are skipped too
+_WARN = re.compile(r"(?i)are you sure|permanent|can(not|'t|’t) be undone|irreversib|closure|lose (all|your)")
+
+
+def _warns(screen: Screen) -> bool:
+    return any(_WARN.search(_ZW.sub("", e.text)) for e in screen.elements)
+
+
 _CONFIRM = re.compile(r"(?i)\b(yes|ok(ay)?|confirm|continue|accept|agree|allow|proceed|go_ahead|i_understand|sure|"
                       r"do_it|apply|enable|turn_on|update|got_it)\b".replace("_", r"[\s\-\u2010-\u2015]"))
 
@@ -99,8 +108,8 @@ def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     element (often a container) is never tapped: its centre may sit over a denied button, and the
     deny list reads labels."""
     no = [e for e in screen.elements if denied(e, deny)]
-    if no:  # "Delete all your data?" [Yes] [No]: a confirm button is as dangerous as the denied words near it
-        no += [e for e in screen.elements if _CONFIRM.search(_ZW.sub("", e.text))]
+    if no or _warns(screen):  # "Delete all your data?" [Yes]: a confirm button does what the words say
+        no += [e for e in screen.elements if _CONFIRM.search(_ZW.sub("", e.text)) or _WARN.search(e.text)]
     texts, ids = {e.text for e in no}, {e.id for e in no if e.id}
     # an element that shares its text or id with a denied one is skipped too: its selector needs an
     # index, and a driver may count matches in another order than this listing
@@ -112,7 +121,9 @@ def new_denied(base: Screen, after: Screen, deny: list) -> bool:
     """Denied words on `after` that `base` did not show. Used when a tap looks like "no change" but
     put up a dialog ("Delete all?" over a long list): the old option list is stale then."""
     seen = {(e.text, e.id) for e in base.elements}
-    return any(denied(e, deny) for e in after.elements if (e.text, e.id) not in seen)
+    new = [e for e in after.elements if (e.text, e.id) not in seen]
+    risky = _warns(after) or any(denied(e, deny) for e in after.elements)  # a dialog over a denied screen too
+    return any(denied(e, deny) for e in new) or (risky and any(_CONFIRM.search(_ZW.sub("", e.text)) for e in new))
 
 
 def left_app(driver: Driver, app) -> str | None:
@@ -246,6 +257,8 @@ def promote(pack: Pack, store: Store, pid: str, name: str | None = None) -> str:
     if p["status"] != "proposed":
         raise PromoteError(f"{pid} is already {p['status']}")
     change = dict(p["change"])
+    if "•••" in json.dumps(change, ensure_ascii=False):  # a masked secret would become a rule that never matches
+        raise PromoteError(f"{pid} holds a masked value (•••): write that screen or edge by hand, without the secret")
     if name and change["kind"] == "new-screen":
         old = change["name"]
         change["name"] = name

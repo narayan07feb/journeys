@@ -192,3 +192,13 @@ def test_a_new_screen_proposal_never_names_a_secret(h):
     f = store.failure(out.failure)
     p = store.proposal(f["proposal"])
     assert "HUNTER2" not in str(p).upper() and "HUNTER2" not in str(f).upper()
+
+
+def test_a_proposal_with_a_masked_value_is_not_promoted(h):
+    import pytest
+    from journeys.heal import PromoteError
+    pack_dir, app, store, run = h
+    pid = store.add_proposal({"status": "proposed", "summary": "x", "change": {
+        "kind": "new-screen", "name": "S", "match": {"all": [{"text": "Second •••"}]}, "edges": []}})
+    with pytest.raises(PromoteError, match="masked"):
+        promote(Pack.load(pack_dir), store, pid)

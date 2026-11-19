@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from .cli import make_driver, on_kill
+from .cli import _stop, make_driver, on_kill
 from .drivers import DRIVERS
 from .drivers.base import DriverError
 from .live import panel, watch
@@ -117,7 +117,7 @@ def cmd_run(pack: Pack, case_id: str) -> int:
             run.save()
         raise
     finally:
-        driver.stop()
+        _stop(driver)
     ok = all(o.status == "passed" for o in outs)
     if case_id.startswith("set:") or case_id == "all":  # the group's own icon
         emit(case=case_id, status="passed" if ok else "failed")
