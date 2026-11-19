@@ -91,7 +91,7 @@ def denied(el, deny: list) -> bool:
 
 _ZW = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")  # zero-width characters and soft hyphens
 _CONFIRM = re.compile(r"(?i)^\W*(yes|ok(ay)?|confirm|continue|accept|agree|allow|proceed|go_ahead|i_understand|sure|"
-                      r"do_it)\b".replace("_", r"[\s\-\u2010-\u2015]"))
+                      r"do_it|apply|enable|turn_on|update|got_it)\b".replace("_", r"[\s\-\u2010-\u2015]"))
 
 
 def tap_targets(screen: Screen, deny: list, limit: int) -> list:

@@ -117,7 +117,7 @@ def test_export_then_import_is_a_round_trip(pack_dir, tmp_path):
     f = tmp_path / "rt.yaml"
     f.write_text(flow)
     draft, notes = import_flow(f)
-    assert notes == []
+    assert [n for n in notes if "move it to env:" not in n] == []  # only the typed-text reminder
     assert draft["start"] == {"launch": True, "clear_state": True}
     assert draft["steps"] == [{"see": "/Network.*/"},
                               {"do": [{"tap": "Display (new)"}, {"type": "a b"}, {"press": "enter"},
@@ -654,3 +654,11 @@ def test_tap_limits_below_1_are_refused_and_a_pack_needs_a_driver(tappable_pack_
     assert cli(tappable_pack_dir, "tap-all") == 2 and "Which tool does your team use" in capsys.readouterr().err
     assert cli(tappable_pack_dir, "run", "all") == 2 and not (tappable_pack_dir / "s").exists()  # asks, never guesses
     assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 0  # the answer given on the command line
+
+
+def test_import_warns_that_typed_text_may_be_a_secret(tmp_path):
+    from journeys.formats.maestro import import_flow
+    f = tmp_path / "login.yaml"
+    f.write_text("appId: com.x.y\n---\n- launchApp\n- inputText: hunter2\n")
+    draft, notes = import_flow(f)
+    assert any("move it to env:" in n for n in notes) and not any("hunter2" in n for n in notes)

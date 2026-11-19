@@ -148,7 +148,7 @@ def ask_driver(why: str) -> str:
     while True:
         try:
             answer = input("driver: ").strip()
-        except EOFError:
+        except (EOFError, KeyboardInterrupt):
             raise DriverError(f"no driver given. {question} Pass --driver <{'|'.join(DRIVERS)}>") from None
         if answer in DRIVERS:
             return answer
@@ -173,11 +173,10 @@ def cmd_tap_all(args) -> int:
         raise PackError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
-    if args.dka and not dka_allowed(pack, driver, args.serial):
-        driver.stop()
-        raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
-                          "does not allow it on this device")
     try:
+        if args.dka and not dka_allowed(pack, driver, args.serial):
+            raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
+                              "does not allow it on this device")
         run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver,
                             serial=args.serial, dka=args.dka)
         rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
@@ -203,6 +202,8 @@ def cmd_tap_all(args) -> int:
 def cmd_run(args) -> int:
     pack = _load(args)
     journeys = pack.select(args.target, draft=args.draft)
+    if not journeys:  # a CI job that finds nothing to test must not go green
+        raise PackError(f"{args.target}: no journeys to run")
     errors = pack.run_errors(args.target if args.draft else None)
     if errors:
         for e in errors:

@@ -74,7 +74,8 @@ class Server:
 
     def start_run(self, target: str, serial: str | None = None, driver: str | None = None) -> dict:
         pack = self._pack()
-        pack.select(target)  # raises for an unknown target before anything starts
+        if not pack.select(target):  # raises for an unknown target before anything starts
+            raise ValueError(f"{target}: no journeys to run")
         driver = driver or os.environ.get("JOURNEYS_DRIVER") or None  # the user's answer, as for the CLI
         if driver and driver not in DRIVERS:
             raise ValueError(f"driver {driver} is not one of {', '.join(DRIVERS)}")
@@ -158,6 +159,9 @@ class Server:
 
     # protocol
     def handle(self, msg: dict) -> dict | None:
+        if not isinstance(msg, dict) or not isinstance(msg.get("params") or {}, dict):
+            mid = msg.get("id") if isinstance(msg, dict) else None
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32600, "message": "invalid request"}}
         mid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
         if mid is None:  # a notification: no answer
             return None

@@ -344,3 +344,14 @@ def test_unlink_with_a_dash_and_private_dns_are_denied():
     from journeys.pack import DEFAULT_DENY
     for text in ("Un-link account", "Private DNS"):
         assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_more_word_list_gaps_closed():
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import tap_targets
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Destroy", "Trash", "Overwrite", "Reformat", "Restore defaults", "Revert", "Sell"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+    s = Screen([Element("@1", "Text", "Delete all your data?"), Element("@2", "Button", "Apply"),
+                Element("@3", "Button", "Turn on"), Element("@4", "Button", "No")])
+    assert [e.text for e in tap_targets(s, DEFAULT_DENY, 9)] == ["No"]

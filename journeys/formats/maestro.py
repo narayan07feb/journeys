@@ -160,6 +160,8 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                 actions.append({"tap": _neutral_sel(arg)})
             elif name == "inputText":
                 actions.append({"type": _plain(arg, "inputText")})
+                notes.append(f"{path.name} command {i + 1}: typed text copied into the draft; if it is a password "
+                             "or token, move it to env: and type ${NAME} (secrets never go in the pack)")
             elif name == "eraseText":
                 n = arg.get("charactersToErase", 50) if isinstance(arg, dict) else (50 if arg is None else arg)
                 actions.append({"erase": n})

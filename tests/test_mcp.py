@@ -95,3 +95,24 @@ def test_start_run_takes_journeys_driver_as_the_answer(pack_dir, tmp_path, monke
     monkeypatch.setenv("JOURNEYS_DRIVER", "maestro")
     with pytest.raises(ValueError, match="serial is required"):  # an answer, so the next question is the device
         srv.start_run("smoke")
+
+
+def test_malformed_messages_get_an_error_not_the_end(pack_dir, tmp_path):
+    import io
+    import json
+    from journeys.mcp_server import Server, serve_stdio
+    out = io.StringIO()
+    lines = ["5", json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": "x"}),
+             json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"})]
+    serve_stdio(Server(str(pack_dir), str(tmp_path / "s")), io.StringIO("\n".join(lines) + "\n"), out)
+    replies = [json.loads(ln) for ln in out.getvalue().splitlines()]
+    assert [r.get("error", {}).get("code") for r in replies] == [-32600, -32600, None] and replies[2]["result"] == {}
+
+
+def test_start_run_refuses_a_target_with_nothing_to_run(pack_dir, tmp_path):
+    import pytest
+    from journeys.mcp_server import Server
+    (pack_dir / "sets.yaml").write_text("sets:\n  empty: {tags: [nothing-has-this]}\n")
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    with pytest.raises(Exception, match="no journeys to run|empty"):
+        srv.start_run("empty", driver="fake")

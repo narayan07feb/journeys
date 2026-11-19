@@ -149,3 +149,29 @@ def test_init_takes_journeys_driver_as_the_answer(tmp_path, monkeypatch):
     monkeypatch.setenv("JOURNEYS_DRIVER", "speedrun")
     assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.x.y"]) == 0
     assert Pack.load(tmp_path / "p").driver == "speedrun"
+
+
+def test_nothing_to_run_is_not_a_pass(pack_dir, tmp_path, capsys):
+    for f in (pack_dir / "journeys").glob("*.yaml"):
+        f.write_text("")
+    (pack_dir / "sets.yaml").write_text("sets: {}\n")
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "all", "--driver", "fake"]) == 2
+    assert "no journeys to run" in capsys.readouterr().err
+
+
+def test_a_failing_dka_check_still_stops_the_driver(tappable_pack_dir, monkeypatch):
+    from journeys.drivers.base import DriverError
+    from journeys.drivers.fake import FakeDriver
+    stopped = []
+    monkeypatch.setattr(FakeDriver, "is_emulator", lambda self, *a: (_ for _ in ()).throw(DriverError("offline")))
+    monkeypatch.setattr(FakeDriver, "stop", lambda self: stopped.append(1))
+    assert main(["--pack", str(tappable_pack_dir), "--state", str(tappable_pack_dir / "s"), "tap-all",
+                 "--driver", "fake", "--dka"]) == 2
+    assert stopped
+
+
+def test_ctrl_c_at_the_driver_question_is_a_clear_error(pack_dir, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert main(["--pack", str(pack_dir), "--state", str(pack_dir / "s"), "run", "smoke"]) == 2
+    assert "no driver given" in capsys.readouterr().err

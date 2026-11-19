@@ -18,7 +18,7 @@ _S = r"[\s\-\u2010-\u2015]"  # a space or dash of any kind: NBSP, U+2011 ("Log\u
 DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     # word stems (no end boundary): "Payments", "Deleted", "Subscriptions" match too; "_" is any space or dash
     r"/(?i)\b(reset|erase|factory|wipe|delet|remov|uninstall|clear|force_stop|"
-    r"deactivat|disabl|terminat|close_account|un_?link|revoke|private_dns|forget|reboot|restart|power_off|shut_?down|turn_off|"
+    r"deactivat|disabl|terminat|close_account|un_?link|revoke|private_dns|destroy|trash|overwrite|reformat|restore_default|revert|sell|forget|reboot|restart|power_off|shut_?down|turn_off|"
     r"block|discard|empty|format|install|opt_?out|unfollow|unfriend|unpair|leave|exit|quit|switch_off|"
     r"cancel_(plan|subscription|membership|order|booking|payment))/",
     r"/(?i)\b(wi_?fi|airplane|aeroplane|flight_mode|bluetooth|mobile_data|hotspot|usb_debugging"

@@ -19,7 +19,7 @@ pack/
 ```yaml
 name: shop                     # required
 app: com.example.shop          # required: the app's package
-driver: maestro                # required: the team's tool: maestro | speedrun (fake for tests)
+driver: maestro                # the user's answer: maestro | speedrun (fake for tests); missing = commands ask
 project: ../shop-android       # optional: the app's project (doctor checks its test framework)
 app_packages: [com.example.shop.web]   # optional: other packages the app's own screens run in
                                # (they count as the app: not_see, explore and tap-all stay inside them)

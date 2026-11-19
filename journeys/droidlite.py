@@ -17,7 +17,7 @@ from .cli import make_driver, on_kill
 from .drivers.base import DriverError
 from .live import panel, watch
 from .pack import Pack, PackError
-from .results import Store, default_state_dir
+from .results import Store, default_state_dir, mask, set_secrets
 from .runner import JourneyOutcome, Runner
 
 REPO = Path(__file__).resolve().parents[1]
@@ -72,6 +72,8 @@ def cmd_run(pack: Pack, case_id: str) -> int:
             emit(label="pack", status="failed", message=e)
         return 1
     journeys = pack.select(target)
+    if not journeys:  # nothing to test is not a pass
+        raise PackError(f"{target}: no journeys to run")
     serial = os.environ.get("JOURNEYS_SERIAL") or None
     kind = driver_kind(pack)
     if not kind:
@@ -81,6 +83,7 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         emit(case=case_id, status="failed", message="set JOURNEYS_SERIAL (or JOURNEYS_DRIVER=fake)")
         return 1
     store = state_store(pack)
+    set_secrets(pack.variables().values())  # before any driver message can carry one
     driver = make_driver(kind, pack, _Args(), store)
     driver.start(pack.app, serial)  # a refused start leaves no empty run behind
     files = {j.name: j for j in pack.journeys.values()}
@@ -155,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
             print("usage: droidlite list | run <id> | watch | failures | proposals | doctor", file=sys.stderr)
             return 2
     except (PackError, DriverError) as e:
-        emit(label="journeys", status="failed", message=str(e))
+        emit(label="journeys", status="failed", message=mask(str(e)))
         return 1
     return 0
 
