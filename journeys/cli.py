@@ -149,14 +149,14 @@ def ask_driver(why: str) -> str:
         try:
             answer = input("driver: ").strip()
         except EOFError:
-            raise DriverError("no driver given") from None
+            raise DriverError(f"no driver given. {question} Pass --driver <{'|'.join(DRIVERS)}>") from None
         if answer in DRIVERS:
             return answer
         print(f"{answer!r} is not one of {', '.join(DRIVERS)}", file=sys.stderr)
 
 
 def _open(args, pack: Pack) -> tuple[Store, Driver]:
-    args.driver = kind = args.driver or pack.driver or ask_driver(
+    args.driver = kind = args.driver or os.environ.get("JOURNEYS_DRIVER") or pack.driver or ask_driver(
         f"pack {pack.name} has no driver: in pack.yaml (add it there to stop this question)")
     if kind != "fake" and not args.serial:
         raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
@@ -365,7 +365,7 @@ def cmd_look(args) -> int:
     finally:
         driver.stop()
     ident = pack.map.identify(screen)
-    print(screen.listing())
+    print(mask(screen.listing()))  # the console never shows what the store masks
     print(f"-- map screen: {ident.name or 'unknown'}")
     return 0
 
@@ -572,8 +572,8 @@ def main(argv: list[str] | None = None) -> int:
         on_kill()
     try:
         return args.fn(args)
-    except (PackError, DriverError, RuntimeError, PromoteError) as e:
-        print(f"error: {e}", file=sys.stderr)
+    except (PackError, DriverError, RuntimeError, PromoteError, ValueError) as e:
+        print(f"error: {mask(str(e))}", file=sys.stderr)
         return 2
 
 

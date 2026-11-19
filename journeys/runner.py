@@ -271,7 +271,7 @@ class Runner:
         if not self._alive():
             return
         try:
-            head = heading(self.driver.look())  # before explore moves away
+            head = mask(heading(self.driver.look()))  # before explore moves away; never an upper-cased secret
         except DriverError:
             return
         if not self.pack.tap_allowed:

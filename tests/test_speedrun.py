@@ -141,3 +141,20 @@ def test_shared_device_guard_refuses_any_animation_scale_write(tmp_path, monkeyp
             with pytest.raises(DriverError, match="animation"):
                 d.start("com.example", "192.168.0.5:5555")
     assert len(started) == 1
+
+
+def test_a_stop_during_session_start_closes_the_session(tmp_path, monkeypatch):
+    import subprocess as sp
+    calls = []
+
+    def sr(*a, **k):
+        calls.append(a)
+        if a[:2] == ("session", "start"):
+            raise KeyboardInterrupt
+        return sp.CompletedProcess(a, 0, "", "")
+    d = SpeedrunDriver("/bin/true", tmp_path / "h")
+    d.allow_changes = "any"
+    monkeypatch.setattr(d, "_sr", sr)
+    with pytest.raises(KeyboardInterrupt):
+        d.start("com.example", "emulator-5554")
+    assert calls[-1] == ("session", "stop")

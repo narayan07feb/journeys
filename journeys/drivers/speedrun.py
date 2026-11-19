@@ -127,7 +127,14 @@ class SpeedrunDriver(AdbDriver):
         args = ["session", "start", "--app", app_id, "--platform", "android", "--animations", self.animations]
         if serial:
             args += ["--device", serial]
-        p = self._sr(*args)
+        try:
+            p = self._sr(*args)
+        except BaseException:  # stopped mid-start (Ctrl-C, SIGTERM): never leave a half-open session
+            try:
+                self._sr("session", "stop")
+            except DriverError:
+                pass
+            raise
         if p.returncode != 0:
             raise DriverError(f"speedrun session start failed: {(p.stderr or p.stdout).strip()[-500:]}")
         self.started = True

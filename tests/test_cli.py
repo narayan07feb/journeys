@@ -91,3 +91,40 @@ def test_a_killed_run_ends_failed_not_running(pack_dir, tmp_path):
     assert proc.wait(timeout=20) != 0
     data = yaml.safe_load(runs[0].read_text())
     assert data["status"] == "failed" and data.get("ended")
+
+
+def test_look_and_errors_never_print_a_secret(pack_dir, capsys, monkeypatch):
+    from journeys import cli
+    from journeys.cli import main
+    from journeys.drivers.base import Element, Screen
+    from journeys.drivers.fake import FakeDriver
+    monkeypatch.setattr(FakeDriver, "look", lambda self: Screen([Element("@1", "Text", "Search hunter2")]))
+    monkeypatch.setenv("DEMO_SEARCH", "hunter2")
+    args = ["--pack", str(pack_dir), "--state", str(pack_dir / "s")]
+    assert main(args + ["look", "--driver", "fake"]) == 0
+    out = capsys.readouterr().out
+    assert "Search •••" in out and "hunter2" not in out
+    monkeypatch.setattr(cli, "_open", lambda *a: (_ for _ in ()).throw(cli.DriverError("tap hunter2 failed")))
+    assert main(args + ["look", "--driver", "fake"]) == 2
+    assert "hunter2" not in capsys.readouterr().err
+
+
+def test_a_reused_run_id_is_a_clear_error(pack_dir, capsys):
+    from journeys.cli import main
+    args = ["--pack", str(pack_dir), "--state", str(pack_dir / "s"), "run", "open-display", "--driver", "fake",
+            "--run-id", "abc"]
+    assert main(args) == 0
+    assert main(args) == 2 and "already exists" in capsys.readouterr().err
+
+
+def test_journeys_driver_env_is_an_answer_and_eof_repeats_the_question(pack_dir, capsys, monkeypatch):
+    from journeys.cli import main
+    f = pack_dir / "pack.yaml"
+    f.write_text("\n".join(ln for ln in f.read_text().splitlines() if not ln.startswith("driver:")) + "\n")
+    args = ["--pack", str(pack_dir), "--state", str(pack_dir / "s"), "run", "open-display"]
+    monkeypatch.setenv("JOURNEYS_DRIVER", "fake")
+    assert main(args) == 0
+    monkeypatch.delenv("JOURNEYS_DRIVER")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(EOFError()))
+    assert main(args) == 2 and "--driver" in capsys.readouterr().err

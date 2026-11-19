@@ -15,7 +15,9 @@ look, results) runs through the driver the pack names, so a new driver brings al
 pack's `driver:` is the team's answer; `--driver` overrides it. Journeys never assumes a driver:
 `init` and every device command (`run`, `tap-all`, `look`) ask the user when neither names one, and
 fail with the question when there is no terminal to ask in. The project's tests are shown as a hint
-only, never taken as the answer. Maestro flows import into drafts, and journeys export back
+only, never taken as the answer. The driver tests run each driver against a simulated phone:
+they check how Journeys calls the tool, not that your installed version accepts every key
+(`Search`, `Tab`); check those on your device. Maestro flows import into drafts, and journeys export back
 to Maestro flows, so a team keeps its tools.
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).

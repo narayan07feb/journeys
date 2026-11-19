@@ -174,3 +174,21 @@ def test_anything_that_stops_a_run_ends_it_as_failed(h, monkeypatch):
         run("open-display")
     (r,) = store.runs()
     assert r["status"] == "failed" and r["error"] == "KeyboardInterrupt"
+
+
+def test_a_new_screen_proposal_never_names_a_secret(h):
+    from journeys.results import set_secrets
+    pack_dir, app, store, run = h
+    app["screens"]["TOUR"] = {"elements": [{"kind": "Text", "text": "Hello hunter2"},
+                                           {"kind": "Button", "text": "Next hunter2", "to": "TOUR2"}]}
+    app["screens"]["TOUR2"] = {"elements": [{"kind": "Text", "text": "Bye hunter2"}]}
+    _display_tap_to(app, "TOUR")
+    pack = Pack.load(pack_dir)
+    try:
+        r = Runner(pack, FakeDriver(app), store, store.new_run(), variables={"PW": "hunter2"}, sleep=lambda s: None)
+        (out,) = r.run_all(pack.select("open-display"))
+    finally:
+        set_secrets([])
+    f = store.failure(out.failure)
+    p = store.proposal(f["proposal"])
+    assert "HUNTER2" not in str(p).upper() and "HUNTER2" not in str(f).upper()

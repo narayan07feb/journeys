@@ -308,3 +308,11 @@ def test_tap_all_console_masks_like_the_store(tappable_pack_dir, capsys, monkeyp
     assert "crash" in out and "hunter2" not in out
     with pytest.raises(SystemExit):  # a bad run id is a usage error, not a traceback after the driver started
         main(["--pack", str(tappable_pack_dir), "run", "all", "--driver", "fake", "--run-id", "../x"])
+
+
+def test_connection_cutting_switches_are_never_tapped():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Wireless debugging", "ADB over network", "Cellular data", "Data roaming", "VPN", "Tethering",
+                 "Internet"):
+        assert any(r.matches(Element("@1", "Switch", text)) for r in DEFAULT_DENY), text

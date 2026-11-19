@@ -90,7 +90,10 @@ class Store:
         if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", run_id):
             raise ValueError(f"bad run id {run_id!r}")
         run = Run(self, run_id, {"id": run_id, "started": time.time(), "status": "running", "journeys": [], **meta})
-        run.dir.mkdir(parents=True)
+        try:
+            run.dir.mkdir(parents=True)
+        except FileExistsError:
+            raise ValueError(f"run {run_id} already exists") from None
         run.save()
         return run
 
