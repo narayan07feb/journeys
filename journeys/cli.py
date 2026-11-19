@@ -201,6 +201,8 @@ def cmd_tap_all(args) -> int:
             if o["result"] == "failed":
                 print(f"tap failed  {s['screen']}  {o['tap']}: {o.get('note', '')}")
     status = store.run(run.id)
+    for n in status.get("not_visited", []):
+        print(f"not visited (--max-screens)  {n}")
     if status.get("error"):
         print(f"failed: {status['error']}")
     return 0 if status["status"] == "passed" else 1
@@ -364,7 +366,7 @@ def cmd_init(args) -> int:
         args.driver = args.driver or os.environ.get("JOURNEYS_DRIVER")
         if not args.driver:
             from .detect import pick, scan
-            hint = pick(scan(project)[0])[1] if project else "no --project given"
+            hint = pick(scan(project, strict=not args.app)[0])[1] if project else "no --project given"
             args.driver = ask_driver(f"a hint only, never a choice: {hint}")
         lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver)
     except (FileExistsError, FileNotFoundError, ValueError) as e:

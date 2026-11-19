@@ -244,3 +244,13 @@ def test_state_dir_never_leaves_its_folder_and_init_needs_an_app_first(tmp_path,
     assert default_state_dir("../../x").parent.name == "journeys"
     monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
     assert main(["--pack", str(tmp_path / "p"), "init"]) == 2 and "no app id" in capsys.readouterr().err
+
+
+def test_init_with_an_ambiguous_project_stops_before_asking(tmp_path, capsys, monkeypatch):
+    proj = tmp_path / "proj"
+    for m, pkg in (("a", "com.acme.one"), ("b", "com.acme.two")):
+        (proj / m).mkdir(parents=True)
+        (proj / m / "build.gradle.kts").write_text(f'applicationId = "{pkg}"\n')
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
+    assert main(["--pack", str(tmp_path / "p"), "init", "--project", str(proj)]) == 2
+    assert "several app ids" in capsys.readouterr().err

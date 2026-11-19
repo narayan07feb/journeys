@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from .cli import make_driver, on_kill
@@ -105,10 +106,16 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         emit(case=o.name, label=o.name, status=o.status, message=msg,
              file=line.get("file") or str(j.file), line=line.get("line") or j.line)
 
+    run = None
     try:
         run = store.new_run(pack=pack.name, target=target, driver=kind, serial=serial)
         emit(log=f"run {run.id} on {serial or 'fake'}")
         outs = Runner(pack, driver, store, run, serial=serial, on_update=update).run_all(journeys)
+    except BaseException as e:  # a stop before the runner took over
+        if run is not None and run.data.get("status") == "running":
+            run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
+            run.save()
+        raise
     finally:
         driver.stop()
     ok = all(o.status == "passed" for o in outs)

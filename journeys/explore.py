@@ -50,8 +50,10 @@ class TapAll:
         if name:
             return name, True
         head = heading(screen)
-        for f in self.found:  # a game table or a feed changes every time: the same heading is enough
-            if not f.known and (same_screen(f.screen, screen) or (head and heading(f.screen) == head)):
+        acts = _actions(screen)
+        for f in self.found:  # a game table or a feed changes its texts: same heading and same buttons is enough
+            if not f.known and (same_screen(f.screen, screen)
+                                or (head and heading(f.screen) == head and _actions(f.screen) == acts)):
                 return f.key, False
         digest = hashlib.sha1(repr(sorted(fingerprint(screen))).encode()).hexdigest()[:4]
         return f"NEW:{screen_name(mask(heading(screen)))}:{digest}", False  # never an upper-cased secret
@@ -82,6 +84,8 @@ class TapAll:
             self.run.save()
             raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
+        if len(self.found) > self.max_screens:
+            self.run.data["not_visited"] = [f.key for f in self.found[self.max_screens:]]  # beyond --max-screens
         tapped = any(o.get("tap") and o["result"] not in ("failed", "skipped")
                      for s in self.report.screens for o in s["options"])  # a failed tap tested nothing
         clean = tapped and not (self.report.crashes or self.report.unreachable)  # unreachable is not clean
@@ -105,6 +109,9 @@ class TapAll:
             return
         base = self.driver.look()
         options = []
+        more = len(tap_targets(base, self.pack.deny, 10_000)) - self.max_taps
+        if more > 0:
+            options.append({"tap": None, "result": "skipped", "note": f"{more} more beyond --max-taps"})
         for el in tap_targets(base, self.pack.deny, self.max_taps):
             sel = selector(el, base)
             if sel is None:  # no selector finds only this element: tapping could hit another one
@@ -112,10 +119,11 @@ class TapAll:
                 continue
             tap = {"tapOn": sel}
             res = self.driver.do([tap])
-            if not res.ok:
+            alive = self.driver.app_alive()
+            if not res.ok and alive:  # a failed tap that killed the app is a crash, below
                 options.append({"tap": from_command(tap), "result": "failed", "note": res.message[:200]})
                 continue
-            if not self.driver.app_alive():
+            if not alive:
                 fid = self.store.add_failure({
                     "run": self.run.id, "journey": "tap-all", "step": len(here.route),
                     "step_text": f"{here.key}: {from_command(tap)}", "message": "the app crashed",
@@ -166,6 +174,11 @@ class TapAll:
                 if not self._back_to(here, options):
                     break
         self.report.screens.append({"screen": here.key, "route": from_commands(here.route), "options": options})
+
+
+def _actions(screen: Screen) -> list:
+    """What a screen offers to tap: a brand header shared by every screen ("MyBank") is not identity."""
+    return sorted((e.kind, e.text, e.id) for e in screen.elements if e.kind != "Text")
 
 
 def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:

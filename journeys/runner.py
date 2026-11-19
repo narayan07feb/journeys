@@ -61,6 +61,12 @@ class Runner:
         try:
             outs = [self.journey(j) for j in journeys]
         except BaseException as e:  # a lost link or Ctrl-C: the run ends as failed, never stays "running"
+            if self._out is not None and self._out.status == "running":  # live.json and Droid Lite too
+                self._out.status, self._out.message = "failed", self._mask(str(e)) or type(e).__name__
+                try:
+                    self._publish(self._out)
+                except Exception:  # the stop itself must still be recorded below
+                    pass
             for j in self.run.data.get("journeys", []):
                 if j.get("status") == "running":
                     j["status"] = "failed"

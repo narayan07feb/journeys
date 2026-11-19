@@ -36,15 +36,15 @@ def test_crash_dead_end_and_new_screen(t):
     app, driver, store, walk = t
     app["screens"]["ABOUT"]["elements"] += [
         {"kind": "Button", "text": "Legal", "to": "LEGAL"},
-        {"kind": "Button", "text": "Update", "to": "CRASH"},
+        {"kind": "Button", "text": "Refresh", "to": "CRASH"},
     ]
     app["screens"]["LEGAL"] = {"elements": [
         {"kind": "Text", "text": "Legal info"}, {"kind": "Button", "text": "Licenses", "to": "TRAP"}]}
     app["screens"]["TRAP"] = {"elements": [{"kind": "Text", "text": "No way out"}], "back": "TRAP"}
     rep, run = walk()
-    assert [c["tap"] for c in rep.crashes] == [{"tap": "Update"}]
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Refresh"}]
     f = store.failure(rep.crashes[0]["failure"])
-    assert f["log"].startswith("FATAL EXCEPTION") and f["route"][-1] == {"tap": "Update"}
+    assert f["log"].startswith("FATAL EXCEPTION") and f["route"][-1] == {"tap": "Refresh"}
     assert any(n.startswith("NEW:LEGAL-INFO:") for n in rep.new_screens)
     assert any(n.startswith("NEW:NO-WAY-OUT:") for n in rep.new_screens)
     assert [d["screen"].split(":")[1] for d in rep.dead_ends] == ["NO-WAY-OUT"]
@@ -184,12 +184,12 @@ def test_deny_reads_the_id_name_and_tab_kinds_are_tapped(t):
 def test_after_a_crash_the_walk_goes_back_and_taps_the_rest(t):
     app, driver, store, walk = t
     app["screens"]["ABOUT"]["elements"][1:1] = [
-        {"kind": "Button", "text": "Update", "to": "CRASH"},
+        {"kind": "Button", "text": "Refresh", "to": "CRASH"},
         {"kind": "Button", "text": "Legal", "to": "LEGAL"},
     ]
     app["screens"]["LEGAL"] = {"elements": [{"kind": "Text", "text": "Legal info"}]}
     rep, run = walk()
-    assert [c["tap"] for c in rep.crashes] == [{"tap": "Update"}]
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Refresh"}]
     assert any(n.startswith("NEW:LEGAL-INFO") for n in rep.new_screens)
 
 
@@ -425,3 +425,40 @@ def test_a_screen_it_cannot_return_to_says_what_was_not_tapped(t, monkeypatch):
     rep, run = walk()
     notes = [o.get("note") for s in rep.screens for o in s["options"]]
     assert "could not return here; the rest was not tapped" in notes and rep.unreachable
+
+
+def test_screens_that_only_share_a_brand_header_are_all_walked(tappable_pack_dir, tmp_path):
+    """'MyBank' on top of every unmapped screen is not identity: each screen's own buttons are."""
+    app = {"app": "com.android.settings", "start": "HOME", "screens": {
+        "HOME": {"elements": [{"kind": "Text", "text": "MyBank"}, {"kind": "Button", "text": "Cards", "to": "CARDS"},
+                              {"kind": "Button", "text": "Loans", "to": "LOANS"}]},
+        "CARDS": {"elements": [{"kind": "Text", "text": "MyBank"}, {"kind": "Button", "text": "Card list"}]},
+        "LOANS": {"elements": [{"kind": "Text", "text": "MyBank"}, {"kind": "Button", "text": "Details", "to": "CRASH"}]}}}
+    store = Store(tmp_path / "s")
+    rep = tap_all(Pack.load(tappable_pack_dir), FakeDriver(app), store, store.new_run())
+    assert len(rep.screens) == 3 and [c["tap"] for c in rep.crashes] == [{"tap": "Details"}]
+
+
+def test_limits_say_what_was_not_tested_and_a_killing_failed_tap_is_a_crash(t):
+    from journeys.drivers.base import CommandResult
+    app, driver, store, walk = t
+    rep, run = walk(max_taps=1)
+    assert any("beyond --max-taps" in (o.get("note") or "") for s in rep.screens for o in s["options"])
+    rep, run = walk(max_screens=1)
+    assert store.run(run.id)["not_visited"]
+    app["screens"]["HOME"]["elements"].insert(0, {"kind": "Button", "text": "Boom", "to": "CRASH"})
+    real = driver.do
+
+    def do(cmds):
+        res = real(cmds)
+        return CommandResult(False, "tool error") if cmds == [{"tapOn": "Boom"}] else res
+    driver.do = do
+    rep, run = walk()
+    assert [c["tap"] for c in rep.crashes] == [{"tap": "Boom"}]
+
+
+def test_update_and_connect_buttons_are_denied():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Update", "Connect", "System update"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text

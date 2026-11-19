@@ -133,3 +133,38 @@ def test_a_stopped_run_leaves_no_journey_running_and_a_lost_device_is_not_a_cras
     (out,) = Runner(pack, d, store, store.new_run(), variables={}, sleep=lambda s: None,
                     heal=False).run_all(pack.select("open-display"))
     assert "device does not answer" in out.message and "crash?" not in out.message
+
+
+def test_a_stopped_run_ends_the_live_view_too(pack_dir, tmp_path):
+    import json
+    import pytest
+    import yaml
+    from journeys.drivers.fake import FakeDriver
+    from journeys.pack import Pack
+    from journeys.results import Store
+    from journeys.runner import Runner
+    pack = Pack.load(pack_dir)
+    d = FakeDriver(yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text()))
+    calls = {"n": 0}
+    real = d.do
+
+    def do(cmds):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise KeyboardInterrupt
+        return real(cmds)
+    d.do = do
+    store = Store(tmp_path / "s")
+    with pytest.raises(KeyboardInterrupt):
+        Runner(pack, d, store, store.new_run(), variables={}, sleep=lambda s: None).run_all(pack.select("smoke"))
+    assert json.loads((tmp_path / "s" / "live.json").read_text())["status"] == "failed"
+
+
+def test_journey_names_are_not_masked(pack_dir, tmp_path):
+    from journeys.results import mask, set_secrets
+    set_secrets(["display"])
+    try:
+        assert mask({"name": "open-display", "message": "open-display"}) == {"name": "open-display",
+                                                                            "message": "open-•••"}
+    finally:
+        set_secrets([])

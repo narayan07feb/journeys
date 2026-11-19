@@ -22,7 +22,7 @@ DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     r"block|discard|empty|format|install|opt_?out|unfollow|unfriend|unpair|leave|exit|quit|switch_off|"
     r"cancel_(plan|subscription|membership|order|booking|payment))/",
     r"/(?i)\b(wi_?fi|airplane|aeroplane|flight_mode|bluetooth|mobile_data|hotspot|usb_debugging"
-    r"|developer_options|disconnect|wlan|mobile_network|network_reset|wireless_debug|adb|cellular|roaming|vpn"
+    r"|developer_options|disconnect|wlan|mobile_network|network_reset|wireless_debug|adb|cellular|roaming|vpn|connect$|update$|(software|system)_update"
     r"|tether|internet)/",
     r"/(?i)\b(sign_?(out|off)|log_?(out|off)|pay|buy|purchase|(un)?subscri|send|call|share|rate_us|report|"
     r"order|checkout|transfer|withdraw|donat|top_?up|add_money|submit|publish|post$|hang_?up|end_call|"
