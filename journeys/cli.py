@@ -312,9 +312,38 @@ def cmd_history(args) -> int:
     return 0
 
 
+def cmd_tracker(args) -> int:
+    from .tracker import summary
+    pack = _load(args)
+    t = summary(_store(args, pack), list(pack.drafts))
+    if args.json:
+        print(json.dumps(t, indent=1, default=str))
+        return 0
+    print(f"runs: {len(t['runs'])} recent, {sum(r['status'] == 'passed' for r in t['runs'])} passed")
+    q = t["queue"]
+    print(f"work queue: {len(q['failures'])} open failures, {len(q['proposals'])} open proposals, "
+          f"{len(q['drafts'])} drafts")
+    print("agent usage (drafts / journeys built / proposals decided / failures fixed / runs / tool calls):")
+    for who, u in t["usage"]["actors"].items():
+        fix = f", avg fix {u['avg_fix_minutes']} min" if u["avg_fix_minutes"] is not None else ""
+        print(f"  {who}: {u['drafts']} / {u['journeys_built']} / {u['decided']} / {u['fixed']} / {u['runs']} / "
+              f"{u['tool_calls']}{fix}")
+    for a in t["activity"][:10]:
+        print(f"  {time.strftime('%m-%d %H:%M', time.localtime(a.get('time') or 0))}  {a.get('actor')}  "
+              f"{a.get('action')}  {a.get('target') or a.get('journey') or a.get('id') or a.get('tool') or ''}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .live import serve
-    srv = serve(_store(args, _load(args)), args.port)
+    pack = _load(args)
+
+    def drafts() -> list[str]:
+        try:
+            return list(Pack.load(pack.root).drafts)
+        except PackError:
+            return []
+    srv = serve(_store(args, pack), args.port, drafts)
     print(f"live page: http://127.0.0.1:{srv.server_address[1]}/  (Ctrl-C stops it)")
     try:
         srv.serve_forever()
@@ -424,13 +453,17 @@ def cmd_validate(args) -> int:
 
 def cmd_new(args) -> int:
     from .authoring import new_draft
-    print(f"draft written: {new_draft(_load(args), args.name, args.start)}")
+    pack = _load(args)
+    print(f"draft written: {new_draft(pack, args.name, args.start)}")
+    _store(args, pack).log("draft.new", journey=args.name)
     return 0
 
 
 def cmd_promote_journey(args) -> int:
     from .authoring import promote_journey
-    print(f"promoted: {promote_journey(_load(args), args.name)}")
+    pack = _load(args)
+    print(f"promoted: {promote_journey(pack, args.name)}")
+    _store(args, pack).log("journey.promote", journey=args.name)
     return 0
 
 
@@ -489,6 +522,7 @@ def cmd_import(args) -> int:
         dest.parent.mkdir(exist_ok=True)
         dest.write_text(yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
         print(f"draft {dest}")
+        _store(args, pack).log("draft.import", journey=draft["name"], source=f.name)
         for n in notes:
             print(f"  NOTE {n}")
     print("next: `journeys validate`, then put expect/goto steps on the map's screens, then promote-journey")
@@ -567,7 +601,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--last", type=int, default=10)
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_history)
-    s = sub.add_parser("serve", help="local live page on 127.0.0.1")
+    s = sub.add_parser("tracker", help="runs, work queue, agent activity and agent usage")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_tracker)
+    s = sub.add_parser("serve", help="local tracker page on 127.0.0.1 (live run, runs, queue, agent activity, usage)")
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(fn=cmd_serve)
     sub.add_parser("watch", help="print the live state as JSON lines").set_defaults(fn=cmd_watch)

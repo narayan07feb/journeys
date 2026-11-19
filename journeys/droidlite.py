@@ -150,6 +150,7 @@ def cmd_doctor(pack: Pack) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    os.environ.setdefault("JOURNEYS_ACTOR", "droid-lite")  # runs from its Tests tab, in the tracker
     try:
         pack = Pack.load(pack_path())
         store = state_store(pack)

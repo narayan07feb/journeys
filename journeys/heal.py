@@ -268,6 +268,7 @@ def promote(pack: Pack, store: Store, pid: str, name: str | None = None) -> str:
     check = Pack.load(pack.root)
     errors = check.run_errors()  # unfinished drafts' errors are not this promote's doing
     store.update_proposal(pid, status="promoted", result=done, pack_errors=errors)
+    store.log("proposal.promote", id=pid, failure=p.get("failure"), journey=p.get("journey"), result=done)
     return done + (f" (pack now has {len(errors)} errors: run validate)" if errors else "")
 
 
@@ -278,3 +279,4 @@ def reject(store: Store, pid: str, why: str) -> None:
     if p["status"] != "proposed":
         raise PromoteError(f"{pid} is already {p['status']}")
     store.update_proposal(pid, status="rejected", why=why)
+    store.log("proposal.reject", id=pid, failure=p.get("failure"), journey=p.get("journey"), why=why)

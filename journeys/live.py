@@ -1,4 +1,4 @@
-"""A small local page (127.0.0.1 only) that shows the run in progress, failures and proposals."""
+"""A small local page (127.0.0.1 only): the run in progress, runs, the work queue, agent activity and usage."""
 from __future__ import annotations
 
 import json
@@ -9,41 +9,81 @@ from typing import Iterator
 from .results import Store, read_json
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Journeys live</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Journeys tracker</title>
 <style>
-:root{--bg:#fff;--fg:#1b1b1b;--muted:#666;--ok:#1a7f37;--bad:#cf222e;--line:#ddd}
-@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--muted:#999;--ok:#3fb950;--bad:#f85149;--line:#333}}
-body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif;margin:0 auto;max-width:900px;padding:16px}
-h1{font-size:20px}h2{font-size:16px;margin-top:24px}.muted{color:var(--muted)}
-.passed{color:var(--ok)}.failed{color:var(--bad)}table{border-collapse:collapse;width:100%}
+:root{--bg:#fff;--fg:#1b1b1b;--muted:#666;--ok:#1a7f37;--bad:#cf222e;--line:#ddd;--bar:#d0d7de}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--muted:#999;--ok:#3fb950;--bad:#f85149;--line:#333;--bar:#30363d}}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif;margin:0 auto;max-width:1000px;padding:16px}
+h1{font-size:20px;margin:0 0 8px}h2{font-size:16px;margin:28px 0 6px}h3{font-size:14px;margin:14px 0 4px}
+.muted{color:var(--muted)}.passed{color:var(--ok)}.failed{color:var(--bad)}
+nav a{color:inherit;margin-right:14px;font-size:14px}
+.wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}
+th{text-align:left;color:var(--muted);font-weight:500;padding:4px 8px 4px 0}
 td{border-top:1px solid var(--line);padding:4px 8px 4px 0;vertical-align:top;overflow-wrap:anywhere}
-</style></head><body><h1>Journeys</h1><div id="live" class="muted">waiting for a run…</div>
-<h2>Recent failures</h2><table id="failures"></table><h2>Open proposals</h2><table id="proposals"></table>
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.trend{display:flex;gap:2px;align-items:flex-end;height:36px;margin:6px 0}
+.trend span{width:8px;background:var(--bar)}.trend span.passed{background:var(--ok)}.trend span.failed{background:var(--bad)}
+</style></head><body><h1>Journeys tracker</h1>
+<nav><a href="#runs">Runs</a><a href="#queue">Work queue</a><a href="#activity">Agent activity</a><a href="#usage">Agent usage</a></nav>
+<h2 id="runs">Runs</h2><div id="live" class="muted">no run in progress</div>
+<div class="trend" id="trend" title="last runs, oldest first"></div>
+<div class="wrap"><table><thead><tr><th>Run</th><th>Target</th><th>By</th><th>Status</th><th class="n">Passed</th>
+<th class="n">Failed</th><th class="n">Seconds</th></tr></thead><tbody id="runrows"></tbody></table></div>
+<h2 id="queue">Work queue</h2>
+<h3>Open failures</h3><div class="wrap"><table><tbody id="failures"></tbody></table></div>
+<h3>Open proposals</h3><div class="wrap"><table><tbody id="proposals"></tbody></table></div>
+<h3>Drafts waiting for promote-journey</h3><div id="drafts" class="muted"></div>
+<h2 id="activity">Agent activity</h2>
+<div class="wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead>
+<tbody id="acts"></tbody></table></div>
+<h2 id="usage">Agent usage</h2><p class="muted">Journeys built and issues solved, per person or agent.
+Solved = proposals decided + failures whose journey passed again.</p>
+<div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
+<th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Avg fix (min)</th>
+<th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
+<h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Built</th>
+<th class="n">Solved</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="days"></tbody></table></div>
 <script>
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const when=t=>t?new Date(t*1000).toLocaleString():"";
+const set=(id,html)=>{const e=document.getElementById(id);if(e.innerHTML!==html)e.innerHTML=html};
+const detail=a=>Object.entries(a).filter(([k])=>!["time","actor","action"].includes(k))
+  .map(([k,v])=>`${esc(k)}: ${esc(typeof v==="object"?JSON.stringify(v):v)}`).join(" · ");
+const num=v=>v??"";
 async function tick(){
   try{
     const l=await (await fetch("live.json")).json();
-    if(l.run) document.getElementById("live").innerHTML=
-      `<b>${esc(l.journey)}</b> <span class="${esc(l.status)}">${esc(l.status)}</span> · step ${esc(l.step)}`+
-      ` · ${esc(l.text)}<br><span class="muted">screen ${esc(l.screen||"?")} · run ${esc(l.run)}</span>`+
-      (l.message?`<br><span class="failed">${esc(l.message)}</span>`:"");
-    const f=await (await fetch("failures.json")).json();
-    document.getElementById("failures").innerHTML=f.slice(-15).reverse().map(x=>
-      `<tr><td>${esc(x.id)}</td><td>${esc(x.journey)}</td><td>${esc(x.message)}</td></tr>`).join("");
-    const p=await (await fetch("proposals.json")).json();
-    document.getElementById("proposals").innerHTML=p.filter(x=>x.status==="proposed").map(x=>
-      `<tr><td>${esc(x.id)}</td><td>${esc(x.summary)}</td></tr>`).join("");
+    if(l.run) set("live",`<b>${esc(l.journey)}</b> <span class="${esc(l.status)}">${esc(l.status)}</span> · ${esc(l.step)}`+
+      ` · ${esc(l.text)} <span class="muted">· run ${esc(l.run)}</span>`+(l.message?` <span class="failed">${esc(l.message)}</span>`:""));
+    const t=await (await fetch("tracker.json")).json();
+    set("trend",t.runs.map(r=>{const n=r.passed+r.failed,h=n?Math.max(4,36*r.passed/n):4;
+      return `<span class="${esc(r.status)}" style="height:${h}px" title="${esc(r.id)}: ${r.passed}/${n}"></span>`}).join(""));
+    set("runrows",t.runs.slice().reverse().map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(r.target)}</td><td>${esc(r.actor)}</td>`+
+      `<td class="${esc(r.status)}">${esc(r.status)}</td><td class="n">${r.passed}</td><td class="n">${r.failed}</td>`+
+      `<td class="n">${num(r.seconds)}</td></tr>`).join(""));
+    set("failures",t.queue.failures.slice().reverse().map(f=>`<tr><td>${esc(f.id)}</td><td>${esc(f.journey)}</td>`+
+      `<td>${esc(f.message)}</td></tr>`).join("")||`<tr><td class="muted">none</td></tr>`);
+    set("proposals",t.queue.proposals.map(p=>`<tr><td>${esc(p.id)}</td><td>${esc(p.summary)}</td></tr>`).join("")||
+      `<tr><td class="muted">none</td></tr>`);
+    set("drafts",t.queue.drafts.map(esc).join(", ")||"none");
+    set("acts",t.activity.map(a=>`<tr><td>${esc(when(a.time))}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td>`+
+      `<td>${detail(a)}</td></tr>`).join(""));
+    set("actors",Object.entries(t.usage.actors).map(([k,u])=>`<tr><td>${esc(k)}</td><td class="n">${u.drafts}</td>`+
+      `<td class="n">${u.journeys_built}</td><td class="n">${u.decided}</td><td class="n">${u.fixed}</td>`+
+      `<td class="n">${num(u.avg_fix_minutes)}</td><td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`).join(""));
+    set("days",Object.entries(t.usage.days).reverse().flatMap(([d,rows])=>Object.entries(rows).map(([k,u])=>
+      `<tr><td>${esc(d)}</td><td>${esc(k)}</td><td class="n">${u.drafts+u.journeys_built}</td><td class="n">${u.solved}</td>`+
+      `<td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`)).join(""));
   }catch(e){}
 }
-tick();setInterval(tick,1000);
+tick();setInterval(tick,2000);
 </script></body></html>"""
 
 _JSON = {"/live.json": ("live.json", {}), "/failures.json": ("failures.json", []),
          "/proposals.json": ("proposals.json", [])}
 
 
-def make_handler(store: Store):
+def make_handler(store: Store, drafts=lambda: []):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
             pass
@@ -63,6 +103,9 @@ def make_handler(store: Store):
                 name, default = _JSON[path]
                 return self._send(200, json.dumps(read_json(store.root / name, default)).encode(),
                                   "application/json")
+            if path == "/tracker.json":
+                from .tracker import summary
+                return self._send(200, json.dumps(summary(store, drafts()), default=str).encode(), "application/json")
             if path == "/history.json":
                 return self._send(200, json.dumps(store.history()).encode(), "application/json")
             self._send(404, b"not found", "text/plain")
@@ -70,8 +113,9 @@ def make_handler(store: Store):
     return Handler
 
 
-def serve(store: Store, port: int = 8765) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store))
+def serve(store: Store, port: int = 8765, drafts=lambda: []) -> ThreadingHTTPServer:
+    """`drafts` names the pack's drafts for the work queue (read again on each request)."""
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, drafts))
 
 
 def watch(store: Store, interval: float = 0.5, stop_after: float | None = None) -> Iterator[dict]:

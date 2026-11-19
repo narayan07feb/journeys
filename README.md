@@ -28,8 +28,11 @@ to Maestro flows, so a team keeps its tools.
   A person (or an agent) promotes or rejects each proposal; nothing changes the pack on its own.
 - **tap-all**: walks the app, taps every option once, and reports crashes, dead ends and new
   screens. `--dka` walks with "don't keep activities" on.
-- **Results**: run history, failures with screenshot and screen listing, flaky marks, a local
-  live page.
+- **Results**: run history, failures with screenshot and screen listing, flaky marks.
+- **Tracker**: a local page (`journeys serve`) with four parts: runs (live step, trend, pass and
+  fail per run), the work queue (open failures, open proposals, drafts), agent activity (who did
+  what: drafts, promotes, decisions, runs, agent tool calls) and agent usage (journeys built and
+  issues solved per person or agent, per day, with the time a fix took).
 - **Agents**: an MCP server. **Droid Lite**: a Tests-tab plugin.
 
 ## Start
@@ -66,7 +69,8 @@ Journeys never picks a device: every real run names one with `--serial`.
 | `proposals [P-n] [--all]` | Open proposals, or one in full. |
 | `promote P-n [--name X]` / `reject P-n --why ...` | Decide a proposal. |
 | `history [--last N]` | Recent results per journey; flaky ones marked. |
-| `serve [--port 8765]` / `watch` | Live page on 127.0.0.1 / live state as JSON lines. |
+| `serve [--port 8765]` / `watch` | Tracker page on 127.0.0.1 / live state as JSON lines. |
+| `tracker [--json]` | The tracker's four parts as text or JSON. |
 | `build` / `install --serial S` | The pack's build and install steps. |
 | `mcp` | MCP tools on stdin and stdout. |
 | `setup [--version vX]` | Install upstream Speedrun. |

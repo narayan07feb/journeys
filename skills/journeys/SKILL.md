@@ -53,3 +53,7 @@ Read `references/format.md` before you write a step. It has the exact format and
   `journeys export maestro <journey> -o flow.yaml` writes a flow for its own `maestro test`.
 - New pack for an app: `journeys --pack <new folder> init --project <app project> --driver <the
   user's answer>`; ask the user first (the project's test framework is a hint, never the answer).
+- The tracker (`journeys tracker`, the `serve` page, the MCP `tracker` tool) counts the journeys you
+  build and the issues you solve under your name: set `JOURNEYS_ACTOR=<your agent name>` when your
+  shell does not set `AI_AGENT`. Read its work queue (open failures, proposals, drafts) to pick
+  what to do next.

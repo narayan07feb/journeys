@@ -43,6 +43,8 @@ TOOLS = {
     "promote": ("Write a proposal into the pack's files. name: a new screen's name.",
                 _schema({"id": _S, "name": _S}, ["id"])),
     "reject": ("Reject a proposal, with the reason.", _schema({"id": _S, "why": _S}, ["id", "why"])),
+    "tracker": ("Runs, the work queue (open failures, proposals, drafts), agent activity and agent usage "
+                "(journeys built, issues solved, per agent and day).", _schema()),
 }
 
 
@@ -146,6 +148,11 @@ class Server:
             raise ValueError(f"no failure {id}")
         return f
 
+    def tracker(self) -> dict:
+        from .tracker import summary
+        pack = self._pack()
+        return summary(self._store(pack), list(pack.drafts))
+
     def proposals(self) -> list:
         return [p for p in self._store().proposals() if p["status"] == "proposed"]
 
@@ -166,6 +173,9 @@ class Server:
         if mid is None:  # a notification: no answer
             return None
         if method == "initialize":
+            client = (params.get("clientInfo") or {}).get("name") if isinstance(params.get("clientInfo"), dict) else None
+            if client and not os.environ.get("JOURNEYS_ACTOR"):  # the tracker counts this agent's work; runs inherit it
+                os.environ["JOURNEYS_ACTOR"] = str(client)[:64]
             result = {"protocolVersion": params.get("protocolVersion") or PROTOCOL,
                       "capabilities": {"tools": {}},
                       "serverInfo": {"name": "journeys", "version": __version__}}
@@ -182,12 +192,20 @@ class Server:
     def _call(self, name: str, args: dict) -> dict:
         if not isinstance(name, str) or name not in TOOLS or not isinstance(args, dict):
             return {"content": [{"type": "text", "text": f"no tool {name}"}], "isError": True}
+        t0, ok = time.monotonic(), False
         try:
             out = getattr(self, name)(**args)
             text = out if isinstance(out, str) else json.dumps(out, indent=1, default=str)
+            ok = True
             return {"content": [{"type": "text", "text": text}]}
         except Exception as e:  # a bad call or a corrupt store is the caller's error, never the server's end
             return {"content": [{"type": "text", "text": f"error: {e}"}], "isError": True}
+        finally:
+            try:  # the tracker's agent activity; never a reason for the tool call to fail
+                self._store().log("mcp.call", tool=name, ok=ok, ms=int((time.monotonic() - t0) * 1000),
+                                  args={k: v for k, v in args.items() if isinstance(v, (str, int, bool))})
+            except Exception:
+                pass
 
 
 def serve_stdio(server: Server, stdin=None, stdout=None) -> None:
