@@ -223,7 +223,7 @@ class Runner:
         argv = [str(self.pack.root / a) if i == 0 and (self.pack.root / a).is_file() else str(a)
                 for i, a in enumerate(argv)]
         try:
-            return subprocess.run(argv + [json.dumps(payload)], cwd=self.pack.root, env=self._env(),
+            return subprocess.run(argv + [json.dumps(payload, default=str)], cwd=self.pack.root, env=self._env(),
                                   capture_output=True, text=True, timeout=300)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise StepFailed(f"{argv[0]}: {e}") from None

@@ -158,7 +158,7 @@ steps:
 
 ### 3.5 Explore / tap-all
 
-`journeys tap-all [--from SCREEN] [--max-screens N] [--dka]`: breadth-first walk. On each screen,
+`journeys tap-all [--max-screens N] [--max-taps N] [--dka]`: breadth-first walk. On each screen,
 tap every element once, record the result, go back. Report: crashes (app process gone, with the
 last logcat lines), dead ends (no way back), new unknown screens (proposed names from their
 heading). `--dka` turns on Android's "don't keep activities" for the run and turns it back off at
@@ -172,7 +172,7 @@ the end (emulator or a device the pack marks as allowed; the tool asks before ch
 - `failures.json`, `proposals.json` with ids `F-<n>`, `P-<n>`.
 - Flaky: per journey, the last 20 results; a journey that both passed and failed on the same
   commit of the app build is marked flaky.
-- `journeys serve` (or `run --live`): a local page on `127.0.0.1` that shows the current step and
+- `journeys serve`: a local page on `127.0.0.1` that shows the current step and
   screen, refreshed from `live.json`.
 
 ### 3.7 Agent access (MCP)
@@ -243,7 +243,7 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M6 | MCP server | JSON-RPC tests over a pipe |
 | M7 | Droid Lite plugin | `list/run/watch` output checked against the spec |
 | M8 | Docs, README, emulator end-to-end with the example pack | owner review |
-| M9 | Driver-generic: one Driver contract, driver per pack (required) + `--driver`, no silent fallback; no own device driver (a uiautomator driver was built, then removed by the owner) | one contract test suite passes on fake, maestro, speedrun (pretend phone) |
+| M9 | Driver-generic: one Driver contract, driver per pack (asked when missing, never guessed) + `--driver`, no silent fallback; no own device driver (a uiautomator driver was built, then removed by the owner) | one contract test suite passes on fake, maestro, speedrun (pretend phone) |
 | M10 | Neutral format: packs use Journeys' own action words and selectors; framework words are errors | validate tests |
 | M11 | Framework detection: `init --project` shows the project's tests as a hint; the driver is always the user's answer (owner, 19 Nov: never assume one; init and device commands ask); doctor shows it | tests on sample projects; a pack without `driver:` asks, never guesses |
 | M12 | Maestro import (flows to drafts) and export (journey to flow) | round-trip tests |

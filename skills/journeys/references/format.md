@@ -163,7 +163,7 @@ disabled. Selectors match `text` and `id` as on a device.
 | `journeys --pack P promote-journey NAME` | Draft to `journeys/`. |
 | `journeys --pack P import maestro FLOWS...` | Maestro flows to drafts (what has no neutral word is listed). |
 | `journeys --pack P export maestro NAME [-o F]` | A journey as a Maestro flow. |
-| `journeys --pack NEW init --project APP [--app ID]` | A new pack; the driver follows the project's framework. |
+| `journeys --pack NEW init --project APP [--app ID]` | A new pack; asks which driver the team uses (`--driver D` answers; the project's framework is a hint only). |
 | `journeys --pack P look --serial S` | The screen on the device now (kind, "text", #id per element) and its map screen. |
 | `journeys --pack P doctor` | Tools, drivers and devices. |
 
@@ -193,7 +193,7 @@ ways. Goal: "Display shows the Dark theme option".
    text. Use exact text only for an element that shows just that text (a button, a title).
 3. `journeys --pack examples/settings-pack validate` prints `OK pack settings-demo: ... 1 drafts ...`.
 4. `journeys --pack examples/settings-pack run dark-theme-shown --draft --driver fake` passes on the
-   pack's fake app; on a device: `--serial <serial>` with the pack's driver.
+   pack's fake app; on a device: `--serial <serial> --driver <your team's tool>` (the example pack names no driver).
 5. `journeys --pack examples/settings-pack promote-journey dark-theme-shown`.
 
 Common FAILs and fixes:

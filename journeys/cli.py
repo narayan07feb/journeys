@@ -343,6 +343,7 @@ def cmd_init(args) -> int:
     dest = Path(args.pack).expanduser()
     project = Path(args.project).expanduser() if args.project else None
     try:
+        args.driver = args.driver or os.environ.get("JOURNEYS_DRIVER")
         if not args.driver:
             from .detect import pick, scan
             hint = pick(scan(project)[0])[1] if project else "no --project given"

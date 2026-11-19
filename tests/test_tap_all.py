@@ -323,3 +323,24 @@ def test_stop_and_telephony_words_are_never_tapped():
     from journeys.pack import DEFAULT_DENY
     for text in ("Stop", "Unregister", "Deauthorize", "Dial", "SOS", "Refund", "Abort", "Kill app", "Delink"):
         assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_a_confirm_button_next_to_denied_words_is_never_tapped(t):
+    """'Delete all your data?' [Yes] [No]: the Yes does what the text says."""
+    app, driver, store, walk = t
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "Options", "to": "ASK"})
+    app["screens"]["ASK"] = {"elements": [
+        {"kind": "Text", "text": "Delete all your data?"},
+        {"kind": "Button", "text": "Yes", "to": "WIPED"}, {"kind": "Button", "text": "OK", "to": "WIPED"},
+        {"kind": "Button", "text": "No"}]}
+    app["screens"]["WIPED"] = {"elements": [{"kind": "Text", "text": "Wiped"}]}
+    rep, run = walk()
+    assert not any(n.startswith("NEW:WIPED") for n in rep.new_screens)
+    assert any(n.startswith("NEW:DELETE-ALL") for n in rep.new_screens)  # the dialog itself was reached
+
+
+def test_unlink_with_a_dash_and_private_dns_are_denied():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Un-link account", "Private DNS"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text

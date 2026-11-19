@@ -83,8 +83,6 @@ def cmd_run(pack: Pack, case_id: str) -> int:
     store = state_store(pack)
     driver = make_driver(kind, pack, _Args(), store)
     driver.start(pack.app, serial)  # a refused start leaves no empty run behind
-    run = store.new_run(pack=pack.name, target=target, driver=kind, serial=serial)
-    emit(log=f"run {run.id} on {serial or 'fake'}")
     files = {j.name: j for j in pack.journeys.values()}
 
     def update(o: JourneyOutcome) -> None:
@@ -101,6 +99,8 @@ def cmd_run(pack: Pack, case_id: str) -> int:
              file=line.get("file") or str(j.file), line=line.get("line") or j.line)
 
     try:
+        run = store.new_run(pack=pack.name, target=target, driver=kind, serial=serial)
+        emit(log=f"run {run.id} on {serial or 'fake'}")
         outs = Runner(pack, driver, store, run, serial=serial, on_update=update).run_all(journeys)
     finally:
         driver.stop()

@@ -90,6 +90,8 @@ def denied(el, deny: list) -> bool:
 
 
 _ZW = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")  # zero-width characters and soft hyphens
+_CONFIRM = re.compile(r"(?i)^\W*(yes|ok(ay)?|confirm|continue|accept|agree|allow|proceed|go_ahead|i_understand|sure|"
+                      r"do_it)\b".replace("_", r"[\s\-\u2010-\u2015]"))
 
 
 def tap_targets(screen: Screen, deny: list, limit: int) -> list:
@@ -97,6 +99,8 @@ def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     element (often a container) is never tapped: its centre may sit over a denied button, and the
     deny list reads labels."""
     no = [e for e in screen.elements if denied(e, deny)]
+    if no:  # "Delete all your data?" [Yes] [No]: a confirm button is as dangerous as the denied words near it
+        no += [e for e in screen.elements if _CONFIRM.search(_ZW.sub("", e.text))]
     texts, ids = {e.text for e in no}, {e.id for e in no if e.id}
     # an element that shares its text or id with a denied one is skipped too: its selector needs an
     # index, and a driver may count matches in another order than this listing

@@ -135,3 +135,17 @@ def test_an_unwritable_state_folder_is_a_clear_error(pack_dir, tmp_path, capsys)
     blocker.write_text("")
     assert main(["--pack", str(pack_dir), "--state", str(blocker / "s"), "run", "smoke", "--driver", "fake"]) == 2
     assert "error:" in capsys.readouterr().err
+
+
+def test_hook_args_with_a_date_do_not_crash(pack_dir, tmp_path):
+    j = pack_dir / "journeys" / "about.yaml"
+    j.write_text(j.read_text().replace("args: {saw: android-version}", "args: {day: 2024-01-01}"))
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "android-version",
+                 "--driver", "fake"]) == 0
+
+
+def test_init_takes_journeys_driver_as_the_answer(tmp_path, monkeypatch):
+    from journeys.pack import Pack
+    monkeypatch.setenv("JOURNEYS_DRIVER", "speedrun")
+    assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.x.y"]) == 0
+    assert Pack.load(tmp_path / "p").driver == "speedrun"
