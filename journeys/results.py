@@ -78,6 +78,17 @@ def read_json(path: Path, default):
         return default
 
 
+def _cap(obj, n: int = 500):
+    """Long text cut short, at any depth (after masking, so a cut never shows part of a secret)."""
+    if isinstance(obj, str):
+        return obj if len(obj) <= n else obj[:n] + "…"
+    if isinstance(obj, dict):
+        return {k: _cap(v, n) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_cap(v, n) for v in obj]
+    return obj
+
+
 class Run:
     def __init__(self, store: "Store", run_id: str, data: dict):
         self.store, self.id, self.data = store, run_id, data
@@ -149,8 +160,7 @@ class Store:
         """Never fails the command that did the work: a log that cannot be written is skipped."""
         if "args" in detail:  # a caller's values: no field is Journeys' own there
             detail["args"] = mask(detail["args"], plain=False)
-        detail = {k: v[:500] if isinstance(v, str) else v for k, v in detail.items()}  # a long reason stays short
-        line = mask({"time": time.time(), "actor": current_actor(), "action": action, **detail})
+        line = _cap(mask({"time": time.time(), "actor": current_actor(), "action": action, **detail}))
         try:
             with open(self.root / "activity.jsonl", "a") as f:
                 f.write(json.dumps(line, default=str) + "\n")
@@ -159,7 +169,7 @@ class Store:
 
     def activity(self) -> list[dict]:
         try:
-            lines = (self.root / "activity.jsonl").read_text().splitlines()
+            lines = (self.root / "activity.jsonl").read_text(errors="replace").splitlines()
         except FileNotFoundError:
             return []
         out = []

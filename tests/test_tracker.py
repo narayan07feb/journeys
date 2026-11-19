@@ -187,3 +187,64 @@ def test_cli_and_mcp_mask_what_they_log(pack_dir, tmp_path, monkeypatch):
     for f in (tmp_path / "s" / "activity.jsonl", tmp_path / "s" / "proposals.json", pack_dir / "s" / "activity.jsonl"):
         assert "hunter2" not in f.read_text(), f
     set_secrets([])
+
+
+def test_round_2_counts(pack_dir, monkeypatch, capsys):
+    from journeys.tracker import summary
+    monkeypatch.setenv("JOURNEYS_ACTOR", "a")
+    store = Store(pack_dir / "s")
+    store.log("draft.new", journey="j")
+    store.log("journey.promote", journey="j")
+    for i in range(80):
+        store.add_failure({"journey": "open-display", "message": f"m{i}"})
+    store.add_failure({"journey": "tap-all", "message": "the app crashed"})
+    pid1 = store.add_proposal({"summary": "a", "failure": "F-1", "change": {}})
+    pid2 = store.add_proposal({"summary": "b", "failure": "F-1", "change": {}})
+    for pid in (pid1, pid2):
+        store.update_proposal(pid, status="promoted")
+        store.log("proposal.promote", id=pid, failure="F-1")
+    t = summary(store, [])
+    u = t["usage"]["actors"]["a"]
+    assert (u["drafts"], u["journeys_built"], u["solved"]) == (1, 1, 1)  # two promotes, one issue
+    q = t["queue"]
+    assert len(q["failures"]) == 50 and q["failures_open"] == 80  # F-1 healed; 79 + the tap-all crash
+    assert cli(pack_dir, "tracker") == 0 and "80 open failures" in capsys.readouterr().out
+    tappable = pack_dir / "pack.yaml"
+    tappable.write_text(tappable.read_text().replace("allowed: false", "allowed: true"))
+    assert cli(pack_dir, "tap-all", "--driver", "fake") == 0  # a clean walk closes the old crash
+    capsys.readouterr()
+    assert summary(store, [])["queue"]["failures_open"] == 79
+
+
+def test_a_reject_earns_no_fix_credit(pack_dir, monkeypatch):
+    from journeys.heal import reject
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    store.add_failure({"journey": "open-display", "message": "x"})
+    pid = store.add_proposal({"summary": "a", "failure": "F-1", "journey": "open-display", "change": {}})
+    monkeypatch.setenv("JOURNEYS_ACTOR", "rejecter")
+    reject(store, pid, "no")
+    monkeypatch.setenv("JOURNEYS_ACTOR", "hand-healer")
+    assert cli(pack_dir, "run", "open-display", "--driver", "fake") == 0
+    u = summary(store, [])["usage"]["actors"]
+    assert u["rejecter"]["fixed"] == 0 and u["hand-healer"]["fixed"] == 1
+
+
+def test_bad_bytes_odd_ids_and_impossible_times(pack_dir, monkeypatch):
+    from journeys.results import set_secrets
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    (pack_dir / "s" / "activity.jsonl").write_bytes(b'\xff\xfe\n{"time": 1e30, "action": "draft.new", "actor": "a"}\n'
+                                                     b'{"time": NaN, "action": "mcp.call", "actor": "a", "failure": ["x"]}\n')
+    (pack_dir / "s" / "failures.json").write_text(json.dumps([{"id": ["a"], "journey": "x"}, {"id": "F-2", "journey": "x"}]))
+    (pack_dir / "s" / "proposals.json").write_text(json.dumps([{"id": "P-1", "status": "promoted", "failure": {"a": 1}}]))
+    t = summary(store, [])
+    assert t["usage"]["actors"]["a"]["drafts"] == 1 and [f["id"] for f in t["queue"]["failures"]] == ["F-2"]
+    monkeypatch.setenv("JOURNEYS_ACTOR", "a")
+    set_secrets(["hunter2-SECRET"])
+    try:
+        store.log("proposal.reject", why="x" * 490 + "hunter2-SECRET", args={"why": "y" * 5000})
+    finally:
+        set_secrets([])
+    last = store.activity()[-1]
+    assert "hunter2" not in json.dumps(last) and len(last["args"]["why"]) <= 501

@@ -5,6 +5,7 @@ and skips any record of the wrong shape (a hand-edited or half-written file neve
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 
@@ -15,7 +16,9 @@ DECIDE = {"proposal.promote", "proposal.reject"}
 
 
 def _t(v) -> float:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+    """A time from a state file, or 0: never NaN, infinity or a date the clock cannot show."""
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 < v < 1e11
+    return float(v) if ok else 0.0
 
 
 def _s(v) -> str:
@@ -36,7 +39,15 @@ class State:
     @classmethod
     def read(cls, store: Store) -> "State":
         acts = [a for a in store.activity() if isinstance(a.get("action"), str)]
-        return cls(store.runs(), store.failures(), store.proposals(), acts)
+        for a in acts:  # ids other code looks up by: text only
+            for k in ("failure", "journey", "id"):
+                if k in a and not isinstance(a[k], str):
+                    a[k] = None
+        props = [p for p in store.proposals() if isinstance(p["id"], str)]
+        for p in props:
+            if not isinstance(p.get("failure"), str):
+                p["failure"] = None
+        return cls(store.runs(), [f for f in store.failures() if isinstance(f["id"], str)], props, acts)
 
 
 def _journeys(run: dict) -> list[dict]:
@@ -59,24 +70,26 @@ def runs(st: State, last: int = 30) -> list[dict]:
 
 def fixes(st: State) -> dict[str, dict]:
     """Per failure id: when its journey next passed, and who fixed it. Best effort: the fix goes to
-    whoever last decided this failure's proposal or promoted that journey between the failure and
-    the pass, else to whoever ran the passing run."""
+    whoever last promoted this failure's proposal or that journey between the failure and the pass,
+    else to whoever ran the passing run. A tap-all crash is fixed by a later clean tap-all."""
     passes: dict[str, list[tuple[float, str]]] = {}
     for r in st.runs:
         when = _t(r.get("ended")) or _t(r.get("started"))
+        if r.get("target") == "tap-all" and r.get("status") == "passed":  # a clean walk closes its crashes
+            passes.setdefault("tap-all", []).append((when, _s(r.get("actor"))))
         for j in _journeys(r):
             if j.get("status") == "passed" and isinstance(j.get("name"), str):
                 passes.setdefault(j["name"], []).append((when, _s(r.get("actor"))))
-    work: dict[str, list[dict]] = {}  # failure id or journey name -> decisions and promotes, by time
+    work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
-        if a["action"] in DECIDE | {"journey.promote"}:
+        if a["action"] in ("proposal.promote", "journey.promote"):
             for key in (a.get("failure"), a.get("journey")):
                 if isinstance(key, str):
                     work.setdefault(key, []).append(a)
     out = {}
     for f in st.failures:
-        if f.get("journey") == "tap-all" or not isinstance(f.get("journey"), str):
-            continue  # a tap-all crash has no journey to pass again
+        if not isinstance(f.get("journey"), str):
+            continue
         t = _t(f.get("time"))
         later = sorted(p for p in passes.get(f["journey"], []) if p[0] > t)
         if not later:
@@ -93,9 +106,10 @@ def queue(st: State, drafts: list[str], fixed: dict) -> dict:
     """Open work. A failure stays open until its journey passes again or its proposal is promoted:
     a rejected proposal means "not this heal", so the failure still needs one by hand."""
     healed = {p.get("failure") for p in st.proposals if p.get("status") == "promoted"}
+    open_ = [{k: f.get(k) for k in ("id", "journey", "message", "time")} for f in st.failures
+             if f["id"] not in fixed and f["id"] not in healed]
     return {
-        "failures": [{k: f.get(k) for k in ("id", "journey", "message", "time")} for f in st.failures
-                     if f["id"] not in fixed and f["id"] not in healed][-50:],
+        "failures": open_[-50:], "failures_open": len(open_),  # the list is the newest 50; the count is all
         "proposals": [{k: p.get(k) for k in ("id", "summary", "time", "failure")} for p in st.proposals
                       if p.get("status") == "proposed"],
         "drafts": sorted(drafts),
@@ -124,6 +138,7 @@ def usage(st: State, fixed: dict) -> dict:
                 "tool_calls": 0, "fix_minutes": []}
     per: dict[str, dict] = {}
     days: dict[str, dict[str, dict]] = {}
+    healed_once: set[str] = set()
 
     def add(actor: str, t: float, key: str, n=1) -> None:
         rows = [per.setdefault(actor, blank())]
@@ -143,8 +158,11 @@ def usage(st: State, fixed: dict) -> dict:
             add(who, t, "journeys_built")
         elif act in DECIDE:
             add(who, t, "decided")
-            if act == "proposal.promote" and a.get("failure") not in fixed:
+            f = a.get("failure")
+            if act == "proposal.promote" and f not in fixed and (f is None or f not in healed_once):
                 add(who, t, "healed")  # solved by the promote itself: no later pass counts it again
+                if f:
+                    healed_once.add(f)  # a second proposal for the same failure is not a second issue
         elif act == "mcp.call":
             add(who, t, "tool_calls")
     for r in st.runs:

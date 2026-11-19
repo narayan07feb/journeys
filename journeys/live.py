@@ -30,7 +30,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 <div class="wrap"><table><thead><tr><th>Run</th><th>Target</th><th>By</th><th>Status</th><th class="n">Passed</th>
 <th class="n">Failed</th><th class="n">Seconds</th></tr></thead><tbody id="runrows"></tbody></table></div>
 <h2 id="queue">Work queue</h2>
-<h3>Open failures</h3><div class="wrap"><table><tbody id="failures"></tbody></table></div>
+<h3>Open failures <span id="fcount" class="muted"></span></h3><div class="wrap"><table><tbody id="failures"></tbody></table></div>
 <h3>Open proposals</h3><div class="wrap"><table><tbody id="proposals"></tbody></table></div>
 <h3>Drafts waiting for promote-journey</h3><div id="drafts" class="muted"></div>
 <h2 id="activity">Agent activity</h2>
@@ -42,7 +42,7 @@ not already counted there. Decided: promotes and rejects. Who fixed a failure is
 <div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
 <th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Solved</th><th class="n">Avg fix (min)</th>
 <th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
-<h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Built</th>
+<h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Drafts</th><th class="n">Built</th>
 <th class="n">Solved</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="days"></tbody></table></div>
 <script>
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -57,6 +57,8 @@ async function tick(){
     if(l.run) set("live",`<b>${esc(l.journey)}</b> <span class="${esc(l.status)}">${esc(l.status)}</span> · ${esc(l.step)}`+
       ` · ${esc(l.text)} <span class="muted">· run ${esc(l.run)}</span>`+(l.message?` <span class="failed">${esc(l.message)}</span>`:""));
     const t=await (await fetch("tracker.json")).json();
+    if(t.error){set("live",`<span class="failed">tracker: ${esc(t.error)}</span>`);return}
+    set("fcount",t.queue.failures_open>t.queue.failures.length?`(newest ${t.queue.failures.length} of ${t.queue.failures_open})`:"");
     set("trend",t.runs.map(r=>{const n=r.passed+r.failed,h=n?Math.max(4,36*r.passed/n):4;
       return `<span class="${esc(r.status)}" style="height:${h}px" title="${esc(r.id)}: ${r.passed}/${n}"></span>`}).join(""));
     set("runrows",t.runs.slice().reverse().map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(r.target)}</td><td>${esc(r.actor)}</td>`+
@@ -73,7 +75,7 @@ async function tick(){
       `<td class="n">${u.journeys_built}</td><td class="n">${u.decided}</td><td class="n">${u.fixed}</td><td class="n">${u.solved}</td>`+
       `<td class="n">${num(u.avg_fix_minutes)}</td><td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`).join(""));
     set("days",Object.entries(t.usage.days).reverse().flatMap(([d,rows])=>Object.entries(rows).map(([k,u])=>
-      `<tr><td>${esc(d)}</td><td>${esc(k)}</td><td class="n">${u.drafts+u.journeys_built}</td><td class="n">${u.solved}</td>`+
+      `<tr><td>${esc(d)}</td><td>${esc(k)}</td><td class="n">${u.drafts}</td><td class="n">${u.journeys_built}</td><td class="n">${u.solved}</td>`+
       `<td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`)).join(""));
   }catch(e){}
 }

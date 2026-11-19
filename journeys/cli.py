@@ -322,7 +322,7 @@ def cmd_tracker(args) -> int:
         return 0
     print(f"runs: {len(t['runs'])} recent, {sum(r['status'] == 'passed' for r in t['runs'])} passed")
     q = t["queue"]
-    print(f"work queue: {len(q['failures'])} open failures, {len(q['proposals'])} open proposals, "
+    print(f"work queue: {q['failures_open']} open failures, {len(q['proposals'])} open proposals, "
           f"{len(q['drafts'])} drafts")
     print("agent usage (drafts / journeys built / proposals decided / failures fixed / runs / tool calls):")
     for who, u in t["usage"]["actors"].items():
