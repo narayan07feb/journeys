@@ -61,3 +61,15 @@ def test_run_that_cannot_start_reports_it(pack_dir, tmp_path):
     started = srv.start_run("smoke", driver="fake")  # the target exists; the child refuses the broken pack
     st = srv.wait_run(started["run_id"], timeout_s=30)
     assert st["status"] == "failed to start" and "unknown screen NOPE" in st["log"]
+
+
+def test_start_run_asks_for_a_driver_the_pack_does_not_name(pack_dir, tmp_path):
+    """Owner, 19 Nov: never assume a driver; the agent asks the user and passes the answer."""
+    import pytest
+    from journeys.mcp_server import Server
+    f = pack_dir / "pack.yaml"
+    f.write_text("\n".join(ln for ln in f.read_text().splitlines() if not ln.startswith("driver:")) + "\n")
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    with pytest.raises(ValueError, match="ask the user which tool"):
+        srv.start_run("smoke", serial="emulator-5554")
+    assert not (tmp_path / "s").exists()

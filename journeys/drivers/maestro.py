@@ -80,7 +80,10 @@ class MaestroDriver(AdbDriver):
         m = re.search(r"\{.*\}", p.stdout, re.S)  # skip any banner lines before the JSON
         if p.returncode != 0 or not m:
             raise DriverError(f"maestro hierarchy failed: {(p.stderr or p.stdout).strip()[-300:]}")
-        return parse_hierarchy(json.loads(m.group(0)))
+        try:
+            return parse_hierarchy(json.loads(m.group(0)))
+        except (ValueError, AttributeError, TypeError, KeyError) as e:
+            raise DriverError(f"maestro hierarchy: unreadable output ({e})") from None
 
     def do(self, commands: list) -> CommandResult:
         flow = f"appId: {self.app}\n---\n" + yaml.safe_dump([to_maestro(c) for c in commands], sort_keys=False,

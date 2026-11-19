@@ -1,4 +1,4 @@
-"""Which UI test framework a project already uses, so a new pack picks the same one.
+"""Which UI test framework a project already uses: a hint when init asks the team for its driver.
 
 Read-only: it looks at file names and build files under the project, nothing else.
 """
@@ -76,8 +76,8 @@ def scan(project: Path, strict: bool = False) -> tuple[list[Found], str | None]:
 
 
 def pick(found: list[Found]) -> tuple[str | None, str]:
-    """The driver for a new pack, and why; None when the project's framework has no Journeys
-    driver yet (then the team names one with --driver)."""
+    """The driver the project's tests suggest, and why: a hint for the user's answer, never the
+    choice (init and every device command ask the user)."""
     for f in found:
         if f.framework in DRIVERS:
             return f.framework, f"{f.reason} shows the project uses {f.framework}"
@@ -95,13 +95,11 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
     if there:
         raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
     found, app_id = scan(project, strict=not app) if project else ([], None)
-    detected, why = pick(found)
-    if driver:
-        why = why if detected == driver else f"chosen with --driver ({why})" if project else "chosen with --driver"
-    driver = driver or detected
-    if driver not in DRIVERS:
-        raise ValueError(f"{why}: pass --driver {' | '.join(d for d in DRIVERS if d != 'fake')}"
-                         if driver is None else f"driver {driver} is not one of {', '.join(DRIVERS)}")
+    if driver not in DRIVERS:  # the team's answer only: the project's tests are a hint, never the choice
+        raise ValueError(f"which tool does your team use to drive the device? ask the team, then pass --driver "
+                         f"{' | '.join(d for d in DRIVERS if d != 'fake')} (hint: {pick(found)[1]})"
+                         if not driver else f"driver {driver} is not one of {', '.join(DRIVERS)}")
+    why = "the team's choice" + (f" (project hint: {pick(found)[1]})" if project else "")
     app = app or app_id
     if not app:
         raise ValueError("no app id: pass --app <package>" + (" (none found in the project's Gradle files)"

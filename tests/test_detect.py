@@ -32,14 +32,29 @@ def test_frameworks_without_a_driver_need_an_explicit_driver(tmp_path):
     from journeys.detect import init_pack
     with pytest.raises(ValueError, match="pass --driver maestro | speedrun"):
         init_pack(tmp_path / "p", proj, "p", None)
-    assert "chosen with --driver" in init_pack(tmp_path / "p", proj, "p", None, "maestro")[1]
+    assert "the team's choice" in init_pack(tmp_path / "p", proj, "p", None, "maestro")[1]
+
+
+def test_init_asks_for_the_driver_and_never_takes_the_projects(tmp_path, capsys, monkeypatch):
+    """Owner, 19 Nov: Journeys never assumes a driver; the project's tests are only a hint."""
+    proj = _project(tmp_path, {"flows/home.yml": "appId: com.shop\n---\n- tapOn: Buy\n",
+                               "app/build.gradle": "applicationId \"com.shop\""})
+    dest = tmp_path / "shop-pack"
+    assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 2  # no terminal: no answer, no pack
+    err = capsys.readouterr().err
+    assert "Which tool does your team use" in err and "flows/home.yml" in err and not dest.exists()
+    answers = iter(["appium", "speedrun"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 0
+    assert Pack.load(dest).driver == "speedrun"  # the answer, not the project's maestro
 
 
 def test_init_writes_a_valid_empty_pack(tmp_path, capsys):
     proj = _project(tmp_path, {"flows/home.yml": "appId: com.shop\n---\n- tapOn: Buy\n",
                                "app/build.gradle": "applicationId \"com.shop\""})
     dest = tmp_path / "shop-pack"
-    assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 0
+    assert main(["--pack", str(dest), "init", "--project", str(proj), "--driver", "maestro"]) == 0
     pack = Pack.load(dest)
     assert (pack.app, pack.driver, pack.errors, pack.project) == ("com.shop", "maestro", [], proj.resolve())
     assert "flows/home.yml" in capsys.readouterr().out

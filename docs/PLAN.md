@@ -245,7 +245,7 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M8 | Docs, README, emulator end-to-end with the example pack | owner review |
 | M9 | Driver-generic: one Driver contract, driver per pack (required) + `--driver`, no silent fallback; no own device driver (a uiautomator driver was built, then removed by the owner) | one contract test suite passes on fake, maestro, speedrun (pretend phone) |
 | M10 | Neutral format: packs use Journeys' own action words and selectors; framework words are errors | validate tests |
-| M11 | Framework detection: `init --project` picks the driver from the project's tests; doctor shows it | tests on sample projects |
+| M11 | Framework detection: `init --project` shows the project's tests as a hint; the driver is always the user's answer (owner, 19 Nov: never assume one; init and device commands ask); doctor shows it | tests on sample projects; a pack without `driver:` asks, never guesses |
 | M12 | Maestro import (flows to drafts) and export (journey to flow) | round-trip tests |
 | M13 | Drafts (`new`, `validate`, `run --draft`, `promote-journey`) and the skill (`skills/journeys/`) | a fresh agent writes a valid journey from the skill alone |
 | M14 | Device check with the team's driver on a real phone | owner-approved device |

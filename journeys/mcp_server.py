@@ -29,7 +29,7 @@ TOOLS = {
     "doctor": ("Check the pack (screens, edges, journeys) and list its errors.", _schema()),
     "list_journeys": ("List the pack's sets and journeys.", _schema()),
     "start_run": ("Start a run of a journey, a set, or `all` on one device; returns its run id at once. "
-                  "driver: maestro, speedrun or fake (default: the pack's). A real driver needs serial.",
+                  "driver: maestro, speedrun or fake (default: the pack's; when the pack has none, ask the user). A real driver needs serial.",
                   _schema({"target": _S, "serial": _S, "driver": _S}, ["target"])),
     "run_status": ("Status of a run: per journey passed/failed, failure ids and proposals.",
                    _schema({"run_id": _S}, ["run_id"])),
@@ -74,6 +74,9 @@ class Server:
     def start_run(self, target: str, serial: str | None = None, driver: str | None = None) -> dict:
         pack = self._pack()
         pack.select(target)  # raises for an unknown target before anything starts
+        if not (driver or pack.driver):
+            raise ValueError(f"pack {pack.name} has no driver: ask the user which tool their team uses "
+                             "(maestro or speedrun) and pass it as driver; never pick one yourself")
         if (driver or pack.driver) != "fake" and not serial:
             raise ValueError("serial is required: Journeys never picks a device by itself")
         store = self._store(pack)

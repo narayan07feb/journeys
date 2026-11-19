@@ -7,13 +7,14 @@ screen before it) and screens the map does not know yet.
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass, field
 
 from .actions import from_command, from_commands
 from .drivers.base import Driver, DriverError, Screen, changes_allowed
 from .heal import fingerprint, heading, left_app, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
-from .results import Run, Store
+from .results import Run, Store, mask
 
 DKA = "always_finish_activities"
 
@@ -53,7 +54,7 @@ class TapAll:
             if not f.known and (same_screen(f.screen, screen) or (head and heading(f.screen) == head)):
                 return f.key, False
         digest = hashlib.sha1(repr(sorted(fingerprint(screen))).encode()).hexdigest()[:4]
-        return f"NEW:{screen_name(heading(screen))}:{digest}", False
+        return f"NEW:{screen_name(mask(heading(screen)))}:{digest}", False  # never an upper-cased secret
 
     def _seen(self, key: str) -> Found | None:
         return next((f for f in self.found if f.key == key), None)
@@ -63,26 +64,26 @@ class TapAll:
         return res.ok and self.driver.app_alive() and self._key(self.driver.look())[0] == f.key
 
     def walk(self) -> TapAllReport:
-        res = self.driver.do(["stopApp", "launchApp"])
-        if not res.ok:  # an app that does not start is not a clean walk
-            self.run.data.update(status="failed", error=res.message)
-            self.run.save()
-            raise DriverError(f"tap-all: the app did not start: {res.message}")
-        i = 0
+        """Any stop (a lost link, Ctrl-C, a bug) ends the run as failed with what was walked so far."""
         try:
+            res = self.driver.do(["stopApp", "launchApp"])
+            if not res.ok:  # an app that does not start is not a clean walk
+                raise DriverError(f"tap-all: the app did not start: {res.message}")
             first = self.driver.look()
             key, known = self._key(first)
             self.found.append(Found(key, first, [], known))
+            i = 0
             while i < len(self.found) and i < self.max_screens:
                 self._visit(self.found[i])
                 i += 1
-        except DriverError as e:  # a lost link: keep what was walked, end the run as failed
-            self.run.data.update(status="failed", error=str(e), tap_all=self.report.__dict__)
+        except BaseException as e:
+            self.run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__,
+                                 tap_all=self.report.__dict__)
             self.run.save()
             raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
         clean = not (self.report.crashes or self.report.unreachable)  # a screen it could not reach again is not clean
-        self.run.data.update(status="passed" if clean else "failed", tap_all=self.report.__dict__)
+        self.run.data.update(status="passed" if clean else "failed", ended=time.time(), tap_all=self.report.__dict__)
         self.run.save()
         return self.report
 
@@ -151,13 +152,23 @@ def tap_all(pack: Pack, driver: Driver, store: Store, run: Run, *, serial: str |
     if not pack.tap_allowed:
         raise DriverError(f"pack {pack.name} sets tap_all.allowed: false (tapping everything is not safe in this app)")
     old = None
-    if dka:
-        if not dka_allowed(pack, driver, serial):
-            raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
-                              "does not allow it on this device")
-        old = driver.global_setting(DKA, "1")
+    try:
+        if dka:
+            if not dka_allowed(pack, driver, serial):
+                raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
+                                  "does not allow it on this device")
+            old = driver.global_setting(DKA, "1")
+    except BaseException as e:
+        run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
+        run.save()
+        raise
     try:
         return TapAll(pack, driver, store, run, **limits).walk()
     finally:
         if dka:
-            driver.global_setting(DKA, "0" if old in (None, "", "null") else old)
+            back = "0" if old in (None, "", "null") else old
+            try:
+                driver.global_setting(DKA, back)
+            except DriverError as e:  # never hides the walk's own error; the run says what to put back
+                run.data["dka_restore_error"] = f"{e}: set {DKA} back to {back} by hand"
+                run.save()

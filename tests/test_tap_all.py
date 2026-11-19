@@ -234,3 +234,51 @@ def test_a_lost_link_mid_walk_ends_the_run_as_failed(t):
         walk()
     (run,) = store.runs()
     assert run["status"] == "failed" and "link lost" in run["error"]
+
+
+def test_any_stop_ends_the_run_failed_with_an_end_time(t):
+    app, driver, store, walk = t
+    real = driver._one
+    driver._one = lambda cmd: (_ for _ in ()).throw(KeyboardInterrupt()) if isinstance(cmd, dict) else real(cmd)
+    with pytest.raises(KeyboardInterrupt):
+        walk()
+    driver._one = real
+    driver.do = lambda cmds: type("R", (), {"ok": False, "message": "did not start"})()
+    with pytest.raises(DriverError):
+        walk()
+    runs = store.runs()
+    assert [r["status"] for r in runs] == ["failed", "failed"] and all(r.get("ended") for r in runs)
+    assert {"KeyboardInterrupt"} <= {r["error"] for r in runs}
+
+
+def test_dka_setup_and_restore_failures_are_on_the_run(t):
+    app, driver, store, walk = t
+    real = driver.global_setting
+    driver.global_setting = lambda *a: (_ for _ in ()).throw(DriverError("adb gone"))
+    with pytest.raises(DriverError):
+        walk(dka=True)
+    calls = []
+
+    def restore_fails(name, value=None):
+        calls.append(value)
+        if len(calls) > 1:
+            raise DriverError("adb gone")
+        return real(name, value)
+    driver.global_setting = restore_fails
+    rep, run = walk(dka=True)
+    (first,) = [r for r in store.runs() if r["id"] != run.id]
+    assert first["status"] == "failed" and first["ended"] and "adb gone" in first["error"]
+    assert "set always_finish_activities back to 0 by hand" in store.run(run.id)["dka_restore_error"]
+
+
+def test_a_new_screen_key_never_shows_a_secret(t):
+    from journeys.results import set_secrets
+    app, driver, store, walk = t
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "Account", "to": "ACCT"})
+    app["screens"]["ACCT"] = {"elements": [{"kind": "Text", "text": "hello hunter2"}]}
+    set_secrets(["hunter2"])
+    try:
+        rep, run = walk()
+    finally:
+        set_secrets([])
+    assert rep.new_screens and not any("HUNTER2" in n.upper() for n in rep.new_screens)

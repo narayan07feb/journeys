@@ -150,9 +150,8 @@ class Pack:
                 p.deny.append(Rule.parse(r))
             except (ValueError, re.error) as e:
                 p.errors.append(f"{pf}: tap_all.deny: {e}")
-        if p.driver not in DRIVERS:
-            p.errors.append(f"{pf}: driver is required: the team's tool, one of {', '.join(DRIVERS)}"
-                            + (f", not {p.driver}" if p.driver else ""))
+        if p.driver and p.driver not in DRIVERS:  # a missing one is asked for, never guessed (cli.ask_driver)
+            p.errors.append(f"{pf}: driver is the team's tool, one of {', '.join(DRIVERS)}, not {p.driver}")
         p.map = AppMap.load(root / "map")
         p.errors += p.map.errors
         for folder, into in (("journeys", p.journeys), ("drafts", p.drafts)):

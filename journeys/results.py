@@ -27,7 +27,7 @@ def set_secrets(values) -> None:
 # Fields Journeys itself fills with words it reads back (status, ids, names): a secret like "pass"
 # must not turn "passed" into "•••ed". Typed values never land in them.
 _PLAIN = {"status", "kind", "id", "failure", "failures", "changes", "proposal", "run", "target", "driver",
-          "serial", "pack", "journey", "file", "line", "index", "started", "ended", "dka", "result"}
+          "serial", "pack", "journey", "file", "line", "index", "started", "ended", "dka"}
 
 
 def mask(obj):

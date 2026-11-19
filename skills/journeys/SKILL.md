@@ -9,6 +9,9 @@ Journeys tests an Android app by walking a map of its screens. A pack (a folder)
 the journeys. The format is neutral: no step names a test framework. The pack's `driver` (or
 `--driver`) is the team's own tool that drives the device: `maestro` or `speedrun` (`fake` runs
 without a device). Every step below works the same with any driver; nothing here needs Speedrun.
+Never pick a driver for the user, not even from the project's tests: when the pack has no `driver:`,
+ask the user which tool their team uses and pass the answer as `--driver` (or `driver` on
+`start_run`); the commands ask the same question and stop rather than guess.
 
 Read `references/format.md` before you write a step. It has the exact format and a worked example.
 
@@ -48,5 +51,5 @@ Read `references/format.md` before you write a step. It has the exact format and
 - One journey per draft file. Names are lowercase words with dashes.
 - A team that uses Maestro: `journeys import maestro <flows>` makes drafts from its flows;
   `journeys export maestro <journey> -o flow.yaml` writes a flow for its own `maestro test`.
-- New pack for an app: `journeys --pack <new folder> init --project <app project>`; the driver
-  follows the project's test framework.
+- New pack for an app: `journeys --pack <new folder> init --project <app project> --driver <the
+  user's answer>`; ask the user first (the project's test framework is a hint, never the answer).

@@ -68,6 +68,9 @@ def cmd_doctor(args) -> int:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
     wanted = pack.driver if "pack" in locals() else None
+    if "pack" in locals() and not wanted:
+        rows.append(("WARN", f"pack {pack.name} has no driver: ask the team which tool drives their device "
+                             "(maestro or speedrun) and set driver: in pack.yaml; runs ask until then"))
     if wanted and pack.project:
         from .detect import pick, scan
         try:
@@ -128,8 +131,26 @@ def _refuse_errors(pack: Pack) -> None:
         raise PackError("\n".join(errors) + f"\n{len(errors)} pack errors: fix them first (journeys validate)")
 
 
+def ask_driver(why: str) -> str:
+    """The user's own answer: Journeys never assumes a driver (no default, not even from the project)."""
+    tools = " or ".join(d for d in DRIVERS if d != "fake")
+    question = f"Which tool does your team use to drive the device ({tools})? Journeys never picks one."
+    if not sys.stdin.isatty():
+        raise DriverError(f"{question} {why}: ask the team, then pass --driver <{'|'.join(DRIVERS)}>")
+    print(f"{question}\n{why}", file=sys.stderr)
+    while True:
+        try:
+            answer = input("driver: ").strip()
+        except EOFError:
+            raise DriverError("no driver given") from None
+        if answer in DRIVERS:
+            return answer
+        print(f"{answer!r} is not one of {', '.join(DRIVERS)}", file=sys.stderr)
+
+
 def _open(args, pack: Pack) -> tuple[Store, Driver]:
-    kind = args.driver or pack.driver
+    args.driver = kind = args.driver or pack.driver or ask_driver(
+        f"pack {pack.name} has no driver: in pack.yaml (add it there to stop this question)")
     if kind != "fake" and not args.serial:
         raise DriverError("pass --serial <adb serial>: Journeys never picks a device by itself")
     store = _store(args, pack)
@@ -149,7 +170,7 @@ def cmd_tap_all(args) -> int:
         driver.stop()
         raise DriverError("--dka changes a device setting; pack.yaml devices.allow_settings_changes "
                           "does not allow it on this device")
-    run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver or pack.driver,
+    run = store.new_run(pack=pack.name, target="tap-all", driver=args.driver,
                         serial=args.serial, dka=args.dka)
     try:
         rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
@@ -181,7 +202,7 @@ def cmd_run(args) -> int:
         return 2
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
-    run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver or pack.driver,
+    run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
                         serial=args.serial)
     print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
     try:
@@ -314,6 +335,10 @@ def cmd_init(args) -> int:
     dest = Path(args.pack).expanduser()
     project = Path(args.project).expanduser() if args.project else None
     try:
+        if not args.driver:
+            from .detect import pick, scan
+            hint = pick(scan(project)[0])[1] if project else "no --project given"
+            args.driver = ask_driver(f"a hint only, never a choice: {hint}")
         lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver)
     except (FileExistsError, FileNotFoundError, ValueError) as e:
         raise PackError(str(e)) from None
@@ -343,6 +368,9 @@ def cmd_validate(args) -> int:
     except PackError as e:  # pack.yaml itself is broken: still a FAIL line, like every other file
         print(f"FAIL {e}")
         return 1
+    if not pack.driver:
+        pack.errors.append(f"{pack.root / 'pack.yaml'}: no driver: ask the team which tool drives their device "
+                           "(maestro or speedrun), then set driver: (Journeys never picks one)")
     for e in pack.errors:
         print(f"FAIL {e}")
     print(f"{'OK' if not pack.errors else 'FAIL'} pack {pack.name}: {len(pack.journeys)} journeys, "
@@ -459,11 +487,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("format", choices=["maestro"])
     s.add_argument("paths", nargs="+", help="flow files or folders")
     s.set_defaults(fn=cmd_import)
-    s = sub.add_parser("init", help="start a new pack; the driver follows the project's test framework")
-    s.add_argument("--project", help="the app's project folder (its test framework picks the driver)")
+    s = sub.add_parser("init", help="start a new pack; asks which driver the team uses")
+    s.add_argument("--project", help="the app's project folder (for the app id; its tests are shown as a hint only)")
     s.add_argument("--app", help="the app's package (default: applicationId from the project)")
     s.add_argument("--name", help="pack name (default: the folder name)")
-    s.add_argument("--driver", choices=DRIVERS, help="the team's driver (default: the one the project's tests use)")
+    s.add_argument("--driver", choices=DRIVERS, help="the team's driver (asked when not given; never guessed)")
     s.set_defaults(fn=cmd_init)
     s = sub.add_parser("setup", help="install upstream Speedrun into third_party/")
     s.add_argument("--version", help="release tag, e.g. v0.4.14 (default: latest)")

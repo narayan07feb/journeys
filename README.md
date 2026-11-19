@@ -12,8 +12,10 @@ with the tool it already uses:
 
 Journeys has no device driver of its own: every feature (journeys, detours, explore, tap-all,
 look, results) runs through the driver the pack names, so a new driver brings all of them. The
-pack's `driver:` is required; `--driver` overrides it; `journeys init --project <app>` picks the
-one the project's tests already use. Maestro flows import into drafts, and journeys export back
+pack's `driver:` is the team's answer; `--driver` overrides it. Journeys never assumes a driver:
+`init` and every device command (`run`, `tap-all`, `look`) ask the user when neither names one, and
+fail with the question when there is no terminal to ask in. The project's tests are shown as a hint
+only, never taken as the answer. Maestro flows import into drafts, and journeys export back
 to Maestro flows, so a team keeps its tools.
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).
@@ -54,7 +56,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 | `look --serial S` | The screen on the device now and its map screen. |
 | `new NAME --start SCREEN` / `promote-journey NAME` | Start a draft / move it into `journeys/`. |
 | `import maestro FLOWS` / `export maestro NAME` | Maestro flows to drafts / a journey to a flow. |
-| `init --project APP` | A new pack whose driver follows the project's tests. |
+| `init --project APP` | A new pack; asks which driver the team uses (or `--driver`). |
 | `list [--json]` | Sets and journeys. |
 | `run <journey\|set\|all> --serial S` | Run them. `--driver`, `--draft`, `--no-heal`. |
 | `tap-all --serial S [--dka]` | Walk the app; `--max-screens`, `--max-taps`. |

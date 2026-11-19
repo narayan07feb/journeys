@@ -171,3 +171,11 @@ def test_maestro_driver_writes_maestro_selectors(tmp_path):
     d.start("com.example.app", "R")
     d.do(["launchApp", {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
     assert "element:\n      text: Next" in flows[-1]
+
+def test_unreadable_maestro_hierarchy_is_a_driver_error(tmp_path):
+    import subprocess
+    d = hooked("maestro", Phone(APP), tmp_path)
+    d.start("com.example.app", "R")
+    d._run = lambda *a: subprocess.CompletedProcess(a, 0, '{"attributes": "not a map"}', "")
+    with pytest.raises(DriverError, match="unreadable output"):
+        d.look()

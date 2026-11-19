@@ -23,7 +23,8 @@ The exact format, every step and action, and a worked example are in
 ```yaml
 name: my-app                 # also the state folder's name
 app: com.example.app
-driver: maestro              # required: the team's tool, maestro or speedrun (fake for tests)
+driver: maestro              # the team's answer: maestro or speedrun (fake for tests); never guessed,
+                             # a pack without it makes every device command ask the user
 env: [SEARCH_TEXT]           # variables a journey may use as ${SEARCH_TEXT}
 accounts:                    # test accounts: values only from env vars, never in the pack
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}
