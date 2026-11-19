@@ -82,12 +82,22 @@ class TapAll:
             self.run.save()
             raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
-        tapped = any(o.get("tap") for s in self.report.screens for o in s["options"])
+        tapped = any(o.get("tap") and o["result"] not in ("failed", "skipped")
+                     for s in self.report.screens for o in s["options"])  # a failed tap tested nothing
         clean = tapped and not (self.report.crashes or self.report.unreachable)  # unreachable is not clean
         self.run.data.update(status="passed" if clean else "failed", ended=time.time(), tap_all=self.report.__dict__,
                              **({} if tapped else {"error": "nothing was tapped: every element is denied or unlabelled"}))
         self.run.save()
         return self.report
+
+    def _back_to(self, here: Found, options: list) -> bool:
+        """Back on `here` for its next option; if not, the rest of its options are untested: say so."""
+        if self._reach(here):
+            return True
+        options.append({"tap": None, "result": "skipped", "note": "could not return here; the rest was not tapped"})
+        if here.key not in self.report.unreachable:
+            self.report.unreachable.append(here.key)
+        return False
 
     def _visit(self, here: Found) -> None:
         if not self._reach(here):
@@ -113,20 +123,20 @@ class TapAll:
                 })
                 self.report.crashes.append({"screen": here.key, "tap": from_command(tap), "failure": fid})
                 options.append({"tap": from_command(tap), "result": "crash", "failure": fid})
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
                 continue
             other = left_app(self.driver, self.pack.owns)
             if other:  # a system screen or another app: never walked; come back
                 self.report.left_app.append({"screen": here.key, "tap": from_command(tap), "package": other})
                 options.append({"tap": from_command(tap), "result": f"left the app for {other}"})
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
                 continue
             after = self.driver.look()
             if same_screen(base, after) and new_denied(base, after, self.pack.deny):  # a dialog over it
                 options.append({"tap": from_command(tap), "result": "showed denied words; screen reloaded"})
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
                 continue
             if same_screen(base, after):
@@ -137,7 +147,7 @@ class TapAll:
             if self._seen(key):
                 # A screen already found (an in-app Back or Leave to the menu): navigation, not a
                 # dead end. Back is tested once per screen, when it is first found.
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
                 continue
             self.found.append(Found(key, after, here.route + [tap], known))
@@ -149,11 +159,11 @@ class TapAll:
                     "route": from_commands(here.route + [tap, "back"]), "log": self.driver.crash_log(),
                 })
                 self.report.crashes.append({"screen": key, "tap": "back", "failure": fid})
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
             elif not same_screen(base, self.driver.look()):
                 self.report.dead_ends.append({"screen": key, "from": here.key, "tap": from_command(tap)})
-                if not self._reach(here):
+                if not self._back_to(here, options):
                     break
         self.report.screens.append({"screen": here.key, "route": from_commands(here.route), "options": options})
 

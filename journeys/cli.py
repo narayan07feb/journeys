@@ -196,6 +196,10 @@ def cmd_tap_all(args) -> int:
         print(f"left app  {x['screen']}  {x['tap']} -> {x['package']}")
     for u in rep.unreachable:
         print(f"unreachable  {u}")
+    for s in rep.screens:
+        for o in s["options"]:
+            if o["result"] == "failed":
+                print(f"tap failed  {s['screen']}  {o['tap']}: {o.get('note', '')}")
     status = store.run(run.id)
     if status.get("error"):
         print(f"failed: {status['error']}")
@@ -354,6 +358,8 @@ def cmd_init(args) -> int:
     project = Path(args.project).expanduser() if args.project else None
     if (dest / "pack.yaml").exists():  # before asking anything
         raise PackError(f"{dest / 'pack.yaml'} already exists: init writes a new pack only")
+    if not args.app and not project:
+        raise PackError("no app id: pass --app <package>")
     try:
         args.driver = args.driver or os.environ.get("JOURNEYS_DRIVER")
         if not args.driver:

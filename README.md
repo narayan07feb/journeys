@@ -27,7 +27,7 @@ to Maestro flows, so a team keeps its tools.
   map and saves a *proposal*. When it fails, it explores the screen's options and proposes a fix.
   A person (or an agent) promotes or rejects each proposal; nothing changes the pack on its own.
 - **tap-all**: walks the app, taps every option once, and reports crashes, dead ends and new
-  screens. `--dka` repeats it with "don't keep activities" on.
+  screens. `--dka` walks with "don't keep activities" on.
 - **Results**: run history, failures with screenshot and screen listing, flaky marks, a local
   live page.
 - **Agents**: an MCP server. **Droid Lite**: a Tests-tab plugin.

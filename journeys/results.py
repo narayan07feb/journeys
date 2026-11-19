@@ -13,7 +13,7 @@ def default_state_dir(pack_name: str) -> Path:
     base = os.environ.get("JOURNEYS_STATE")
     if base:
         return Path(base).expanduser()
-    return Path("~/.local/state/journeys").expanduser() / pack_name
+    return Path("~/.local/state/journeys").expanduser() / re.sub(r"[^\w.-]+|^\.+", "_", pack_name)  # never ../
 
 
 _SECRETS: list[str] = []

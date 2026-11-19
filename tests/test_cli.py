@@ -183,7 +183,8 @@ def test_a_bad_fake_app_is_a_clear_error(pack_dir, tmp_path, capsys):
         bad.write_text(text)
         assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--driver", "fake",
                      "--fake-app", str(bad)]) == 2
-        assert "a fake app is a map" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "a fake app is a map" in err or "start names a screen" in err
 
 
 def test_a_stop_before_the_runner_starts_still_ends_failed(pack_dir, tmp_path, monkeypatch, capsys):
@@ -214,3 +215,32 @@ def test_tap_all_that_tapped_nothing_exits_1(tappable_pack_dir, capsys):
     assert main(["--pack", str(tappable_pack_dir), "--state", str(tappable_pack_dir / "s"), "tap-all",
                  "--driver", "fake"]) == 1
     assert "nothing was tapped" in capsys.readouterr().out
+
+
+def test_fake_app_inner_shapes_and_fake_screenshots_are_checked(pack_dir, tmp_path, capsys, monkeypatch):
+    bad = tmp_path / "bad.yaml"
+    for inner in ("HOME: null", "HOME: {elements: 5}", "HOME: {elements: [{text: 5}]}", "HOME: {elements: [{to: [1]}]}"):
+        bad.write_text(f"app: com.android.settings\nstart: HOME\nscreens:\n  {inner}\n")
+        assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--driver", "fake",
+                     "--fake-app", str(bad)]) == 2, inner
+        assert "error:" in capsys.readouterr().err
+    from journeys.drivers.base import Element, Screen
+    from journeys.drivers.fake import FakeDriver
+    from journeys.results import set_secrets
+    import yaml
+    d = FakeDriver(yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text()))
+    monkeypatch.setattr(FakeDriver, "look", lambda self: Screen([Element("@1", "Text", "Hello hunter2")]))
+    set_secrets(["hunter2"])
+    try:
+        shot = d.screenshot(tmp_path / "shot.png")
+    finally:
+        set_secrets([])
+    assert "hunter2" not in shot.read_text()
+
+
+def test_state_dir_never_leaves_its_folder_and_init_needs_an_app_first(tmp_path, monkeypatch, capsys):
+    from journeys.results import default_state_dir
+    monkeypatch.delenv("JOURNEYS_STATE", raising=False)
+    assert default_state_dir("../../x").parent.name == "journeys"
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
+    assert main(["--pack", str(tmp_path / "p"), "init"]) == 2 and "no app id" in capsys.readouterr().err

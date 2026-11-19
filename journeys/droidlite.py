@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from .cli import make_driver, on_kill
+from .drivers import DRIVERS
 from .drivers.base import DriverError
 from .live import panel, watch
 from .pack import Pack, PackError
@@ -78,6 +79,9 @@ def cmd_run(pack: Pack, case_id: str) -> int:
     kind = driver_kind(pack)
     if not kind:
         emit(case=case_id, status="failed", message=ASK)
+        return 1
+    if kind not in DRIVERS:
+        emit(case=case_id, status="failed", message=f"driver {kind} is not one of {', '.join(DRIVERS)}")
         return 1
     if kind != "fake" and not serial:
         emit(case=case_id, status="failed", message="set JOURNEYS_SERIAL (or JOURNEYS_DRIVER=fake)")

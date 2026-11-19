@@ -38,8 +38,9 @@ install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-deb
 devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
                                     # --dka sets "don't keep activities" over adb (maestro, speedrun).
-                                    # Elsewhere --dka is refused, and Speedrun does not start when it
-                                    # would change the phone (Android 13+, other agent builds, a Maestro driver)
+                                    # On a device not listed --dka is refused (the fake driver models an
+                                    # emulator), and Speedrun does not start when it would change the phone
+                                    # (Android 13+, other agent builds, a Maestro driver, animation scales)
   animations: normal                # speedrun driver only: --animations normal leaves the scales at 1
 tap_all:
   allowed: true                     # false: tap-all and explore-on-failure never tap in this app

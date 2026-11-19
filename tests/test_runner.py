@@ -107,3 +107,29 @@ def test_event_step(env, pack_dir):
     ok, no = r.run_all([pack2.journeys["ev-ok"], pack2.journeys["ev-no"]])
     assert ok.status == "passed"
     assert no.status == "failed" and "did not fire" in no.message
+
+
+def test_a_stopped_run_leaves_no_journey_running_and_a_lost_device_is_not_a_crash(pack_dir, tmp_path):
+    import pytest
+    import yaml
+    from journeys.drivers.base import DriverError
+    from journeys.drivers.fake import FakeDriver
+    from journeys.pack import Pack
+    from journeys.results import Store
+    from journeys.runner import Runner
+    pack = Pack.load(pack_dir)
+    app = yaml.safe_load((pack_dir / "fake" / "app.yaml").read_text())
+    store = Store(tmp_path / "s")
+    d = FakeDriver(app)
+    d.do = lambda cmds: (_ for _ in ()).throw(KeyboardInterrupt())
+    run = store.new_run()
+    with pytest.raises(KeyboardInterrupt):
+        Runner(pack, d, store, run, variables={}, sleep=lambda s: None).run_all(pack.select("smoke"))
+    data = store.run(run.id)
+    assert data["status"] == "failed" and all(j["status"] != "running" for j in data["journeys"])
+    d = FakeDriver(app)
+    d.do = lambda cmds: (_ for _ in ()).throw(DriverError("device x is not connected"))
+    d.app_alive = lambda: (_ for _ in ()).throw(DriverError("device x is not connected"))
+    (out,) = Runner(pack, d, store, store.new_run(), variables={}, sleep=lambda s: None,
+                    heal=False).run_all(pack.select("open-display"))
+    assert "device does not answer" in out.message and "crash?" not in out.message

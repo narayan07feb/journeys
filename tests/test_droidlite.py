@@ -101,3 +101,8 @@ def test_a_stopped_droid_lite_run_ends_failed(pack_dir, tmp_path):
     assert proc.wait(timeout=20) != 0
     data = yaml.safe_load(runs[0].read_text())
     assert data["status"] == "failed" and data.get("ended")
+
+
+def test_droid_lite_names_a_bad_driver(pack_dir, tmp_path):
+    p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_DRIVER": "foo"}, id="open-display")
+    assert p.returncode == 1 and "driver foo is not one of" in p.stdout

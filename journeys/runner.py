@@ -61,6 +61,9 @@ class Runner:
         try:
             outs = [self.journey(j) for j in journeys]
         except BaseException as e:  # a lost link or Ctrl-C: the run ends as failed, never stays "running"
+            for j in self.run.data.get("journeys", []):
+                if j.get("status") == "running":
+                    j["status"] = "failed"
             self.run.data.update(status="failed", ended=time.time(), error=self._mask(str(e)) or type(e).__name__)
             self.run.save()
             raise
@@ -85,8 +88,11 @@ class Runner:
                 out.steps.append(StepOutcome(i, step.describe(), "passed", _ms(t0), screen=screen))
             except (StepFailed, DriverError, ActionError) as e:
                 msg = self._mask(str(e))
-                if not self._alive():
-                    msg += " (the app is not running: crash?)"
+                try:
+                    if not self.driver.app_alive():
+                        msg += " (the app is not running: crash?)"
+                except DriverError as d:  # the device itself is gone: not a crash
+                    msg += f" (the device does not answer: {self._mask(str(d))})"
                 out.steps.append(StepOutcome(i, step.describe(), "failed", _ms(t0), msg))
                 out.status, out.message = "failed", msg
                 out.failure = self._record_failure(j, i, step, msg)

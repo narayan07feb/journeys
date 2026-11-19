@@ -38,9 +38,11 @@ class FakeDriver(Driver):
 
     @classmethod
     def from_file(cls, path: Path) -> "FakeDriver":
+        from ..pack import fake_app_errors  # the same rules validate uses for the pack's fake/app.yaml
         app = yaml.safe_load(Path(path).read_text())
-        if not (isinstance(app, dict) and isinstance(app.get("screens"), dict) and app.get("start") in app["screens"]):
-            raise DriverError(f"{path}: a fake app is a map with screens: and a start: that names one of them")
+        errors = fake_app_errors(app, path)
+        if errors:
+            raise DriverError("; ".join(errors[:3]))
         return cls(app)
 
     # Driver API
@@ -63,7 +65,8 @@ class FakeDriver(Driver):
 
     def screenshot(self, path: Path) -> Path | None:
         path = path.with_suffix(".txt")  # no pixels here: the listing stands in for the picture
-        path.write_text(self.look().listing() + "\n")
+        from ..results import mask
+        path.write_text(mask(self.look().listing()) + "\n")  # the one text file not written by write_json
         return path
 
     def app_alive(self) -> bool:

@@ -162,7 +162,7 @@ steps:
 tap every element once, record the result, go back. Report: crashes (app process gone, with the
 last logcat lines), dead ends (no way back), new unknown screens (proposed names from their
 heading). `--dka` turns on Android's "don't keep activities" for the run and turns it back off at
-the end (emulator or a device the pack marks as allowed; the tool asks before changing a setting).
+the end (emulator or a device the pack marks as allowed in `devices.allow_settings_changes`; refused elsewhere).
 
 ### 3.6 Results
 
@@ -170,7 +170,7 @@ the end (emulator or a device the pack marks as allowed; the tool asks before ch
 - Each run: `runs/<run id>/run.json` (journeys, steps, timings, status), screenshots, screen
   listings, driver log.
 - `failures.json`, `proposals.json` with ids `F-<n>`, `P-<n>`.
-- Flaky: per journey, the last 20 results; a journey that both passed and failed on the same
+- Flaky: per journey, the last results (`history --last N`, default 10); a journey that both passed and failed on the same
   commit of the app build is marked flaky.
 - `journeys serve`: a local page on `127.0.0.1` that shows the current step and
   screen, refreshed from `live.json`.
@@ -178,7 +178,7 @@ the end (emulator or a device the pack marks as allowed; the tool asks before ch
 ### 3.7 Agent access (MCP)
 
 `journeys mcp --pack <path>` tools: `doctor`, `list_journeys`, `start_run`, `run_status`,
-`wait_run`, `failures`, `failure`, `proposals`, `promote`, `reject`, `look` (current screen).
+`wait_run`, `failures`, `failure`, `proposals`, `promote`, `reject` (`look` is CLI only).
 A run started from MCP runs as a detached child process, so the MCP call returns at once.
 
 ### 3.8 Droid Lite plugin

@@ -401,3 +401,27 @@ def test_i_agree_is_a_confirm_word():
     s = Screen([Element("@1", "Text", "Delete your account?"), Element("@2", "Button", "I agree"),
                 Element("@3", "Button", "Back")])
     assert [e.text for e in tap_targets(s, DEFAULT_DENY, 9)] == ["Back"]
+
+
+def test_a_walk_where_every_tap_failed_is_not_a_pass(t):
+    from journeys.drivers.base import CommandResult
+    app, driver, store, walk = t
+    real = driver.do
+    driver.do = lambda cmds: CommandResult(False, "Element not found") if any(
+        isinstance(c, dict) and "tapOn" in c for c in cmds) else real(cmds)
+    rep, run = walk()
+    data = store.run(run.id)
+    assert data["status"] == "failed" and "nothing was tapped" in data["error"]
+
+
+def test_a_screen_it_cannot_return_to_says_what_was_not_tapped(t, monkeypatch):
+    from journeys.explore import TapAll
+    app, driver, store, walk = t
+    app["screens"]["HOME"]["elements"].insert(0, {"kind": "Button", "text": "Boom", "to": "CRASH"})
+    crashed = []
+    real_log, real_reach = driver.crash_log, TapAll._reach
+    monkeypatch.setattr(driver, "crash_log", lambda: crashed.append(1) or real_log())
+    monkeypatch.setattr(TapAll, "_reach", lambda self, here: not crashed and real_reach(self, here))
+    rep, run = walk()
+    notes = [o.get("note") for s in rep.screens for o in s["options"]]
+    assert "could not return here; the rest was not tapped" in notes and rep.unreachable

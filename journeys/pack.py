@@ -53,6 +53,35 @@ def _names(obj) -> list[str]:
     return []
 
 
+def fake_app_errors(app, f) -> list[str]:
+    """What is wrong with a fake app (pack fake/app.yaml or --fake-app): a bad one must be a clear
+    error, never a traceback halfway through a run."""
+    errors: list[str] = []
+    if not isinstance(app, dict):
+        return [f"{f}: a fake app is a map with app:, start: and screens:"]
+    screens = app.get("screens")
+    if not isinstance(screens, dict) or not screens:
+        errors.append(f"{f}: screens is a map of NAME: {{elements: [...]}}")
+        return errors
+    if not isinstance(app.get("start"), str) or app.get("start") not in screens:
+        errors.append(f"{f}: start names a screen in it, not {app.get('start')!r}")
+    for name, sd in screens.items():
+        els = (sd or {}).get("elements") or [] if isinstance(sd, dict) else None
+        if not isinstance(els, list) or not all(isinstance(e, dict) for e in els):
+            errors.append(f"{f}: screen {name}: elements is a list of maps")
+            continue
+        for e in els:
+            bad = [k for k in ("kind", "text", "id") if k in e and not isinstance(e[k], str)]
+            if bad or e.get("kind", "Text") not in KINDS or not isinstance(e.get("state", []), list):
+                errors.append(f"{f}: screen {name}: element {e} needs text and id as quoted text, kind one "
+                          f"of {', '.join(KINDS)} and state as a list")
+        targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
+        for t in targets:
+            if t is not None and (not isinstance(t, str) or t not in screens):
+                errors.append(f"{f}: screen {name} points to unknown screen {t}")
+    return errors
+
+
 class PackError(Exception):
     pass
 
@@ -184,26 +213,7 @@ class Pack:
         app = yamlio.strip_lines(yamlio.load_map(f, self.errors))
         if not app:
             return
-        screens = app.get("screens")
-        if not isinstance(screens, dict) or not screens:
-            self.errors.append(f"{f}: screens is a map of NAME: {{elements: [...]}}")
-            return
-        if not isinstance(app.get("start"), str) or app.get("start") not in screens:
-            self.errors.append(f"{f}: start names a screen in it, not {app.get('start')!r}")
-        for name, sd in screens.items():
-            els = (sd or {}).get("elements") or [] if isinstance(sd, dict) else None
-            if not isinstance(els, list) or not all(isinstance(e, dict) for e in els):
-                self.errors.append(f"{f}: screen {name}: elements is a list of maps")
-                continue
-            for e in els:
-                bad = [k for k in ("kind", "text", "id") if k in e and not isinstance(e[k], str)]
-                if bad or e.get("kind", "Text") not in KINDS or not isinstance(e.get("state", []), list):
-                    self.errors.append(f"{f}: screen {name}: element {e} needs text and id as quoted text, kind one "
-                                       f"of {', '.join(KINDS)} and state as a list")
-            targets = [e.get("to") for e in els if e.get("to") not in (None, "CRASH")] + [sd.get("back")]
-            for t in targets:
-                if t is not None and (not isinstance(t, str) or t not in screens):
-                    self.errors.append(f"{f}: screen {name} points to unknown screen {t}")
+        self.errors += fake_app_errors(app, f)
 
     def _check(self) -> None:
         declared = self.declared()
