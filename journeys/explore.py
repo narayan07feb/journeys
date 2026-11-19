@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from .actions import from_command, from_commands
 from .drivers.base import Driver, DriverError, Screen, changes_allowed
-from .heal import fingerprint, heading, left_app, same_screen, screen_name, selector, tap_targets
+from .heal import fingerprint, heading, left_app, new_denied, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
 from .results import Run, Store, mask
 
@@ -82,8 +82,10 @@ class TapAll:
             self.run.save()
             raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
-        clean = not (self.report.crashes or self.report.unreachable)  # a screen it could not reach again is not clean
-        self.run.data.update(status="passed" if clean else "failed", ended=time.time(), tap_all=self.report.__dict__)
+        tapped = any(o.get("tap") for s in self.report.screens for o in s["options"])
+        clean = tapped and not (self.report.crashes or self.report.unreachable)  # unreachable is not clean
+        self.run.data.update(status="passed" if clean else "failed", ended=time.time(), tap_all=self.report.__dict__,
+                             **({} if tapped else {"error": "nothing was tapped: every element is denied or unlabelled"}))
         self.run.save()
         return self.report
 
@@ -122,6 +124,11 @@ class TapAll:
                     break
                 continue
             after = self.driver.look()
+            if same_screen(base, after) and new_denied(base, after, self.pack.deny):  # a dialog over it
+                options.append({"tap": from_command(tap), "result": "showed denied words; screen reloaded"})
+                if not self._reach(here):
+                    break
+                continue
             if same_screen(base, after):
                 options.append({"tap": from_command(tap), "result": "no change"})
                 continue
@@ -135,7 +142,16 @@ class TapAll:
                 continue
             self.found.append(Found(key, after, here.route + [tap], known))
             self.driver.do(["back"])
-            if not (self.driver.app_alive() and same_screen(base, self.driver.look())):
+            if not self.driver.app_alive():  # back crashed it: a crash, with its log
+                fid = self.store.add_failure({
+                    "run": self.run.id, "journey": "tap-all", "step": len(here.route) + 1,
+                    "step_text": f"{key}: back", "message": "the app crashed on back", "screen": key,
+                    "route": from_commands(here.route + [tap, "back"]), "log": self.driver.crash_log(),
+                })
+                self.report.crashes.append({"screen": key, "tap": "back", "failure": fid})
+                if not self._reach(here):
+                    break
+            elif not same_screen(base, self.driver.look()):
                 self.report.dead_ends.append({"screen": key, "from": here.key, "tap": from_command(tap)})
                 if not self._reach(here):
                     break

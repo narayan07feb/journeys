@@ -180,7 +180,7 @@ class Server:
         return {"jsonrpc": "2.0", "id": mid, "result": result}
 
     def _call(self, name: str, args: dict) -> dict:
-        if name not in TOOLS:
+        if not isinstance(name, str) or name not in TOOLS or not isinstance(args, dict):
             return {"content": [{"type": "text", "text": f"no tool {name}"}], "isError": True}
         try:
             out = getattr(self, name)(**args)
@@ -200,7 +200,11 @@ def serve_stdio(server: Server, stdin=None, stdout=None) -> None:
         except json.JSONDecodeError:
             reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
-            reply = server.handle(msg)
+            try:
+                reply = server.handle(msg)
+            except Exception as e:  # one bad message never ends the server
+                mid = msg.get("id") if isinstance(msg, dict) else None
+                reply = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": f"internal error: {e}"}}
         if reply is not None:
             stdout.write(json.dumps(reply) + "\n")
             stdout.flush()

@@ -38,7 +38,10 @@ class FakeDriver(Driver):
 
     @classmethod
     def from_file(cls, path: Path) -> "FakeDriver":
-        return cls(yaml.safe_load(Path(path).read_text()))
+        app = yaml.safe_load(Path(path).read_text())
+        if not (isinstance(app, dict) and isinstance(app.get("screens"), dict) and app.get("start") in app["screens"]):
+            raise DriverError(f"{path}: a fake app is a map with screens: and a start: that names one of them")
+        return cls(app)
 
     # Driver API
     def start(self, app_id: str, serial: str | None = None) -> None:
@@ -114,7 +117,9 @@ class FakeDriver(Driver):
             if self.alive and self.stack and not self.home:
                 target = self.app["screens"][self.stack[-1]].get("back")
                 self.stack.pop()
-                if target:
+                if target == CRASH:  # back itself kills the app
+                    self.alive, self.stack, self.crashed = False, [], True
+                elif target:
                     self.stack.append(target)
         elif name == "tapOn":
             el = self._find(arg)

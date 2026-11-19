@@ -116,3 +116,32 @@ def test_start_run_refuses_a_target_with_nothing_to_run(pack_dir, tmp_path):
     srv = Server(str(pack_dir), str(tmp_path / "s"))
     with pytest.raises(Exception, match="no journeys to run|empty"):
         srv.start_run("empty", driver="fake")
+
+
+def test_run_ids_never_reach_outside_the_state_folder(pack_dir, tmp_path):
+    import io
+    import json
+    import pytest
+    from journeys.mcp_server import Server, serve_stdio
+    (tmp_path / "outside.log").write_text("private")
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    for bad in ("../../outside", "../x"):
+        with pytest.raises(ValueError, match="bad run id"):
+            srv.run_status(bad)
+    out = io.StringIO()
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": [1]}}
+    serve_stdio(srv, io.StringIO(json.dumps(msg) + "\n" + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"})
+                                 + "\n"), out)
+    replies = [json.loads(ln) for ln in out.getvalue().splitlines()]
+    assert replies[0]["result"]["isError"] and replies[1]["result"] == {}
+
+
+def test_any_error_inside_handle_is_an_error_reply(pack_dir, tmp_path, monkeypatch):
+    import io
+    import json
+    from journeys.mcp_server import Server, serve_stdio
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    monkeypatch.setattr(srv, "handle", lambda msg: 1 / 0)
+    out = io.StringIO()
+    serve_stdio(srv, io.StringIO('{"jsonrpc": "2.0", "id": 7, "method": "ping"}\n'), out)
+    assert json.loads(out.getvalue())["error"]["code"] == -32603

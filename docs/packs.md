@@ -53,7 +53,9 @@ tap_all:
 Tap-all and explore always skip a built-in deny list (reset, erase, uninstall, Wi-Fi, airplane mode,
 Bluetooth, sign out, pay, buy, send, share, ...); `deny` adds to it. On a screen that shows a denied word
 ("Delete all your data?"), they also skip its confirm buttons (Yes, OK, Confirm, Continue, Accept,
-Agree, Allow, Proceed, Apply, Enable, Turn on, Update, Got it). After each tap, when another app
+Agree, Allow, Proceed, Apply, Enable, Turn on, Update, Got it). When a tap puts denied words over the same
+screen (a dialog), the screen's old option list is dropped: tap-all reloads the screen, explore
+stops. A tap-all that tapped nothing fails (nothing tested is not a pass). After each tap, when another app
 or a system screen is in front, they never tap inside it: explore goes back, tap-all restarts the app
 and replays the route to the screen it was on.
 

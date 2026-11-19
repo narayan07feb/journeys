@@ -175,3 +175,42 @@ def test_ctrl_c_at_the_driver_question_is_a_clear_error(pack_dir, capsys, monkey
     monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
     assert main(["--pack", str(pack_dir), "--state", str(pack_dir / "s"), "run", "smoke"]) == 2
     assert "no driver given" in capsys.readouterr().err
+
+
+def test_a_bad_fake_app_is_a_clear_error(pack_dir, tmp_path, capsys):
+    bad = tmp_path / "bad.yaml"
+    for text in ("- just a list\n", "app: com.android.settings\nscreens: {A: {elements: []}}\n"):
+        bad.write_text(text)
+        assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--driver", "fake",
+                     "--fake-app", str(bad)]) == 2
+        assert "a fake app is a map" in capsys.readouterr().err
+
+
+def test_a_stop_before_the_runner_starts_still_ends_failed(pack_dir, tmp_path, monkeypatch, capsys):
+    import yaml
+    from journeys import cli
+    monkeypatch.setattr(cli, "Runner", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--driver", "fake"]) == 130
+    (run,) = (tmp_path / "s").rglob("run.json")
+    data = yaml.safe_load(run.read_text())
+    assert data["status"] == "failed" and data.get("ended")
+
+
+def test_init_refuses_an_existing_pack_before_asking_and_doctor_reads_journeys_driver(pack_dir, capsys, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
+    assert main(["--pack", str(pack_dir), "init", "--app", "com.x.y"]) == 2
+    assert "already exists" in capsys.readouterr().err
+    monkeypatch.setenv("JOURNEYS_DRIVER", "speedrun")
+    main(["--pack", str(pack_dir), "doctor"])
+    assert "driver speedrun (chosen)" in capsys.readouterr().out
+
+
+def test_tap_all_that_tapped_nothing_exits_1(tappable_pack_dir, capsys):
+    import yaml
+    f = tappable_pack_dir / "fake" / "app.yaml"
+    app = yaml.safe_load(f.read_text())
+    app["screens"][app["start"]]["elements"] = [{"kind": "Button", "text": "Delete everything"}]
+    f.write_text(yaml.safe_dump(app))
+    assert main(["--pack", str(tappable_pack_dir), "--state", str(tappable_pack_dir / "s"), "tap-all",
+                 "--driver", "fake"]) == 1
+    assert "nothing was tapped" in capsys.readouterr().out

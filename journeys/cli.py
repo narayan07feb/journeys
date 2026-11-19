@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -15,7 +16,7 @@ from .drivers import DRIVERS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
 from .pack import Pack, PackError
-from .results import Store, default_state_dir, mask, set_secrets
+from .results import RUN_ID, Store, default_state_dir, mask, set_secrets
 from .runner import Runner
 
 
@@ -67,7 +68,7 @@ def cmd_doctor(args) -> int:
     except PackError as e:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
-    wanted = pack.driver if "pack" in locals() else None
+    wanted = os.environ.get("JOURNEYS_DRIVER") or pack.driver if "pack" in locals() else None
     if "pack" in locals() and not wanted:
         rows.append(("WARN", f"pack {pack.name} has no driver: ask the team which tool drives their device "
                              "(maestro or speedrun) and set driver: in pack.yaml; runs ask until then"))
@@ -82,7 +83,7 @@ def cmd_doctor(args) -> int:
     for kind, missing in availability().items():
         if kind != "fake":
             level = "OK" if not missing else "FAIL" if kind == wanted else "WARN"
-            tag = " (the pack's)" if kind == wanted else ""
+            tag = " (chosen)" if kind == wanted else ""
             rows.append((level, f"driver {kind}{tag}: {missing or 'can run'}"))
     adb = shutil.which("adb")
     rows.append(("OK", f"adb {adb}") if adb else ("WARN", "adb not on PATH"))
@@ -126,8 +127,7 @@ def _at_least_1(text: str) -> int:
 
 
 def _run_id(text: str) -> str:
-    import re
-    if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", text):
+    if not RUN_ID.fullmatch(text):
         raise argparse.ArgumentTypeError(f"bad run id {text!r}: letters, digits and dashes")
     return text
 
@@ -196,7 +196,10 @@ def cmd_tap_all(args) -> int:
         print(f"left app  {x['screen']}  {x['tap']} -> {x['package']}")
     for u in rep.unreachable:
         print(f"unreachable  {u}")
-    return 1 if rep.crashes or rep.unreachable else 0
+    status = store.run(run.id)
+    if status.get("error"):
+        print(f"failed: {status['error']}")
+    return 0 if status["status"] == "passed" else 1
 
 
 def cmd_run(args) -> int:
@@ -211,11 +214,17 @@ def cmd_run(args) -> int:
         return 2
     store, driver = _open(args, pack)
     driver.start(pack.app, args.serial)  # a refused start leaves no empty run behind
+    run = None
     try:
         run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
                             serial=args.serial)
         print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
         outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys)
+    except BaseException as e:  # a stop before the runner took over (its own stops end the run itself)
+        if run is not None and run.data.get("status") == "running":
+            run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
+            run.save()
+        raise
     finally:
         driver.stop()
     for o in outs:
@@ -343,6 +352,8 @@ def cmd_init(args) -> int:
         raise PackError("pass --pack <new folder> for the new pack")
     dest = Path(args.pack).expanduser()
     project = Path(args.project).expanduser() if args.project else None
+    if (dest / "pack.yaml").exists():  # before asking anything
+        raise PackError(f"{dest / 'pack.yaml'} already exists: init writes a new pack only")
     try:
         args.driver = args.driver or os.environ.get("JOURNEYS_DRIVER")
         if not args.driver:
@@ -577,6 +588,9 @@ def main(argv: list[str] | None = None) -> int:
     except (PackError, DriverError, RuntimeError, PromoteError, ValueError, OSError) as e:
         print(f"error: {mask(str(e))}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:  # the run itself is already marked failed
+        print("stopped", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

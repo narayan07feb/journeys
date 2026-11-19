@@ -19,6 +19,8 @@ def default_state_dir(pack_name: str) -> Path:
 _SECRETS: list[str] = []
 
 
+RUN_ID = re.compile(r"[0-9A-Za-z-]{1,64}")
+
 def set_secrets(values) -> None:
     """Env values (passwords, tokens) the run knows; every string written later is masked."""
     _SECRETS[:] = sorted({str(v) for v in values if len(str(v)) >= 3}, key=len, reverse=True)
@@ -87,7 +89,7 @@ class Store:
 
     def new_run(self, run_id: str | None = None, **meta) -> Run:
         run_id = run_id or self.make_run_id()
-        if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", run_id):
+        if not RUN_ID.fullmatch(run_id):
             raise ValueError(f"bad run id {run_id!r}")
         run = Run(self, run_id, {"id": run_id, "started": time.time(), "status": "running", "journeys": [], **meta})
         try:
@@ -120,6 +122,8 @@ class Store:
         return out
 
     def run(self, run_id: str) -> dict | None:
+        if not RUN_ID.fullmatch(str(run_id)):  # never a path out of the state folder
+            raise ValueError(f"bad run id {run_id!r}")
         return read_json(self.root / "runs" / run_id / "run.json", None)
 
     # failures (F-n) and proposals (P-n): lists of records in one JSON file each

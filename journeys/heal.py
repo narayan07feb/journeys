@@ -90,7 +90,7 @@ def denied(el, deny: list) -> bool:
 
 
 _ZW = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")  # zero-width characters and soft hyphens
-_CONFIRM = re.compile(r"(?i)^\W*(yes|ok(ay)?|confirm|continue|accept|agree|allow|proceed|go_ahead|i_understand|sure|"
+_CONFIRM = re.compile(r"(?i)\b(yes|ok(ay)?|confirm|continue|accept|agree|allow|proceed|go_ahead|i_understand|sure|"
                       r"do_it|apply|enable|turn_on|update|got_it)\b".replace("_", r"[\s\-\u2010-\u2015]"))
 
 
@@ -106,6 +106,13 @@ def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     # index, and a driver may count matches in another order than this listing
     return [e for e in screen.elements if e.kind in TAPPABLE and e.text.strip() and e not in no
             and e.text not in texts and e.id not in ids][:limit]
+
+
+def new_denied(base: Screen, after: Screen, deny: list) -> bool:
+    """Denied words on `after` that `base` did not show. Used when a tap looks like "no change" but
+    put up a dialog ("Delete all?" over a long list): the old option list is stale then."""
+    seen = {(e.text, e.id) for e in base.elements}
+    return any(denied(e, deny) for e in after.elements if (e.text, e.id) not in seen)
 
 
 def left_app(driver: Driver, app) -> str | None:
@@ -144,6 +151,11 @@ def explore(driver: Driver, amap: AppMap, app, deny: list, limit: int = 12) -> l
             driver.do(["back"])
             break
         after = driver.look()
+        if same_screen(base, after) and new_denied(base, after, deny):  # a dialog over it: the list is stale
+            options.append({"tap": from_command(tap), "leads_to": None,
+                            "note": "it showed denied words; explore stopped"})
+            driver.do(["back"])
+            break
         if same_screen(base, after):
             options.append({"tap": from_command(tap), "leads_to": None, "note": "no change"})
             continue

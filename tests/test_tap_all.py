@@ -355,3 +355,49 @@ def test_more_word_list_gaps_closed():
     s = Screen([Element("@1", "Text", "Delete all your data?"), Element("@2", "Button", "Apply"),
                 Element("@3", "Button", "Turn on"), Element("@4", "Button", "No")])
     assert [e.text for e in tap_targets(s, DEFAULT_DENY, 9)] == ["No"]
+
+
+def test_a_crash_on_back_is_a_crash_with_a_failure(t):
+    app, driver, store, walk = t
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "Legal", "to": "LEGAL"})
+    app["screens"]["LEGAL"] = {"elements": [{"kind": "Text", "text": "Legal info"}], "back": "CRASH"}
+    rep, run = walk()
+    (crash,) = [c for c in rep.crashes if c["tap"] == "back"]
+    assert crash["failure"] and not any(d["screen"].startswith("NEW:LEGAL") for d in rep.dead_ends)
+
+
+def test_a_dialog_over_the_same_screen_stops_the_stale_option_list(t):
+    """'Delete all?' over a long list reads as 'no change'; the old list's next tap must not run."""
+    app, driver, store, walk = t
+    rows = [{"kind": "Text", "text": f"Row {i}"} for i in range(12)]
+    app["screens"]["ABOUT"]["elements"].append({"kind": "Button", "text": "Long list", "to": "LIST"})
+    app["screens"]["LIST"] = {"elements": [{"kind": "Button", "text": "More", "to": "OVER"}, *rows,
+                                           {"kind": "Button", "text": "Wipe it", "to": "WIPED"}]}
+    app["screens"]["OVER"] = {"elements": [{"kind": "Text", "text": "Delete all?"}, *rows,
+                                           {"kind": "Button", "text": "Wipe it", "to": "WIPED"}]}
+    app["screens"]["LIST"]["elements"][-1]["text"] = "Go"  # on LIST the same button reads Go
+    app["screens"]["OVER"]["elements"][-1]["text"] = "Go"
+    app["screens"]["WIPED"] = {"elements": [{"kind": "Text", "text": "Wiped"}]}
+    rep, run = walk()
+    lst = next(s for s in rep.screens if s["screen"].startswith("NEW:LONG") or "More" in str(s["options"]))
+    more = next(o for o in lst["options"] if o["tap"] == {"tap": "More"})
+    assert more["result"] == "showed denied words; screen reloaded"
+
+
+def test_a_walk_that_tapped_nothing_fails(t):
+    app, driver, store, walk = t
+    app["start"] = "ONLY"
+    app["screens"]["ONLY"] = {"elements": [{"kind": "Button", "text": "Delete everything"},
+                                           {"kind": "Button", "text": "Wi-Fi"}]}
+    rep, run = walk()
+    data = store.run(run.id)
+    assert data["status"] == "failed" and "nothing was tapped" in data["error"]
+
+
+def test_i_agree_is_a_confirm_word():
+    from journeys.drivers.base import Element, Screen
+    from journeys.heal import tap_targets
+    from journeys.pack import DEFAULT_DENY
+    s = Screen([Element("@1", "Text", "Delete your account?"), Element("@2", "Button", "I agree"),
+                Element("@3", "Button", "Back")])
+    assert [e.text for e in tap_targets(s, DEFAULT_DENY, 9)] == ["Back"]
