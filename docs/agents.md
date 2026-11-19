@@ -19,8 +19,8 @@ means; else reject it with the reason and edit the pack by hand.
 
 ## Tracker: what agents did
 
-Every draft, import, promote-journey, proposal decision, run and MCP tool call is logged in the
-state folder (`activity.jsonl`, secrets masked) with who did it. `journeys serve` shows it as a page,
+Every draft, import, promote-journey, proposal decision and MCP tool call is logged in the state
+folder (`activity.jsonl`, secrets masked) with who did it; runs come from their own `run.json`. `journeys serve` shows it as a page,
 `journeys tracker` as text or JSON, and the MCP `tracker` tool as JSON.
 
 Who did it: `JOURNEYS_ACTOR` when set (a person's or an agent's name); the MCP client's own name
@@ -32,7 +32,9 @@ solved, each issue once: a journey that passed again after failing (one pass is 
 many failure records the nightly runs left; only a run that started after the failure counts; a
 tap-all crash is fixed by a later clean tap-all that walked every screen with the same `--dka`),
 plus failures healed by a promoted proposal and not already counted that way. A promoted detour
-proposal (no failure) counts as a change, not an issue. Decided counts promotes and rejects; a reject solves
+proposal (no failure) counts as a change, not an issue, and is never credited with a fix. A flaky
+journey that passes once between failures counts as fixed by that pass; its next failure opens a new
+issue. Decided counts promotes and rejects; a reject solves
 nothing, and its failure stays in the work queue for a heal by hand. Who fixed a failure is a best
 guess: whoever last promoted its proposal or that journey before the pass, else whoever ran the
 passing run; the time from failure to that pass is the fix time. Journeys does not see tokens or

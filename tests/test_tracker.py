@@ -358,3 +358,33 @@ def test_the_page_answers_only_local_hosts(pack_dir):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_round_5_minors(pack_dir, tmp_path):
+    from journeys.mcp_server import Server
+    from journeys.tracker import summary
+    store = Store(tmp_path / "s")
+    (tmp_path / "s" / "activity.jsonl").write_text('{"time": NaN, "action": "draft.new", "actor": "a", "x": NaN}\n')
+    (tmp_path / "s" / "runs" / "r").mkdir(parents=True)
+    (tmp_path / "s" / "runs" / "r" / "run.json").write_text('{"id": "r", "error": NaN, "started": 1700000000}')
+    json.dumps(summary(store, []), allow_nan=False)  # the page's JSON never holds NaN
+    # an old day with activity is outside the last 14 calendar days
+    with open(tmp_path / "s" / "activity.jsonl", "a") as f:
+        f.write(json.dumps({"time": 1_600_000_000, "action": "draft.new", "actor": "old"}) + "\n")
+    t = summary(store, [])
+    assert t["usage"]["actors"]["old"]["drafts"] == 1 and not any("old" in r for r in t["usage"]["days"].values())
+    # a detour promote between a failure and the pass takes no credit
+    t0 = 1_700_000_000.0
+    f = store.add_failure({"journey": "j", "message": "x"})
+    store.update_failure(f, time=t0 + 10)
+    with open(tmp_path / "s" / "activity.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": t0 + 20, "actor": "detourer", "action": "proposal.promote", "journey": "j"}) + "\n")
+    r = store.new_run(target="all")
+    r.data.update(actor="ci", started=t0 + 30, ended=t0 + 40, status="passed", journeys=[{"name": "j", "status": "passed"}])
+    r.save()
+    u = summary(store, [])["usage"]["actors"]
+    assert u["ci"]["fixed"] == 1 and u["detourer"]["fixed"] == 0
+    # the MCP tracker still answers with --state while pack.yaml is broken
+    (pack_dir / "pack.yaml").write_text("name: [\n")
+    out = Server(str(pack_dir), str(tmp_path / "s"))._call("tracker", {})
+    assert not out.get("isError")

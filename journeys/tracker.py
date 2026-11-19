@@ -90,7 +90,7 @@ def fixes(st: State) -> dict[str, dict]:
                 passes.setdefault(j["name"], []).append(p)
     work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
-        if a["action"] in ("proposal.promote", "journey.promote"):
+        if a["action"] == "journey.promote" or (a["action"] == "proposal.promote" and a.get("failure")):
             for key in (a.get("failure"), a.get("journey")):
                 if isinstance(key, str):
                     work.setdefault(key, []).append(a)
@@ -200,11 +200,23 @@ def usage(st: State, fixed: dict) -> dict:
         row["avg_fix_minutes"] = round(sum(m) / len(m), 1) if m else None
         return row
     return {"actors": {k: done(v) for k, v in sorted(per.items())},
-            "days": {d: {k: done(v) for k, v in sorted(rows.items())} for d, rows in sorted(days.items())[-14:]}}
+            "days": {d: {k: done(v) for k, v in sorted(rows.items())} for d, rows in sorted(days.items())
+                     if d >= _day(time.time() - 13 * 86400)}}  # the last 14 calendar days
+
+
+def _finite(obj):
+    """NaN or infinity from a hand-edited file becomes None: the browser's JSON.parse rejects them."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_finite(v) for v in obj]
+    return obj
 
 
 def summary(store: Store, drafts: list[str] | None = None) -> dict:
     st = State.read(store)
     fixed = fixes(st)
-    return {"runs": runs(st), "queue": queue(st, drafts or [], fixed), "activity": activity(st),
-            "usage": usage(st, fixed)}
+    return _finite({"runs": runs(st), "queue": queue(st, drafts or [], fixed), "activity": activity(st),
+                    "usage": usage(st, fixed)})

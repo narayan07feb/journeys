@@ -158,7 +158,12 @@ class Server:
 
     def tracker(self) -> dict:
         from .tracker import summary
-        pack = self._pack()
+        try:
+            pack = self._pack()
+        except PackError:
+            if not self.state:
+                raise
+            return summary(self._store(), [])  # results stay readable while pack.yaml is broken
         return summary(self._store(pack), list(pack.drafts))
 
     def proposals(self) -> list:
