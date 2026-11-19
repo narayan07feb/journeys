@@ -254,3 +254,17 @@ def test_init_with_an_ambiguous_project_stops_before_asking(tmp_path, capsys, mo
     monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
     assert main(["--pack", str(tmp_path / "p"), "init", "--project", str(proj)]) == 2
     assert "several app ids" in capsys.readouterr().err
+
+
+def test_a_failing_stop_does_not_hide_the_results_and_doctor_flags_a_bad_env_driver(pack_dir, tmp_path, capsys,
+                                                                                    monkeypatch):
+    from journeys.drivers.base import DriverError
+    from journeys.drivers.fake import FakeDriver
+    monkeypatch.setattr(FakeDriver, "stop", lambda self: (_ for _ in ()).throw(DriverError("timeout")))
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "open-display",
+                 "--driver", "fake"]) == 0
+    out = capsys.readouterr()
+    assert "1/1 passed" in out.out and "WARN driver stop" in out.err
+    monkeypatch.setenv("JOURNEYS_DRIVER", "bogus")
+    assert main(["--pack", str(pack_dir), "doctor"]) == 1
+    assert "driver bogus is not one of" in capsys.readouterr().out

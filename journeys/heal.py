@@ -139,10 +139,11 @@ def explore(driver: Driver, amap: AppMap, app, deny: list, limit: int = 12) -> l
             continue
         tap = {"tapOn": sel}
         res = driver.do([tap])
-        if not res.ok:
+        alive = driver.app_alive()
+        if not res.ok and alive:  # a failed tap that killed the app is a crash, below
             options.append({"tap": from_command(tap), "leads_to": None, "note": res.message[:200]})
             continue
-        if not driver.app_alive():
+        if not alive:
             options.append({"tap": from_command(tap), "leads_to": "CRASH"})
             break
         other = left_app(driver, app)

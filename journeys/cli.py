@@ -69,6 +69,8 @@ def cmd_doctor(args) -> int:
         rows.append(("FAIL", str(e)))
     rows.append(("OK" if sys.version_info >= (3, 11) else "FAIL", f"python {sys.version.split()[0]}"))
     wanted = os.environ.get("JOURNEYS_DRIVER") or pack.driver if "pack" in locals() else None
+    if wanted and wanted not in DRIVERS:
+        rows.append(("FAIL", f"driver {wanted} is not one of {', '.join(DRIVERS)}"))
     if "pack" in locals() and not wanted:
         rows.append(("WARN", f"pack {pack.name} has no driver: ask the team which tool drives their device "
                              "(maestro or speedrun) and set driver: in pack.yaml; runs ask until then"))
@@ -138,6 +140,14 @@ def _refuse_errors(pack: Pack) -> None:
         raise PackError("\n".join(errors) + f"\n{len(errors)} pack errors: fix them first (journeys validate)")
 
 
+def _stop(driver: Driver) -> None:
+    """Stop the driver; a failed stop is a warning, never a reason to hide the results already saved."""
+    try:
+        driver.stop()
+    except DriverError as e:
+        print(f"WARN driver stop: {mask(str(e))}", file=sys.stderr)
+
+
 def ask_driver(why: str) -> str:
     """The user's own answer: Journeys never assumes a driver (no default, not even from the project)."""
     tools = " or ".join(d for d in DRIVERS if d != "fake")
@@ -182,7 +192,7 @@ def cmd_tap_all(args) -> int:
         rep = tap_all(pack, driver, store, run, serial=args.serial, dka=args.dka,
                       max_screens=args.max_screens, max_taps=args.max_taps)
     finally:
-        driver.stop()
+        _stop(driver)
     rep = TapAllReport(**mask(rep.__dict__))  # the console never shows what the store masks
     print(f"run {run.id}: {len(rep.screens)} screens walked, {len(rep.crashes)} crashes, "
           f"{len(rep.dead_ends)} dead ends, {len(rep.new_screens)} new screens")
@@ -201,6 +211,9 @@ def cmd_tap_all(args) -> int:
             if o["result"] == "failed":
                 print(f"tap failed  {s['screen']}  {o['tap']}: {o.get('note', '')}")
     status = store.run(run.id)
+    if status.get("dka_restore_error"):  # the device still has "don't keep activities" on
+        print(f"dka not restored: {status['dka_restore_error']}")
+        return 1
     for n in status.get("not_visited", []):
         print(f"not visited (--max-screens)  {n}")
     if status.get("error"):
@@ -232,7 +245,7 @@ def cmd_run(args) -> int:
             run.save()
         raise
     finally:
-        driver.stop()
+        _stop(driver)
     for o in outs:
         line = f"{o.status:7} {o.name}"
         if o.changes:
@@ -377,14 +390,15 @@ def cmd_init(args) -> int:
 
 def cmd_look(args) -> int:
     """The screen on the device now, as Journeys reads it, and which map screen it is. Read-only."""
-    pack = _load(args)
-    _refuse_errors(pack)
+    pack = _load(args)  # pack errors do not stop it: look taps nothing, and it helps fix a screen rule
+    for e in pack.run_errors():
+        print(f"WARN {e}", file=sys.stderr)
     _, driver = _open(args, pack)
     driver.start(pack.app, args.serial)
     try:
         screen = driver.look()
     finally:
-        driver.stop()
+        _stop(driver)
     ident = pack.map.identify(screen)
     print(mask(screen.listing()))  # the console never shows what the store masks
     print(f"-- map screen: {ident.name or 'unknown'}")

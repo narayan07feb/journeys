@@ -559,14 +559,17 @@ def test_deny_list_catches_spaces_and_dashes_of_any_kind_and_more_stems():
         assert not any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
 
 
-def test_a_broken_tap_all_block_stops_tap_all_and_look(tappable_pack_dir, capsys):
+def test_a_broken_tap_all_block_stops_tap_all_and_look_only_warns(tappable_pack_dir, capsys):
     f = tappable_pack_dir / "pack.yaml"
     keep = f.read_text()
     f.write_text(keep + "  deny: [{text: \"/(?i)nuke/\", kind: Btn}]\n")
     assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 2
     assert "kind is one of" in capsys.readouterr().err + capsys.readouterr().out
     assert not list((tappable_pack_dir / "s").glob("runs/*"))
-    assert cli(tappable_pack_dir, "look", "--driver", "fake") == 2
+    capsys.readouterr()
+    assert cli(tappable_pack_dir, "look", "--driver", "fake") == 0  # look taps nothing: it warns, and helps fix
+    err = capsys.readouterr().err
+    assert "WARN" in err and "kind is one of" in err
     for bad in ("tap_all: false\n", "tap_all:\n  allowed: \"false\"\n"):
         f.write_text(keep.split("tap_all:")[0] + bad)
         pack = Pack.load(tappable_pack_dir)

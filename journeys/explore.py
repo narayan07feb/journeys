@@ -14,7 +14,7 @@ from .actions import from_command, from_commands
 from .drivers.base import Driver, DriverError, Screen, changes_allowed
 from .heal import fingerprint, heading, left_app, new_denied, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
-from .results import Run, Store, mask
+from .results import Run, Store, mask, write_json
 
 DKA = "always_finish_activities"
 
@@ -65,8 +65,16 @@ class TapAll:
         res = self.driver.do(["stopApp", "launchApp", *f.route])
         return res.ok and self.driver.app_alive() and self._key(self.driver.look())[0] == f.key
 
+    def _live(self, status: str, message: str = "") -> None:
+        """The live page and Droid Lite panel follow tap-all as they follow a run."""
+        write_json(self.store.root / "live.json", {
+            "run": self.run.id, "journey": "tap-all", "status": status,
+            "step": f"{len(self.report.screens)} screens", "text": "", "screen": None,
+            "message": message, "updated": time.time()})
+
     def walk(self) -> TapAllReport:
         """Any stop (a lost link, Ctrl-C, a bug) ends the run as failed with what was walked so far."""
+        self._live("running")
         try:
             res = self.driver.do(["stopApp", "launchApp"])
             if not res.ok:  # an app that does not start is not a clean walk
@@ -82,6 +90,7 @@ class TapAll:
             self.run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__,
                                  tap_all=self.report.__dict__)
             self.run.save()
+            self._live("failed", str(e) or type(e).__name__)
             raise
         self.report.new_screens = [f.key for f in self.found if not f.known]
         if len(self.found) > self.max_screens:
@@ -92,6 +101,7 @@ class TapAll:
         self.run.data.update(status="passed" if clean else "failed", ended=time.time(), tap_all=self.report.__dict__,
                              **({} if tapped else {"error": "nothing was tapped: every element is denied or unlabelled"}))
         self.run.save()
+        self._live(self.run.data["status"], self.run.data.get("error", ""))
         return self.report
 
     def _back_to(self, here: Found, options: list) -> bool:

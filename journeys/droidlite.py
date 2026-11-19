@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("usage: droidlite list | run <id> | watch | failures | proposals | doctor", file=sys.stderr)
             return 2
-    except (PackError, DriverError) as e:
+    except (PackError, DriverError, OSError) as e:
         emit(label="journeys", status="failed", message=mask(str(e)))
         return 1
     return 0

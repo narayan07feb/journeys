@@ -23,7 +23,12 @@ RUN_ID = re.compile(r"[0-9A-Za-z-]{1,64}")
 
 def set_secrets(values) -> None:
     """Env values (passwords, tokens) the run knows; every string written later is masked."""
-    _SECRETS[:] = sorted({str(v) for v in values if len(str(v)) >= 3}, key=len, reverse=True)
+    raw = {str(v) for v in values if len(str(v)) >= 3}
+    # the forms a value takes in hook arguments, tool output and Python messages: JSON-escaped
+    # ('my\\"pw', 'p\\u00e4ss') and repr-escaped ("it\\'s") as well as raw
+    forms = {f for s in raw for f in (s, json.dumps(s)[1:-1], json.dumps(s, ensure_ascii=False)[1:-1],
+                                       repr(s)[1:-1])}
+    _SECRETS[:] = sorted(forms, key=len, reverse=True)
 
 
 # Fields Journeys itself fills with words it reads back (status, ids, names): a secret like "pass"

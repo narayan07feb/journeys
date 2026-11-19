@@ -168,3 +168,15 @@ def test_journey_names_are_not_masked(pack_dir, tmp_path):
                                                                             "message": "open-•••"}
     finally:
         set_secrets([])
+
+
+def test_json_and_repr_escaped_secrets_are_masked():
+    import json
+    from journeys.results import mask, set_secrets
+    set_secrets(['my"secret', "pässwörd1", "it's-s3cret"])
+    try:
+        for s in ('my"secret', "pässwörd1", "it's-s3cret"):
+            for form in (s, json.dumps(s), json.dumps(s, ensure_ascii=False), repr(s)):
+                assert s not in mask(form) and json.dumps(s)[1:-1] not in mask(form), form
+    finally:
+        set_secrets([])

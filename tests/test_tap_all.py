@@ -462,3 +462,61 @@ def test_update_and_connect_buttons_are_denied():
     from journeys.pack import DEFAULT_DENY
     for text in ("Update", "Connect", "System update"):
         assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text
+
+
+def test_tap_all_writes_the_live_view_and_a_failed_dka_restore_fails_the_command(tappable_pack_dir, capsys,
+                                                                                  monkeypatch):
+    import json
+    from journeys.cli import main
+    from journeys.drivers.fake import FakeDriver
+    state = tappable_pack_dir / "s"
+    real = FakeDriver.global_setting
+
+    def setting(self, name, value=None):
+        if value == "0":
+            raise DriverError("adb gone")
+        return real(self, name, value)
+    monkeypatch.setattr(FakeDriver, "global_setting", setting)
+    assert main(["--pack", str(tappable_pack_dir), "--state", str(state), "tap-all", "--driver", "fake",
+                 "--dka"]) == 1
+    assert "dka not restored" in capsys.readouterr().out
+    live = json.loads((state / "live.json").read_text())
+    assert live["journey"] == "tap-all" and live["status"] in ("passed", "failed")
+
+
+def test_explore_records_a_failed_tap_that_killed_the_app_as_a_crash():
+    from journeys.appmap import AppMap
+    from journeys.drivers.base import CommandResult
+    from journeys.heal import explore
+    app = {"app": "a.b", "start": "S", "screens": {"S": {"elements": [
+        {"kind": "Text", "text": "Hi"}, {"kind": "Button", "text": "Boom", "to": "CRASH"},
+        {"kind": "Button", "text": "Other"}]}}}
+    d = FakeDriver(app)
+    d.do(["launchApp"])
+    real = d.do
+    d.do = lambda cmds: (real(cmds), CommandResult(False, "tool error"))[1] if cmds == [{"tapOn": "Boom"}] else real(cmds)
+    opts = explore(d, AppMap(), "a.b", [])
+    boom = next(o for o in opts if o["tap"] == {"tap": "Boom"})
+    assert boom["leads_to"] == "CRASH" and opts[-1] is boom  # explore stops at the crash
+
+
+def test_the_live_view_follows_a_walk_and_its_stop(t):
+    import json
+    app, driver, store, walk = t
+    seen = []
+    real_look, real_one = driver.look, driver._one
+
+    def look():
+        seen.append(json.loads((store.root / "live.json").read_text())["status"])
+        return real_look()
+    driver.look = look
+
+    def lost(cmd):
+        if isinstance(cmd, dict) and "tapOn" in cmd and len(seen) > 3:
+            raise DriverError("adb link lost")
+        return real_one(cmd)
+    driver._one = lost
+    with pytest.raises(DriverError):
+        walk()
+    assert seen[0] == "running"
+    assert json.loads((store.root / "live.json").read_text())["status"] == "failed"
