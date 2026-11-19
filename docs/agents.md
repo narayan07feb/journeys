@@ -28,13 +28,16 @@ Who did it: `JOURNEYS_ACTOR` when set (a person's or an agent's name); the MCP c
 whose shell sets `AI_AGENT` or `CLAUDECODE`; else `person`.
 
 Agent usage counts drafts (written or imported), journeys built (drafts promoted) and issues
-solved, each issue once: failures whose journey passed again (each failure counts, so one pass can
-fix two; a tap-all crash is fixed by a later clean tap-all), plus failures healed by a promoted
-proposal and not already counted that way. Decided counts promotes and rejects; a reject solves
+solved, each issue once: a journey that passed again after failing (one pass is one issue, however
+many failure records the nightly runs left; only a run that started after the failure counts; a
+tap-all crash is fixed by a later clean tap-all that walked every screen with the same `--dka`),
+plus failures healed by a promoted proposal and not already counted that way. A promoted detour
+proposal (no failure) counts as a change, not an issue. Decided counts promotes and rejects; a reject solves
 nothing, and its failure stays in the work queue for a heal by hand. Who fixed a failure is a best
 guess: whoever last promoted its proposal or that journey before the pass, else whoever ran the
 passing run; the time from failure to that pass is the fix time. Journeys does not see tokens or
-cost. The queue lists the newest 50 open failures and counts all of them.
+cost. The queue lists the newest 50 open failures and counts all of them; the per-day table shows
+the last 14 days. Every MCP call counts as a tool call, `wait_run` polls included.
 
 ## Droid Lite
 

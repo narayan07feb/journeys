@@ -37,11 +37,12 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 <div class="wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead>
 <tbody id="acts"></tbody></table></div>
 <h2 id="usage">Agent usage</h2><p class="muted">Journeys built and issues solved, per person or agent.
-Fixed: failures whose journey passed again (each failure once). Solved: fixed, plus promoted proposals
-not already counted there. Decided: promotes and rejects. Who fixed a failure is a best guess.</p>
+Fixed: journeys that passed again after failing (one pass is one issue, however many failure records).
+Solved: fixed, plus failures healed by a promoted proposal. Decided: promotes and rejects. Changes:
+detours accepted. Who fixed a failure is a best guess. The per-day table shows the last 14 days.</p>
 <div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
 <th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Solved</th><th class="n">Avg fix (min)</th>
-<th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
+<th class="n">Changes</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
 <h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Drafts</th><th class="n">Built</th>
 <th class="n">Solved</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="days"></tbody></table></div>
 <script>
@@ -54,7 +55,7 @@ const num=v=>v??"";
 async function tick(){
   try{
     const l=await (await fetch("live.json")).json();
-    if(l.run) set("live",`<b>${esc(l.journey)}</b> <span class="${esc(l.status)}">${esc(l.status)}</span> · ${esc(l.step)}`+
+    if(l.run) set("live",(l.status==="running"?"":"last run: ")+`<b>${esc(l.journey)}</b> <span class="${esc(l.status)}">${esc(l.status)}</span> · ${esc(l.step)}`+
       ` · ${esc(l.text)} <span class="muted">· run ${esc(l.run)}</span>`+(l.message?` <span class="failed">${esc(l.message)}</span>`:""));
     const t=await (await fetch("tracker.json")).json();
     if(t.error){set("live",`<span class="failed">tracker: ${esc(t.error)}</span>`);return}
@@ -73,7 +74,7 @@ async function tick(){
       `<td>${detail(a)}</td></tr>`).join(""));
     set("actors",Object.entries(t.usage.actors).map(([k,u])=>`<tr><td>${esc(k)}</td><td class="n">${u.drafts}</td>`+
       `<td class="n">${u.journeys_built}</td><td class="n">${u.decided}</td><td class="n">${u.fixed}</td><td class="n">${u.solved}</td>`+
-      `<td class="n">${num(u.avg_fix_minutes)}</td><td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`).join(""));
+      `<td class="n">${num(u.avg_fix_minutes)}</td><td class="n">${u.changes}</td><td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`).join(""));
     set("days",Object.entries(t.usage.days).reverse().flatMap(([d,rows])=>Object.entries(rows).map(([k,u])=>
       `<tr><td>${esc(d)}</td><td>${esc(k)}</td><td class="n">${u.drafts}</td><td class="n">${u.journeys_built}</td><td class="n">${u.solved}</td>`+
       `<td class="n">${u.runs}</td><td class="n">${u.tool_calls}</td></tr>`)).join(""));

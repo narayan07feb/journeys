@@ -324,10 +324,10 @@ def cmd_tracker(args) -> int:
     q = t["queue"]
     print(f"work queue: {q['failures_open']} open failures, {len(q['proposals'])} open proposals, "
           f"{len(q['drafts'])} drafts")
-    print("agent usage (drafts / journeys built / proposals decided / failures fixed / runs / tool calls):")
+    print("agent usage (drafts / journeys built / proposals decided / issues solved / runs / tool calls):")
     for who, u in t["usage"]["actors"].items():
         fix = f", avg fix {u['avg_fix_minutes']} min" if u["avg_fix_minutes"] is not None else ""
-        print(f"  {who}: {u['drafts']} / {u['journeys_built']} / {u['decided']} / {u['fixed']} / {u['runs']} / "
+        print(f"  {who}: {u['drafts']} / {u['journeys_built']} / {u['decided']} / {u['solved']} / {u['runs']} / "
               f"{u['tool_calls']}{fix}")
     for a in t["activity"][:10]:
         print(f"  {time.strftime('%m-%d %H:%M', time.localtime(_t(a.get('time'))))}  {a.get('actor')}  "

@@ -71,15 +71,18 @@ def runs(st: State, last: int = 30) -> list[dict]:
 def fixes(st: State) -> dict[str, dict]:
     """Per failure id: when its journey next passed, and who fixed it. Best effort: the fix goes to
     whoever last promoted this failure's proposal or that journey between the failure and the pass,
-    else to whoever ran the passing run. A tap-all crash is fixed by a later clean tap-all."""
-    passes: dict[str, list[tuple[float, str]]] = {}
+    else to whoever ran the passing run. Only a run that started after the failure counts. A tap-all
+    crash is fixed by a later clean tap-all that walked everything, with the same --dka."""
+    passes: dict[str, list[tuple[float, float, str]]] = {}  # journey -> (started, ended, actor)
+    dka = {r.get("id"): bool(r.get("dka")) for r in st.runs}
     for r in st.runs:
-        when = _t(r.get("ended")) or _t(r.get("started"))
-        if r.get("target") == "tap-all" and r.get("status") == "passed":  # a clean walk closes its crashes
-            passes.setdefault("tap-all", []).append((when, _s(r.get("actor"))))
+        start = _t(r.get("started"))
+        p = (start, _t(r.get("ended")) or start, _s(r.get("actor")))
+        if r.get("target") == "tap-all" and r.get("status") == "passed" and not r.get("not_visited"):
+            passes.setdefault(_walk(bool(r.get("dka"))), []).append(p)  # a full clean walk closes its crashes
         for j in _journeys(r):
             if j.get("status") == "passed" and isinstance(j.get("name"), str):
-                passes.setdefault(j["name"], []).append((when, _s(r.get("actor"))))
+                passes.setdefault(j["name"], []).append(p)
     work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
         if a["action"] in ("proposal.promote", "journey.promote"):
@@ -91,15 +94,20 @@ def fixes(st: State) -> dict[str, dict]:
         if not isinstance(f.get("journey"), str):
             continue
         t = _t(f.get("time"))
-        later = sorted(p for p in passes.get(f["journey"], []) if p[0] > t)
+        key = _walk(dka.get(f.get("run"), False)) if f["journey"] == "tap-all" else f["journey"]
+        later = sorted(p for p in passes.get(key, []) if p[0] > t)
         if not later:
             continue
-        when, runner = later[0]
+        _, when, runner = later[0]
         by = sorted((a for a in work.get(f["id"], []) + work.get(f["journey"], []) if t < _t(a.get("time")) <= when),
                     key=lambda a: _t(a.get("time")))
-        out[f["id"]] = {"fixed": when, "minutes": round((when - t) / 60, 1),
+        out[f["id"]] = {"journey": f["journey"], "fixed": when, "minutes": round((when - t) / 60, 1),
                         "by": _s(by[-1].get("actor")) if by else runner}
     return out
+
+
+def _walk(dka: bool) -> str:
+    return "tap-all --dka" if dka else "tap-all"
 
 
 def queue(st: State, drafts: list[str], fixed: dict) -> dict:
@@ -131,10 +139,11 @@ def activity(st: State, last: int = 200) -> list[dict]:
 def usage(st: State, fixed: dict) -> dict:
     """Per actor and per day: journeys built and issues solved, runs, agent tool calls, fix time.
 
-    solved counts each issue once: failures fixed (a journey passing again), plus promoted proposals
-    whose failure is not among them. "decided" counts promotes and rejects; a reject solves nothing."""
+    solved counts each issue once: a journey passing again after failing (however many failure
+    records it left), plus failures healed by a promoted proposal and not counted that way.
+    "decided" counts promotes and rejects; a reject solves nothing; a detour promote is a change."""
     def blank() -> dict:
-        return {"drafts": 0, "journeys_built": 0, "decided": 0, "fixed": 0, "healed": 0, "runs": 0,
+        return {"drafts": 0, "journeys_built": 0, "decided": 0, "fixed": 0, "healed": 0, "changes": 0, "runs": 0,
                 "tool_calls": 0, "fix_minutes": []}
     per: dict[str, dict] = {}
     days: dict[str, dict[str, dict]] = {}
@@ -159,17 +168,22 @@ def usage(st: State, fixed: dict) -> dict:
         elif act in DECIDE:
             add(who, t, "decided")
             f = a.get("failure")
-            if act == "proposal.promote" and f not in fixed and (f is None or f not in healed_once):
+            if act == "proposal.promote" and isinstance(f, str) and f not in fixed and f not in healed_once:
                 add(who, t, "healed")  # solved by the promote itself: no later pass counts it again
-                if f:
-                    healed_once.add(f)  # a second proposal for the same failure is not a second issue
+                healed_once.add(f)  # a second proposal for the same failure is not a second issue
+            elif act == "proposal.promote" and f is None:
+                add(who, t, "changes")  # a detour accepted: the app changed, nothing was broken
         elif act == "mcp.call":
             add(who, t, "tool_calls")
     for r in st.runs:
         add(_s(r.get("actor")), _t(r.get("started")), "runs")
+    issues: dict[tuple, float] = {}  # one pass that fixes several failures of a journey is one issue
     for fix in fixed.values():
-        add(fix["by"], fix["fixed"], "fixed")
-        add(fix["by"], fix["fixed"], "fix_minutes", fix["minutes"])
+        k = (fix["journey"], fix["fixed"], fix["by"])
+        issues[k] = max(issues.get(k, 0), fix["minutes"])  # its fix time runs from the first failure
+    for (_, when, by), minutes in issues.items():
+        add(by, when, "fixed")
+        add(by, when, "fix_minutes", minutes)
 
     def done(row: dict) -> dict:
         m = row.pop("fix_minutes")

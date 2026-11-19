@@ -208,7 +208,9 @@ def test_round_2_counts(pack_dir, monkeypatch, capsys):
     assert (u["drafts"], u["journeys_built"], u["solved"]) == (1, 1, 1)  # two promotes, one issue
     q = t["queue"]
     assert len(q["failures"]) == 50 and q["failures_open"] == 80  # F-1 healed; 79 + the tap-all crash
-    assert cli(pack_dir, "tracker") == 0 and "80 open failures" in capsys.readouterr().out
+    assert cli(pack_dir, "tracker") == 0
+    out = capsys.readouterr().out
+    assert "80 open failures" in out and "  a: 1 / 1 / 2 / 1 / 0 / 0" in out  # solved 1: healed, not fixed
     tappable = pack_dir / "pack.yaml"
     tappable.write_text(tappable.read_text().replace("allowed: false", "allowed: true"))
     assert cli(pack_dir, "tap-all", "--driver", "fake") == 0  # a clean walk closes the old crash
@@ -248,3 +250,51 @@ def test_bad_bytes_odd_ids_and_impossible_times(pack_dir, monkeypatch):
         set_secrets([])
     last = store.activity()[-1]
     assert "hunter2" not in json.dumps(last) and len(last["args"]["why"]) <= 501
+
+
+def test_round_3_what_counts_as_solved(pack_dir, monkeypatch):
+    from journeys.tracker import summary
+    monkeypatch.setenv("JOURNEYS_ACTOR", "a")
+    store = Store(pack_dir / "s")
+    # a detour promote is a change, not an issue
+    for i in range(2):
+        pid = store.add_proposal({"summary": f"detour {i}", "change": {}})
+        store.update_proposal(pid, status="promoted")
+        store.log("proposal.promote", id=pid)
+    u = summary(store, [])["usage"]["actors"]["a"]
+    assert (u["changes"], u["solved"], u["decided"]) == (2, 0, 2)
+
+
+def _run(store, actor, target, started, ended, journeys=(), **meta):
+    import time as _time
+    r = store.new_run(target=target, **meta)
+    r.data.update(actor=actor, started=started, ended=ended, status=meta.get("status", "passed"),
+                  journeys=[{"name": n, "status": s} for n, s in journeys])
+    r.save()
+    _time.sleep(0.001)
+    return r
+
+
+def test_round_3_when_a_failure_is_fixed(pack_dir):
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    t0 = 1_700_000_000.0
+    nights = []
+    for night in range(3):  # one bug, failing three nights
+        nights.append(store.add_failure({"journey": "checkout", "message": "x"}))
+        store.update_failure(nights[-1], time=t0 + night * 86400)
+    _run(store, "parallel", "all", t0 + 2 * 86400 - 60, t0 + 2 * 86400 + 60, [("checkout", "passed")])
+    t = summary(store, [])
+    assert t["queue"]["failures_open"] == 1  # a run that started before the last failure fixes only older ones
+    _run(store, "fixer", "all", t0 + 3 * 86400, t0 + 3 * 86400 + 60, [("checkout", "passed")])
+    u = summary(store, [])["usage"]["actors"]
+    assert u["fixer"]["fixed"] == 1 and u["parallel"]["fixed"] == 1  # one pass, one issue each
+    # a --dka crash is not closed by a plain or partial walk
+    crash_run = _run(store, "w", "tap-all", t0 + 5 * 86400, t0 + 5 * 86400 + 60, status="failed", dka=True)
+    f = store.add_failure({"journey": "tap-all", "message": "the app crashed", "run": crash_run.id})
+    store.update_failure(f, time=t0 + 5 * 86400 + 30)
+    _run(store, "w", "tap-all", t0 + 6 * 86400, t0 + 6 * 86400 + 60, dka=False)
+    _run(store, "w", "tap-all", t0 + 7 * 86400, t0 + 7 * 86400 + 60, dka=True, not_visited=["NEW:X:1"])
+    assert f in [x["id"] for x in summary(store, [])["queue"]["failures"]]
+    _run(store, "w", "tap-all", t0 + 8 * 86400, t0 + 8 * 86400 + 60, dka=True)
+    assert f not in [x["id"] for x in summary(store, [])["queue"]["failures"]]
