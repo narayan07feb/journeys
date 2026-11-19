@@ -41,7 +41,7 @@ Fixed: journeys that passed again after failing (one pass is one issue, however 
 Solved: fixed, plus failures healed by a promoted proposal. Decided: promotes and rejects. Changes:
 detours accepted. Who fixed a failure is a best guess. The per-day table shows the last 14 days.</p>
 <div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
-<th class="n">Proposals decided</th><th class="n">Failures fixed</th><th class="n">Solved</th><th class="n">Avg fix (min)</th>
+<th class="n">Proposals decided</th><th class="n">Issues fixed</th><th class="n">Solved</th><th class="n">Avg fix (min)</th>
 <th class="n">Changes</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="actors"></tbody></table></div>
 <h3>Per day</h3><div class="wrap"><table><thead><tr><th>Day</th><th>Who</th><th class="n">Drafts</th><th class="n">Built</th>
 <th class="n">Solved</th><th class="n">Runs</th><th class="n">Tool calls</th></tr></thead><tbody id="days"></tbody></table></div>
@@ -100,6 +100,9 @@ def make_handler(store: Store, drafts=lambda: []):
             self.wfile.write(body)
 
         def do_GET(self):
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+            if host not in ("127.0.0.1", "localhost"):  # a DNS-rebinding page cannot read the activity log
+                return self._send(403, b"forbidden", "text/plain")
             path = self.path.split("?")[0]
             if path == "/":
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
@@ -110,7 +113,7 @@ def make_handler(store: Store, drafts=lambda: []):
             if path == "/tracker.json":
                 from .tracker import summary
                 try:
-                    body = json.dumps(summary(store, drafts()), default=str).encode()
+                    body = json.dumps(summary(store, drafts()), default=str, allow_nan=False).encode()
                 except Exception as e:  # the page says what broke, the server keeps serving
                     return self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
                 return self._send(200, body, "application/json")

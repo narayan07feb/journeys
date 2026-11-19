@@ -298,3 +298,63 @@ def test_round_3_when_a_failure_is_fixed(pack_dir):
     assert f in [x["id"] for x in summary(store, [])["queue"]["failures"]]
     _run(store, "w", "tap-all", t0 + 8 * 86400, t0 + 8 * 86400 + 60, dka=True)
     assert f not in [x["id"] for x in summary(store, [])["queue"]["failures"]]
+
+
+def test_round_4_logging_and_odd_state(pack_dir, tmp_path, monkeypatch):
+    from journeys.mcp_server import Server
+    from journeys.tracker import summary
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    assert main(["--pack", str(pack_dir), "--state", str(blocker / "s"), "new", "bar",
+                 "--start", "SETTINGS-HOME"]) == 0  # the draft is written; a state folder it cannot make is no error
+    assert (pack_dir / "drafts" / "bar.yaml").exists()
+    # a broken pack.yaml does not hide results that are already in the state folder
+    state = tmp_path / "st"
+    Store(state).add_failure({"journey": "x", "message": "m"})
+    (pack_dir / "pack.yaml").write_text("name: [\n")
+    out = Server(str(pack_dir), str(state))._call("failures", {})
+    assert not out.get("isError") and "F-1" in out["content"][0]["text"]
+    # unhashable ids and NaN never break the tracker or the page's JSON
+    store = Store(tmp_path / "odd")
+    (tmp_path / "odd" / "runs" / "r").mkdir(parents=True)
+    (tmp_path / "odd" / "runs" / "r" / "run.json").write_text(json.dumps({"id": ["a"], "target": "tap-all"}))
+    (tmp_path / "odd" / "failures.json").write_text('[{"id": "F-1", "journey": "tap-all", "run": ["x"],'
+                                                    ' "time": NaN, "message": NaN}]')
+    t = summary(store, [])
+    json.dumps(t, allow_nan=False)
+    assert t["queue"]["failures"][0]["message"] is None
+
+
+def test_one_pass_is_one_issue_credited_to_the_latest_promoter(pack_dir):
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    t0 = 1_700_000_000.0
+    f1 = store.add_failure({"journey": "j", "message": "x"})
+    store.update_failure(f1, time=t0)
+    f2 = store.add_failure({"journey": "j", "message": "x"})
+    store.update_failure(f2, time=t0 + 86400)
+    with open(pack_dir / "s" / "activity.jsonl", "w") as f:  # A heals the second night's failure
+        f.write(json.dumps({"time": t0 + 86400 + 100, "actor": "A", "action": "proposal.promote", "failure": f2}) + "\n")
+    r = store.new_run(target="all")
+    r.data.update(actor="ci", started=t0 + 2 * 86400, ended=t0 + 2 * 86400 + 60, status="passed",
+                  journeys=[{"name": "j", "status": "passed"}])
+    r.save()
+    u = summary(store, [])["usage"]["actors"]
+    assert u["A"]["fixed"] == 1 and u.get("ci", {}).get("fixed", 0) == 0
+
+
+def test_the_page_answers_only_local_hosts(pack_dir):
+    import http.client
+    from journeys.live import serve
+    srv = serve(Store(pack_dir / "s"), 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        port = srv.server_address[1]
+        for host, code in (("evil.example", 403), (f"127.0.0.1:{port}", 200), (f"localhost:{port}", 200)):
+            c = http.client.HTTPConnection("127.0.0.1", port)
+            c.request("GET", "/tracker.json", headers={"Host": host})
+            assert c.getresponse().status == code, host
+            c.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()

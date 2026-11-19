@@ -25,6 +25,11 @@ def _s(v) -> str:
     return v if isinstance(v, str) else "?"
 
 
+def _text(v) -> str | None:
+    """Text for the page, or None: a number like NaN would break the browser's JSON.parse."""
+    return v if isinstance(v, str) else None
+
+
 def _day(t: float) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(t))
 
@@ -74,7 +79,7 @@ def fixes(st: State) -> dict[str, dict]:
     else to whoever ran the passing run. Only a run that started after the failure counts. A tap-all
     crash is fixed by a later clean tap-all that walked everything, with the same --dka."""
     passes: dict[str, list[tuple[float, float, str]]] = {}  # journey -> (started, ended, actor)
-    dka = {r.get("id"): bool(r.get("dka")) for r in st.runs}
+    dka = {r["id"]: bool(r.get("dka")) for r in st.runs if isinstance(r.get("id"), str)}
     for r in st.runs:
         start = _t(r.get("started"))
         p = (start, _t(r.get("ended")) or start, _s(r.get("actor")))
@@ -94,7 +99,8 @@ def fixes(st: State) -> dict[str, dict]:
         if not isinstance(f.get("journey"), str):
             continue
         t = _t(f.get("time"))
-        key = _walk(dka.get(f.get("run"), False)) if f["journey"] == "tap-all" else f["journey"]
+        run = f.get("run") if isinstance(f.get("run"), str) else None
+        key = _walk(dka.get(run, False)) if f["journey"] == "tap-all" else f["journey"]
         later = sorted(p for p in passes.get(key, []) if p[0] > t)
         if not later:
             continue
@@ -102,7 +108,8 @@ def fixes(st: State) -> dict[str, dict]:
         by = sorted((a for a in work.get(f["id"], []) + work.get(f["journey"], []) if t < _t(a.get("time")) <= when),
                     key=lambda a: _t(a.get("time")))
         out[f["id"]] = {"journey": f["journey"], "fixed": when, "minutes": round((when - t) / 60, 1),
-                        "by": _s(by[-1].get("actor")) if by else runner}
+                        "by": _s(by[-1].get("actor")) if by else runner,
+                        "credit": _t(by[-1].get("time")) if by else 0.0}  # a promote outranks the runner
     return out
 
 
@@ -114,12 +121,12 @@ def queue(st: State, drafts: list[str], fixed: dict) -> dict:
     """Open work. A failure stays open until its journey passes again or its proposal is promoted:
     a rejected proposal means "not this heal", so the failure still needs one by hand."""
     healed = {p.get("failure") for p in st.proposals if p.get("status") == "promoted"}
-    open_ = [{k: f.get(k) for k in ("id", "journey", "message", "time")} for f in st.failures
-             if f["id"] not in fixed and f["id"] not in healed]
+    open_ = [{"id": f["id"], "journey": f.get("journey"), "message": _text(f.get("message")),
+              "time": _t(f.get("time")) or None} for f in st.failures if f["id"] not in fixed and f["id"] not in healed]
     return {
         "failures": open_[-50:], "failures_open": len(open_),  # the list is the newest 50; the count is all
-        "proposals": [{k: p.get(k) for k in ("id", "summary", "time", "failure")} for p in st.proposals
-                      if p.get("status") == "proposed"],
+        "proposals": [{"id": p["id"], "summary": _text(p.get("summary")), "time": _t(p.get("time")) or None,
+                       "failure": p.get("failure")} for p in st.proposals if p.get("status") == "proposed"],
         "drafts": sorted(drafts),
     }
 
@@ -177,13 +184,15 @@ def usage(st: State, fixed: dict) -> dict:
             add(who, t, "tool_calls")
     for r in st.runs:
         add(_s(r.get("actor")), _t(r.get("started")), "runs")
-    issues: dict[tuple, float] = {}  # one pass that fixes several failures of a journey is one issue
+    issues: dict[tuple, dict] = {}  # one pass that fixes several failures of a journey is one issue
     for fix in fixed.values():
-        k = (fix["journey"], fix["fixed"], fix["by"])
-        issues[k] = max(issues.get(k, 0), fix["minutes"])  # its fix time runs from the first failure
-    for (_, when, by), minutes in issues.items():
-        add(by, when, "fixed")
-        add(by, when, "fix_minutes", minutes)
+        i = issues.setdefault((fix["journey"], fix["fixed"]), {"minutes": 0, "credit": -1, "by": fix["by"]})
+        i["minutes"] = max(i["minutes"], fix["minutes"])  # its fix time runs from the first failure
+        if fix["credit"] > i["credit"]:  # the latest promote among its failures gets it, else the runner
+            i["credit"], i["by"] = fix["credit"], fix["by"]
+    for (_, when), i in issues.items():
+        add(i["by"], when, "fixed")
+        add(i["by"], when, "fix_minutes", i["minutes"])
 
     def done(row: dict) -> dict:
         m = row.pop("fix_minutes")

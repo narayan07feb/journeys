@@ -15,7 +15,7 @@ from pathlib import Path
 from . import __version__
 from .drivers import DRIVERS
 from .heal import promote, reject
-from .pack import Pack
+from .pack import Pack, PackError
 from .results import Store, read_json, write_json
 
 PROTOCOL = "2025-06-18"
@@ -59,9 +59,15 @@ class Server:
 
     def _store(self, pack: Pack | None = None) -> Store:
         from .results import default_state_dir, set_secrets
-        pack = pack or self._pack()
-        set_secrets(pack.variables().values())  # what this server writes (activity, proposals) is masked
-        if self.state:
+        if pack is None:
+            try:
+                pack = self._pack()
+            except PackError:
+                if not self.state:
+                    raise
+        if pack is not None:
+            set_secrets(pack.variables().values())  # what this server writes (activity, proposals) is masked
+        if self.state:  # a broken pack.yaml does not hide results that are already there
             return Store(Path(self.state).expanduser())
         return Store(default_state_dir(pack.name))
 
@@ -193,7 +199,7 @@ class Server:
 
     def _call(self, name: str, args: dict) -> dict:
         if not isinstance(name, str) or name not in TOOLS or not isinstance(args, dict):
-            return {"content": [{"type": "text", "text": f"no tool {name}"}], "isError": True}
+            return {"content": [{"type": "text", "text": f"no tool {name}"}], "isError": True}  # not a tool call
         t0, ok = time.monotonic(), False
         try:
             out = getattr(self, name)(**args)

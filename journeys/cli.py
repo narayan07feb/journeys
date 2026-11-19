@@ -53,6 +53,14 @@ def _load(args) -> Pack:
     return Pack.load(args.pack)
 
 
+def _log(args, pack: Pack, action: str, **detail) -> None:
+    """The tracker's activity line for work already done: never a reason for that command to fail."""
+    try:
+        _store(args, pack).log(action, **detail)
+    except Exception:
+        pass
+
+
 def _store(args, pack: Pack) -> Store:
     set_secrets(pack.variables().values())  # every store write, the activity log too, masks env values
     return Store(Path(args.state).expanduser() if args.state else default_state_dir(pack.name))
@@ -456,7 +464,7 @@ def cmd_new(args) -> int:
     from .authoring import new_draft
     pack = _load(args)
     print(f"draft written: {new_draft(pack, args.name, args.start)}")
-    _store(args, pack).log("draft.new", journey=args.name)
+    _log(args, pack, "draft.new", journey=args.name)
     return 0
 
 
@@ -464,7 +472,7 @@ def cmd_promote_journey(args) -> int:
     from .authoring import promote_journey
     pack = _load(args)
     print(f"promoted: {promote_journey(pack, args.name)}")
-    _store(args, pack).log("journey.promote", journey=args.name)
+    _log(args, pack, "journey.promote", journey=args.name)
     return 0
 
 
@@ -523,7 +531,7 @@ def cmd_import(args) -> int:
         dest.parent.mkdir(exist_ok=True)
         dest.write_text(yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
         print(f"draft {dest}")
-        _store(args, pack).log("draft.import", journey=draft["name"], source=f.name)
+        _log(args, pack, "draft.import", journey=draft["name"], source=f.name)
         for n in notes:
             print(f"  NOTE {n}")
     print("next: `journeys validate`, then put expect/goto steps on the map's screens, then promote-journey")

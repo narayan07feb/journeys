@@ -37,7 +37,8 @@ nothing, and its failure stays in the work queue for a heal by hand. Who fixed a
 guess: whoever last promoted its proposal or that journey before the pass, else whoever ran the
 passing run; the time from failure to that pass is the fix time. Journeys does not see tokens or
 cost. The queue lists the newest 50 open failures and counts all of them; the per-day table shows
-the last 14 days. Every MCP call counts as a tool call, `wait_run` polls included.
+the last 14 days. Every call to a Journeys MCP tool counts as a tool call, `wait_run` polls included. The page
+answers only requests addressed to 127.0.0.1 or localhost.
 
 ## Droid Lite
 
