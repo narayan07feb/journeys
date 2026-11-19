@@ -43,7 +43,7 @@ def test_list_run_views_doctor(pack_dir, tmp_path):
     assert tree[0]["children"][0]["file"].endswith(".yaml")
     assert {c["id"] for c in tree[1]["children"]} == {"set:smoke", "set:everything"}
 
-    p = run_cmd("run", pack_dir, tmp_path, id="open-display")
+    p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_DRIVER": "maestro"}, id="open-display")
     assert p.returncode == 1 and "JOURNEYS_SERIAL" in p.stdout  # no device, no fake: refused
 
     p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_DRIVER": "fake"}, id="set:everything")
@@ -73,7 +73,31 @@ def test_droid_lite_never_takes_a_driver_nobody_chose(pack_dir, tmp_path, monkey
     assert p.returncode == 1 and "ask the user which tool" in p.stdout
     for k in ("JOURNEYS_PACK", "JOURNEYS_DRIVER", "DROID_LITE_PROJECT"):
         monkeypatch.delenv(k, raising=False)
-    example = Pack.load(droidlite.pack_path())  # the fallback: its own driver: maestro is not an answer
-    assert example.driver == "maestro" and droidlite.driver_kind(example) is None
+    example = Pack.load(droidlite.pack_path())  # the fallback names no driver: nobody chose one
+    assert example.driver == "" and droidlite.driver_kind(example) is None
     monkeypatch.setenv("JOURNEYS_DRIVER", "speedrun")
     assert droidlite.driver_kind(example) == "speedrun"
+
+
+def test_a_stopped_droid_lite_run_ends_failed(pack_dir, tmp_path):
+    import signal
+    import sys
+    import time
+    import yaml
+    (pack_dir / "hooks" / "note.sh").write_text("#!/bin/sh\nsleep 30\n")
+    state = tmp_path / "s"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("JOURNEYS_")}
+    env.update({"JOURNEYS_PACK": str(pack_dir), "JOURNEYS_STATE": str(state), "JOURNEYS_DRIVER": "fake",
+                "PYTHONDONTWRITEBYTECODE": "1"})
+    proc = subprocess.Popen([sys.executable, "-m", "journeys.droidlite", "run", "android-version"], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=REPO)
+    for _ in range(100):
+        runs = list(state.rglob("run.json"))
+        if runs and "running" in runs[0].read_text():
+            break
+        time.sleep(0.1)
+    time.sleep(1.0)  # inside the slow hook
+    proc.send_signal(signal.SIGTERM)
+    assert proc.wait(timeout=20) != 0
+    data = yaml.safe_load(runs[0].read_text())
+    assert data["status"] == "failed" and data.get("ended")

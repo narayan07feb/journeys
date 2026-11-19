@@ -39,7 +39,7 @@ uv sync                                    # Python 3.11+, PyYAML
 export JOURNEYS_PACK=examples/settings-pack
 uv run journeys doctor
 uv run journeys run smoke --driver fake    # no phone: a small model of the app
-uv run journeys run smoke --serial emulator-5554       # the pack's driver (maestro)
+uv run journeys run smoke --driver maestro --serial emulator-5554   # your team's tool
 uv run journeys setup                                  # only for --driver speedrun
 ```
 

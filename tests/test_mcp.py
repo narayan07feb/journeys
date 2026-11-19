@@ -29,6 +29,8 @@ def test_mcp_over_a_pipe(pack_dir, tmp_path):
         err, doc = call(proc, 3, "doctor")
         assert not err and doc["errors"] == [] and doc["journeys"] == 3
         err, msg = call(proc, 4, "start_run", target="smoke")
+        assert err and "ask the user which tool" in msg  # the example pack names no driver
+        err, msg = call(proc, 4, "start_run", target="smoke", driver="maestro")
         assert err and "serial is required" in msg
         err, msg = call(proc, 5, "start_run", target="nope", driver="fake")
         assert err and "no journey or set named nope" in msg
@@ -84,3 +86,12 @@ def test_start_run_refuses_an_unknown_driver_and_a_bad_store_is_an_error_not_the
     srv.promote = lambda **k: {}["dst"]  # a corrupt proposal
     out = srv._call("promote", {})
     assert out["isError"] and "dst" in out["content"][0]["text"]
+
+
+def test_start_run_takes_journeys_driver_as_the_answer(pack_dir, tmp_path, monkeypatch):
+    import pytest
+    from journeys.mcp_server import Server
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    monkeypatch.setenv("JOURNEYS_DRIVER", "maestro")
+    with pytest.raises(ValueError, match="serial is required"):  # an answer, so the next question is the device
+        srv.start_run("smoke")

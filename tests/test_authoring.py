@@ -649,10 +649,8 @@ def test_tap_limits_below_1_are_refused_and_a_pack_needs_a_driver(tappable_pack_
     for flag in ("--max-taps", "--max-screens"):
         with pytest.raises(SystemExit):
             cli(tappable_pack_dir, "tap-all", "--driver", "fake", flag, "0")
-    f = tappable_pack_dir / "pack.yaml"
-    f.write_text("\n".join(ln for ln in f.read_text().splitlines() if not ln.startswith("driver:")) + "\n")
-    capsys.readouterr()
-    assert cli(tappable_pack_dir, "validate") == 1 and "no driver: ask the team" in capsys.readouterr().out
+    capsys.readouterr()  # the example pack names no driver: validate warns, device commands ask
+    assert cli(tappable_pack_dir, "validate") == 0 and "WARN" in capsys.readouterr().out
     assert cli(tappable_pack_dir, "tap-all") == 2 and "Which tool does your team use" in capsys.readouterr().err
     assert cli(tappable_pack_dir, "run", "all") == 2 and not (tappable_pack_dir / "s").exists()  # asks, never guesses
     assert cli(tappable_pack_dir, "tap-all", "--driver", "fake") == 0  # the answer given on the command line

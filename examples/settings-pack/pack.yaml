@@ -3,7 +3,8 @@
 # with `journeys doctor` and a first run, and adjust the texts for your Android version.
 name: settings-demo
 app: com.android.settings
-driver: maestro       # the team's own tool: maestro or speedrun (--driver overrides; fake for tests)
+# driver: no driver here on purpose: an example has no team. Pass --driver with your team's tool
+# (maestro or speedrun; fake for tests), or set driver: in your own pack. Journeys never picks one.
 app_packages: [com.android.settings.intelligence]   # Settings' search screen runs here on many versions
 env: [DEMO_SEARCH]          # optional variable used by the search journey
 hooks:

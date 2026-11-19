@@ -376,9 +376,9 @@ def cmd_validate(args) -> int:
     except PackError as e:  # pack.yaml itself is broken: still a FAIL line, like every other file
         print(f"FAIL {e}")
         return 1
-    if not pack.driver:
-        pack.errors.append(f"{pack.root / 'pack.yaml'}: no driver: ask the team which tool drives their device "
-                           "(maestro or speedrun), then set driver: (Journeys never picks one)")
+    if not pack.driver:  # not an error: device commands ask for it (or take --driver)
+        print(f"WARN {pack.root / 'pack.yaml'}: no driver: ask the team which tool drives their device "
+              "(maestro or speedrun), then set driver: (Journeys never picks one; runs ask until then)")
     for e in pack.errors:
         print(f"FAIL {e}")
     print(f"{'OK' if not pack.errors else 'FAIL'} pack {pack.name}: {len(pack.journeys)} journeys, "
@@ -572,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
         on_kill()
     try:
         return args.fn(args)
-    except (PackError, DriverError, RuntimeError, PromoteError, ValueError) as e:
+    except (PackError, DriverError, RuntimeError, PromoteError, ValueError, OSError) as e:
         print(f"error: {mask(str(e))}", file=sys.stderr)
         return 2
 

@@ -316,3 +316,10 @@ def test_connection_cutting_switches_are_never_tapped():
     for text in ("Wireless debugging", "ADB over network", "Cellular data", "Data roaming", "VPN", "Tethering",
                  "Internet"):
         assert any(r.matches(Element("@1", "Switch", text)) for r in DEFAULT_DENY), text
+
+
+def test_stop_and_telephony_words_are_never_tapped():
+    from journeys.drivers.base import Element
+    from journeys.pack import DEFAULT_DENY
+    for text in ("Stop", "Unregister", "Deauthorize", "Dial", "SOS", "Refund", "Abort", "Kill app", "Delink"):
+        assert any(r.matches(Element("@1", "Button", text)) for r in DEFAULT_DENY), text

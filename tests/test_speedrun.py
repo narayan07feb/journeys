@@ -158,3 +158,14 @@ def test_a_stop_during_session_start_closes_the_session(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         d.start("com.example", "emulator-5554")
     assert calls[-1] == ("session", "stop")
+
+
+def test_an_unreadable_device_is_not_a_safe_one(tmp_path, monkeypatch):
+    import subprocess as sp
+    started = []
+    d = SpeedrunDriver("/bin/true", tmp_path / "h")
+    monkeypatch.setattr(d, "_adb", lambda *a: sp.CompletedProcess(a, 1, b"", b"error: device offline"))
+    monkeypatch.setattr(d, "_sr", lambda *a, **k: started.append(a) or sp.CompletedProcess(a, 0, "", ""))
+    with pytest.raises(DriverError, match="cannot read the device"):
+        d.start("com.example", "192.168.0.5:5555")
+    assert started == []

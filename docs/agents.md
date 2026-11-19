@@ -26,7 +26,7 @@ Add the plugin by picking this repo's folder in the Tests tab (**Add plugin…**
 |---|---|
 | `JOURNEYS_PACK` | The pack. Default: `<project>/journeys-pack` if there is one, else the example pack. |
 | `JOURNEYS_SERIAL` | The device. Without it only `JOURNEYS_DRIVER=fake` runs. |
-| `JOURNEYS_DRIVER` | `maestro`, `speedrun` or `fake`: the user's answer, for Droid Lite and the CLI (`--driver` wins). Default: the pack's `driver`; when the pack has none, ask the user, never pick one. |
+| `JOURNEYS_DRIVER` | `maestro`, `speedrun` or `fake`: the user's answer, for Droid Lite, the CLI and MCP (`--driver` or MCP `driver` wins). Default: the pack's `driver`; when the pack has none, ask the user, never pick one. |
 | `JOURNEYS_STATE` | The state folder. |
 
 The tree shows every journey (each opens its YAML) and every set. Views: Failures, Proposals.

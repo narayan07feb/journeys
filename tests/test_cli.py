@@ -35,7 +35,7 @@ def test_no_pack(capsys, monkeypatch):
 
 def test_real_driver_needs_serial(pack_dir, tmp_path, capsys):
     base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
-    assert main(base + ["run", "smoke"]) == 2
+    assert main(base + ["run", "smoke", "--driver", "maestro"]) == 2
     assert "--serial" in capsys.readouterr().err
 
 
@@ -128,3 +128,10 @@ def test_journeys_driver_env_is_an_answer_and_eof_repeats_the_question(pack_dir,
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(EOFError()))
     assert main(args) == 2 and "--driver" in capsys.readouterr().err
+
+
+def test_an_unwritable_state_folder_is_a_clear_error(pack_dir, tmp_path, capsys):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    assert main(["--pack", str(pack_dir), "--state", str(blocker / "s"), "run", "smoke", "--driver", "fake"]) == 2
+    assert "error:" in capsys.readouterr().err

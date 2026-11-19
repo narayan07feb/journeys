@@ -75,6 +75,7 @@ class Server:
     def start_run(self, target: str, serial: str | None = None, driver: str | None = None) -> dict:
         pack = self._pack()
         pack.select(target)  # raises for an unknown target before anything starts
+        driver = driver or os.environ.get("JOURNEYS_DRIVER") or None  # the user's answer, as for the CLI
         if driver and driver not in DRIVERS:
             raise ValueError(f"driver {driver} is not one of {', '.join(DRIVERS)}")
         if not (driver or pack.driver):

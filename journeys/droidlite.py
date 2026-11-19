@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from .cli import make_driver
+from .cli import make_driver, on_kill
 from .drivers.base import DriverError
 from .live import panel, watch
 from .pack import Pack, PackError
@@ -37,12 +37,8 @@ def pack_path() -> Path:
 
 
 def driver_kind(pack: Pack) -> str | None:
-    """JOURNEYS_DRIVER or the pack's driver: the user's answer. The example pack's own driver is not
-    an answer: Droid Lite falls back to that pack without anyone choosing it."""
-    if os.environ.get("JOURNEYS_DRIVER"):
-        return os.environ["JOURNEYS_DRIVER"]
-    example = pack.root.resolve() == (REPO / "examples" / "settings-pack").resolve()
-    return None if example and not os.environ.get("JOURNEYS_PACK") else pack.driver or None
+    """JOURNEYS_DRIVER or the pack's driver: the user's answer (the example pack names none)."""
+    return os.environ.get("JOURNEYS_DRIVER") or pack.driver or None
 
 
 ASK = ("no driver: ask the user which tool their team uses (maestro or speedrun), then set "
@@ -69,6 +65,7 @@ class _Args:  # what make_driver reads
 
 
 def cmd_run(pack: Pack, case_id: str) -> int:
+    on_kill()  # a Tests-tab stop (SIGTERM) still ends the run as failed
     target = case_id.removeprefix("set:")
     if pack.run_errors():
         for e in pack.run_errors():

@@ -100,6 +100,9 @@ class SpeedrunDriver(AdbDriver):
         sh = lambda cmd: self._adb("shell", cmd).stdout.decode(errors="replace").strip()  # read-only
         why = []
         sdk = sh("getprop ro.build.version.sdk")
+        if not sdk.isdigit():  # an unreadable device is not a device known to be safe
+            raise DriverError(f"cannot read the device (getprop gave {sdk!r}); it may not change, so Speedrun "
+                              "does not start")
         if sdk.isdigit() and int(sdk) >= 33:
             why.append(f"Android SDK {sdk}: Speedrun turns on its accessibility service for the session")
         if apks := sh("ls /data/local/tmp/speedrun-agent-*.apk 2>/dev/null"):

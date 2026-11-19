@@ -74,7 +74,7 @@ class Driver:
 - **SpeedrunDriver** wraps `speedrun session start --app <id> --device <serial>`, `speedrun look`
   (parses the one-line-per-element listing), `speedrun do` and `speedrun session stop`. It runs
   with `HOME` set to a private folder (`<state>/speedrun-home`) so Speedrun's own state never goes
-  to `~/.speedrun`, and passes explicit `--debug-output` paths.
+  to `~/.speedrun`.
 - **MaestroDriver**: each `do` writes a temp flow and runs `maestro --device <serial>
   test`; `look` parses `maestro hierarchy`. Used when the pack says `driver: maestro` (no fallback).
 - **FakeDriver**: an app described as screens and tap targets in YAML/dicts. It can inject an

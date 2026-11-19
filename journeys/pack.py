@@ -25,7 +25,8 @@ DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     r"|developer_options|disconnect|wlan|mobile_network|network_reset|wireless_debug|adb|cellular|roaming|vpn"
     r"|tether|internet)/",
     r"/(?i)\b(sign_?(out|off)|log_?(out|off)|pay|buy|purchase|(un)?subscri|send|call|share|rate_us|report|"
-    r"order|checkout|transfer|withdraw|donat|top_?up|add_money|submit|publish|post$|hang_?up|end_call)/",
+    r"order|checkout|transfer|withdraw|donat|top_?up|add_money|submit|publish|post$|hang_?up|end_call|"
+    r"stop|unregist|deauthori|dial|sos|refund|abort|kill|delink)/",
 )]
 
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
