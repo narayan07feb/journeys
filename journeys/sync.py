@@ -130,10 +130,22 @@ def _write(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def check_sync(pack: Pack) -> list[Drift]:
+def _relink(state: dict, every: dict) -> bool:
+    """A journey renamed since its flow was imported: follow it by what it does. True if any moved."""
+    moved = False
+    for rec in state.values():
+        if rec["journey"] not in every and rec["journey_hash"]:
+            same = [n for n, j in every.items() if journey_hash(j) == rec["journey_hash"]]
+            if len(same) == 1:
+                rec["journey"], moved = same[0], True
+    return moved
+
+
+def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
     """Every way the journeys and the flow files disagree. Empty means in sync."""
-    flows, state = _flows(pack), _state(pack)
+    flows, state = _flows(pack), _state(pack) if state is None else state
     every = {**pack.journeys, **pack.drafts}
+    _relink(state, every)
     out = [Drift("unreadable", f, None, "cannot be read as text: fix or remove it") for f, t in flows.items() if t is None]
     flows = {f: t for f, t in flows.items() if t is not None}
     bad = {f for f, t in flows.items() if not _parses(t)}
@@ -152,8 +164,14 @@ def check_sync(pack: Pack) -> list[Drift]:
                 out.append(Drift("unexportable", f, name, f"cannot be written as a flow: {e}"))
                 continue
             if folded.get(f.lower(), f) != f:
-                out.append(Drift("name-taken", folded[f.lower()], name, f"differs from {f} only in case, and this "
-                                 "folder may ignore case: rename one of them"))
+                other = folded[f.lower()]
+                rec = state.get(other)
+                if rec and rec["journey"] == name and rec["hash"] == _sha(flows[other]):  # the flow it came from
+                    out.append(_lossy(other, name, rec) or Drift("replace", other, name, f"the flow this journey "
+                               f"came from: sync replaces it with the generated {f}"))
+                else:
+                    out.append(Drift("name-taken", other, name, f"differs from {f} only in case, and this folder "
+                                     "may ignore case: rename one of them"))
                 continue
             text = flows.get(f)
             if text is None:
@@ -189,7 +207,7 @@ def check_sync(pack: Pack) -> list[Drift]:
                         out.append(Drift("flow-edited", f, rec["journey"], f"changed after it became journey "
                                          f"{rec['journey']}: the journeys are the truth; move the change into "
                                          "the journey, then delete this file"))
-                    elif rec["journey"] in pack.journeys:
+                    elif rec["journey"] in pack.journeys and f.lower() != f"{rec['journey']}.yaml":
                         out.append(_lossy(f, rec["journey"], rec) or Drift(
                             "superseded", f, rec["journey"], f"the flow journey {rec['journey']} came from, now "
                             f"generated as {rec['journey']}.yaml: sync deletes this copy"))
@@ -207,8 +225,8 @@ def check_sync(pack: Pack) -> list[Drift]:
             if not rec:
                 out.append(Drift("new-flow", f, None, "`journeys sync` imports it as a draft"))
             elif j is None:
-                out.append(Drift("journey-missing", f, rec.get("journey"), "its journey was deleted: "
-                                                                           "`journeys sync` imports the flow again"))
+                out.append(Drift("journey-missing", f, rec.get("journey"), "its journey was deleted (or renamed "
+                                 "and edited): `journeys sync` imports the flow again"))
             elif rec["journey_hash"] and journey_hash(j) != rec["journey_hash"]:
                 both = rec["hash"] != _sha(text)
                 out.append(Drift("conflict" if both else "journey-edited", str(j.file.relative_to(pack.root)), j.name,
@@ -277,13 +295,18 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
             old = yaml.safe_load(dest.read_text())
         except (OSError, yaml.YAMLError):
             old = None
+        listed = isinstance(old, list) and len(old) == 1 and isinstance(old[0], dict)  # `- name: x` form
+        old = old[0] if listed else old
         if isinstance(old, dict):
             draft = {**{k: v for k, v in old.items() if k not in ("steps", "start")},
                      "steps": draft["steps"], "start": draft["start"], "name": draft["name"]}
+        if listed:
+            draft = [draft]
     comment = f"# synced from {pack.sync['dir']}/{f}: the flow is the truth; edit it, then run `journeys sync`\n" \
         if source(pack) == "framework" else f"# imported from {pack.sync['dir']}/{f}\n"
     _write(dest, comment + yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
     notes += [f"{f}: {n}" for n in more]
+    draft = draft[0] if isinstance(draft, list) else draft
     loaded = Pack.load(pack.root)
     j = loaded.journeys.get(draft["name"]) or loaded.drafts.get(draft["name"])
     state[f] = {"journey": draft["name"], "hash": _sha(text), "journey_hash": journey_hash(j) if j else None,
@@ -296,18 +319,29 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
     """Fix what can be fixed safely; return what was done and the drift that is left for a person.
     accept: developer flows whose left-out parts a person has dealt with (see `lossy`)."""
     state = _state(pack)
-    accepted = [f for f in accept or [] if f in state and state[f].get("left_out")]
-    for f in accepted:
-        state[f]["left_out"] = []
-    if accepted and not dry_run:
+    accept = [a.removeprefix("./") for a in accept or []]
+    bad_accept = [Drift("not-accepted", a, None, "not a lossy flow: use its path in sync.dir as check-sync "
+                        "prints it") for a in accept if not (a in state and state[a].get("left_out"))]
+    for a in accept:
+        if a in state:
+            state[a]["left_out"] = []
+    moved = _relink(state, {**pack.journeys, **pack.drafts})
+    if (moved or len(bad_accept) < len(accept)) and not dry_run:
         _save_state(pack, state)
-    drift, flows = check_sync(pack), _flows(pack)
+    drift, flows = check_sync(pack, state), _flows(pack)
+    planned = {f"{x.journey}.yaml" for x in drift if x.kind in ("missing", "stale", "replace")}
     done: list[str] = []
-    left: list[Drift] = []
+    left: list[Drift] = list(bad_accept)
     later: list[Drift] = []
     d = flow_dir(pack)
     for x in drift:
-        if x.kind in ("missing", "stale") and source(pack) == "journeys":
+        if x.kind == "replace":  # a developer's flow named like the journey but for case: same file here
+            done.append(f"replace {x.file} with the generated {x.journey}.yaml")
+            if not dry_run:
+                (d / x.file).unlink()
+                _write(d / f"{x.journey}.yaml", render(pack, pack.journeys[x.journey]))
+                state.pop(x.file, None)
+        elif x.kind in ("missing", "stale") and source(pack) == "journeys":
             done.append(f"write {x.file} from journey {x.journey}")
             if not dry_run:
                 _write(d / x.file, render(pack, pack.journeys[x.journey]))
@@ -347,7 +381,7 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
             left.append(x)
     for x in later:  # a developer's copy goes only once its journey's generated flow is there
         target = d / f"{x.journey}.yaml"
-        if dry_run or (target.exists() and generated(target.read_text())):
+        if (target.exists() and generated(target.read_text())) or (dry_run and target.name in planned):
             done.append(f"delete {x.file} (now generated as {x.journey}.yaml)")
             if not dry_run:
                 (d / x.file).unlink()

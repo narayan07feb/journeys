@@ -165,6 +165,8 @@ def test_round_1_a_developer_flow_with_another_name_is_replaced_once_promoted(sy
     d.write_text("name: login-flow\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
     assert cli(synced, "promote-journey", "login-flow") == 0
     assert ("superseded", "Login_Flow.yaml") in kinds(synced)
+    done, _ = sync(Pack.load(synced), dry_run=True)
+    assert "delete Login_Flow.yaml (now generated as login-flow.yaml)" in done  # predicted like the real run
     sync(Pack.load(synced))
     assert not dev.exists() and generated((synced / "flows" / "login-flow.yaml").read_text())
     assert kinds(synced) == []
@@ -323,8 +325,11 @@ def test_round_3_a_lossy_flow_stays_until_accepted(synced, capsys):
     assert kinds(synced) == [("lossy", "checkout.yaml")]
     sync(Pack.load(synced))
     assert "runFlow" in dev.read_text()  # kept: the import left that out
+    done, left = sync(Pack.load(synced), dry_run=True, accept=["checkout.yaml"])
+    assert "write checkout.yaml from journey checkout" in done and not left  # a dry run predicts the real one
+    assert "runFlow" in dev.read_text()
     capsys.readouterr()
-    assert cli(synced, "sync", "--accept", "checkout.yaml") == 0
+    assert cli(synced, "sync", "--accept", "./checkout.yaml") == 0
     assert generated(dev.read_text())[0] == "checkout" and kinds(synced) == []
 
 
@@ -355,3 +360,56 @@ def test_round_3_a_state_record_without_journey_hash_is_ignored(framework):
     f.write_text(flow("about", 'tapOn: "About phone"'))
     (framework / "sync-state.json").write_text(json.dumps({"flows": {"about.yaml": {"journey": "about", "hash": "x"}}}))
     assert kinds(framework) == [("new-flow", "about.yaml")]
+
+
+def test_round_4_a_capitalised_developer_flow_is_replaced_after_promotion(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "Login.yaml"
+    dev.write_text(flow("Login", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "login.yaml").write_text(
+        "name: login\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "login") == 0
+    assert kinds(synced) == [("replace", "Login.yaml")]
+    done, _ = sync(Pack.load(synced), dry_run=True)
+    assert done == ["replace Login.yaml with the generated login.yaml"]
+    sync(Pack.load(synced))
+    names = sorted(p.name for p in (synced / "flows").iterdir())
+    assert "login.yaml" in names and "Login.yaml" not in names and kinds(synced) == []
+
+
+def test_round_4_a_draft_renamed_before_promotion_keeps_its_link(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "pay.yaml"
+    dev.write_text(flow("pay", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    d = synced / "drafts" / "pay.yaml"
+    d.write_text(d.read_text().replace("name: pay", "name: checkout-pay"))
+    d.rename(synced / "drafts" / "checkout-pay.yaml")
+    assert cli(synced, "promote-journey", "checkout-pay") == 0
+    assert ("superseded", "pay.yaml") in kinds(synced)
+    sync(Pack.load(synced))
+    assert not dev.exists() and (synced / "flows" / "checkout-pay.yaml").exists() and kinds(synced) == []
+
+
+def test_round_4_a_list_form_journey_keeps_its_tags_on_reimport(framework):
+    f = framework / "flows" / "pay.yaml"
+    f.write_text(flow("pay", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    d = framework / "drafts" / "pay.yaml"
+    import yaml
+    data = yaml.safe_load(d.read_text())
+    data["tags"] = ["smoke", "payments"]
+    d.write_text(yaml.safe_dump([data], sort_keys=False))
+    f.write_text(flow("pay", 'tapOn: "About phone"', 'assertVisible: "Android version"'))
+    sync(Pack.load(framework))
+    text = d.read_text()
+    assert "payments" in text and "Android version" in text and text.split("\n", 1)[1].startswith("- ")
+    assert kinds(framework) == []
+
+
+def test_round_4_accept_says_when_it_matched_nothing(synced, capsys):
+    sync(Pack.load(synced))
+    capsys.readouterr()
+    assert cli(synced, "sync", "--accept", "./nothing.yaml") == 1
+    assert "not-accepted" in capsys.readouterr().out
