@@ -361,7 +361,7 @@ def test_round_3_a_state_record_without_journey_hash_is_ignored(framework):
     f = framework / "flows" / "about.yaml"
     f.write_text(flow("about", 'tapOn: "About phone"'))
     (framework / "sync-state.json").write_text(json.dumps({"flows": {"about.yaml": {"journey": "about", "hash": "x"}}}))
-    assert kinds(framework) == [("new-flow", "about.yaml")]
+    assert kinds(framework) == [("bad-state", "sync-state.json"), ("new-flow", "about.yaml")]  # reported, not dropped
 
 
 def test_round_4_a_capitalised_developer_flow_is_replaced_after_promotion(synced):
@@ -523,3 +523,60 @@ def test_round_6_sync_dir_inside_the_packs_own_folders_is_refused(pack_dir):
     f = pack_dir / "pack.yaml"
     f.write_text(f.read_text() + "sync:\n  dir: drafts\n")
     assert any("inside the pack's own" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_round_7_a_yml_flow_is_replaced_after_promotion(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "login.yml"
+    dev.write_text(flow("login", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "login.yaml").write_text(
+        "name: login\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "login") == 0
+    assert kinds(synced) == [("replace", "login.yml")]
+    sync(Pack.load(synced))
+    assert not dev.exists() and generated((synced / "flows" / "login.yaml").read_text()) and kinds(synced) == []
+
+
+def test_round_7_an_edited_case_variant_says_flow_edited(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "Pay.yaml"
+    dev.write_text(flow("Pay", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    dev.write_text(dev.read_text() + "- back\n")
+    (synced / "drafts" / "pay.yaml").write_text(
+        "name: pay\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "pay") == 0
+    assert kinds(synced) == [("flow-edited", "Pay.yaml")]
+    sync(Pack.load(synced))
+    assert "- back" in dev.read_text()
+
+
+def test_round_7_a_flow_another_flow_runs_is_never_deleted(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "auth").mkdir()
+    dev = synced / "flows" / "auth" / "Sign_In.yaml"
+    dev.write_text(flow("Sign_In", 'tapOn: "About phone"'))
+    (synced / "flows" / "main.yaml").write_text(flow("main", "runFlow: auth/Sign_In.yaml"))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "sign-in.yaml").write_text(
+        "name: sign-in\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "sign-in") == 0
+    sync(Pack.load(synced))
+    assert dev.exists()
+    _, left = sync(Pack.load(synced))
+    assert "referenced" in [x.kind for x in left]
+
+
+def test_round_7_framework_empty_flow_is_a_bad_flow(framework):
+    (framework / "flows" / "empty.yaml").write_text("")
+    assert kinds(framework) == [("bad-flow", "empty.yaml")]
+
+
+def test_round_7_a_note_with_a_newline_stays_one_header_line(synced, monkeypatch):
+    from journeys import sync as sync_mod
+    real = sync_mod.export
+    monkeypatch.setattr(sync_mod, "export", lambda pack, j: (real(pack, j)[0], ["line one\nline two"]))
+    text = sync_mod.render(Pack.load(synced), Pack.load(synced).journeys["open-display"])
+    gen = generated(text)
+    assert gen and sync_mod._sha(gen[2]) == gen[1]  # not read as a hand edit

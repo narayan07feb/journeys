@@ -69,7 +69,7 @@ def render(pack: Pack, j: Journey) -> str:
     flow, notes = export(pack, j)
     body = flow.split("\n", 1)[1]  # the export's own first comment line names no file to edit
     head = [f"{MARK} from journey {j.name}; edit the journey in the pack, then run `journeys sync`.",
-            f"# journeys-hash: {_sha(body)}", *(f"# note: {n}" for n in notes)]
+            f"# journeys-hash: {_sha(body)}", *(f"# note: {' '.join(n.split())}" for n in notes)]
     return "\n".join(head) + "\n" + body
 
 
@@ -129,7 +129,9 @@ def _state_broken(pack: Pack) -> bool:
         return False
     except (OSError, ValueError):
         return True
-    return not (isinstance(data, dict) and isinstance(data.get("flows", {}), dict))
+    if not (isinstance(data, dict) and isinstance(data.get("flows", {}), dict)):
+        return True
+    return len(_state(pack)) != len(data.get("flows", {}))  # a record of the wrong shape: fix it, do not drop it
 
 
 def _save_state(pack: Pack, flows: dict) -> None:
@@ -170,7 +172,6 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
     out += [Drift("bad-flow", f, None, "not valid YAML: fix it, then sync") for f in sorted(bad)]
     broken = {f.lower() for f, t in flows.items() if t is None or f in bad}  # there, but never written over
     flows = {f: t for f, t in flows.items() if t is not None and f not in bad}
-    folded = {f.lower(): f for f in flows}  # macOS and Windows folders ignore case: Open-Display.yaml is the same file
     if source(pack) == "journeys":
         for name, j in pack.journeys.items():  # drafts are not generated until promoted
             f = f"{name}.yaml"
@@ -179,25 +180,30 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
                 continue
             if f.lower() in broken:
                 continue  # reported above; a half-edited or broken file is never written over
-            twin = next((o for o in flows if o.lower() == f"{name}.yml" and not generated(flows[o])), None)
-            if twin and f not in flows:  # foo.yml beside journey foo: writing foo.yaml would give two flows
-                out.append(Drift("name-taken", twin, name, f"a developer's flow with journey {name}'s name: rename "
-                                 "one of them"))
-                continue
             try:
                 want = render(pack, j)
             except ActionError as e:
                 out.append(Drift("unexportable", f, name, f"cannot be written as a flow: {e}"))
                 continue
-            if folded.get(f.lower(), f) != f:
-                other = folded[f.lower()]
-                rec = state.get(other)
-                if rec and rec["journey"] == name and rec["hash"] == _sha(flows[other]):  # the flow it came from
-                    out.append(_lossy(other, name, rec) or Drift("replace", other, name, f"the flow this journey "
-                               f"came from: sync replaces it with the generated {f}"))
+            # other top-level files with this journey's name: Login.yaml (case), login.yml (suffix)
+            blocked = own = False
+            for o in [o for o in flows if o != f and o.lower() in (f.lower(), f"{name}.yml") and not generated(flows[o])]:
+                rec = state.get(o)
+                if rec and rec["journey"] == name and rec["hash"] == _sha(flows[o]):  # the flow it came from
+                    own = True
+                    out.append(_lossy(o, name, rec) or Drift("replace" if f not in flows else "superseded", o, name,
+                               f"the flow this journey came from: sync replaces it with the generated {f}"))
+                elif rec and rec["journey"] == name:
+                    blocked = True
+                    out.append(Drift("flow-edited", o, name, f"changed after it became journey {name}: move the "
+                                     "change into the journey, then delete this file"))
                 else:
-                    out.append(Drift("name-taken", other, name, f"differs from {f} only in case, and this folder "
-                                     "may ignore case: rename one of them"))
+                    blocked = True
+                    out.append(Drift("name-taken", o, name, f"a developer's flow with journey {name}'s name "
+                                     "(macOS and Windows folders ignore case): rename one of them"))
+            if blocked and own:  # writing the generated flow could land on the other person's file
+                out = [x for x in out if not (x.kind == "replace" and x.journey == name)]
+            if f not in flows and (blocked or own):
                 continue
             text = flows.get(f)
             if text is None:
@@ -224,7 +230,7 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
             elif gen and f != f"{gen[0]}.yaml":
                 out.append(Drift("duplicate", f, gen[0], f"a generated flow of {gen[0]} under another name: "
                                                          "`journeys sync --prune` deletes it"))
-            elif gen is None and not (f.lower().endswith(".yaml") and f.lower()[:-5] in pack.journeys):  # above
+            elif gen is None and not ("/" not in f and f.lower().rsplit(".", 1)[0] in pack.journeys):  # above
                 rec, stem = state.get(f), Path(f).stem
                 if rec and rec["journey"] not in every and rec["hash"] == _sha(text):
                     if not rec.get("declined"):  # deleted, or renamed and edited: a person says which
@@ -256,7 +262,9 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
             rec = state.get(f)
             j = every.get(rec.get("journey")) if rec else None
             if not rec:
-                out.append(Drift("new-flow", f, None, "`journeys sync` imports it as a draft"))
+                why = _unimportable(flow_dir(pack) / f, pack)
+                out.append(Drift("bad-flow", f, None, why) if why else
+                           Drift("new-flow", f, None, "`journeys sync` imports it as a draft"))
             elif j is None:
                 out.append(Drift("journey-missing", f, rec.get("journey"), "its journey was deleted (or renamed "
                                  "and edited): `journeys sync` imports the flow again"))
@@ -393,8 +401,13 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
         if x.kind == "replace":  # a developer's flow named like the journey but for case: same file here
             done.append(f"replace {x.file} with the generated {x.journey}.yaml")
             if not dry_run:
-                (d / x.file).unlink()
-                _write(d / f"{x.journey}.yaml", render(pack, pack.journeys[x.journey]))
+                new = d / f"{x.journey}.yaml"
+                if x.file.lower() == new.name:  # the same file where case is ignored: it must go first
+                    (d / x.file).unlink()
+                    _write(new, render(pack, pack.journeys[x.journey]))
+                else:  # login.yml: write the new flow first, so a crash never leaves neither
+                    _write(new, render(pack, pack.journeys[x.journey]))
+                    (d / x.file).unlink()
                 state.pop(x.file, None)
         elif x.kind in ("missing", "stale") and source(pack) == "journeys":
             done.append(f"write {x.file} from journey {x.journey}")
@@ -404,7 +417,8 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
         elif x.kind in ("orphan", "duplicate") and prune:
             gen = generated(flows[x.file])
             if _sha(gen[2]) != gen[1]:  # edited by hand since: a person's work, never pruned
-                left.append(Drift("hand-edited", x.file, x.journey, "edited by hand: not pruned"))
+                left.append(Drift("hand-edited", x.file, x.journey, "edited by hand: not pruned (if it is a new "
+                                  "flow, delete its two header lines and sync imports it)"))
                 continue
             done.append(f"delete {x.file} ({'journey ' + x.journey + ' is gone' if x.kind == 'orphan' else 'a duplicate'})")
             if not dry_run:
@@ -438,6 +452,11 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
             ready = target.exists() and generated(target.read_text())
         except (OSError, UnicodeDecodeError):
             ready = False
+        users = [o for o, t in flows.items() if t and o != x.file and "runFlow" in t and Path(x.file).name in t]
+        if users:  # another flow runs this one: deleting it would break that flow
+            left.append(Drift("referenced", x.file, x.journey, f"run by {', '.join(users)}: point them at "
+                              f"{x.journey}.yaml, then sync"))
+            continue
         if ready or (dry_run and target.name in planned):
             done.append(f"delete {x.file} (now generated as {x.journey}.yaml)")
             if not dry_run:

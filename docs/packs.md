@@ -172,7 +172,11 @@ sync:
   When two flows in different subfolders have one name, the second becomes a `<folder>-<name>`
   draft. A file that differs from a journey's file only in case (`Open-Display.yaml`) is never
   written over (macOS and Windows folders ignore case): it is `name-taken`, unless it is the flow
-  that journey was imported from, which sync replaces like any other. A draft renamed before it is
+  that journey was imported from, which sync replaces like any other (the same holds for
+  `<name>.yml`). A flow that another flow runs (`runFlow`) is never deleted: it is `referenced`
+  until that flow points at the generated one. A developer flow renamed after its import is a new
+  flow to sync: it imports as another draft, and the old record is dropped (or, with
+  `source: framework`, reported as `flow-removed`). A draft renamed before it is
   promoted keeps its link to its flow (found by its steps), so no second copy appears.
 - `source: framework`: the flows are the truth. `journeys sync` imports each flow as a draft and
   imports it again when the flow changes: the steps come from the flow, tags and other keys added in
