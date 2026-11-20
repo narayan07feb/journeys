@@ -509,9 +509,6 @@ def cmd_export(args) -> int:
 def cmd_check_sync(args) -> int:
     from .sync import check_sync, flow_dir, source
     pack = _load(args)
-    bad = [e for e in pack.errors if ": sync" in e]
-    if bad:  # a malformed sync: section is cleared on load; say why, not "no sync: section"
-        raise PackError("\n".join(bad))
     drift = check_sync(pack)
     for x in drift:
         print(f"{x.kind:15} {x.file}" + (f"  (journey {x.journey})" if x.journey else "") + f"  {x.detail}")

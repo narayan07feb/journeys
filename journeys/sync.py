@@ -54,7 +54,8 @@ def journey_hash(j: Journey) -> str:
 
 def flow_dir(pack: Pack) -> Path:
     if not pack.sync:
-        raise PackError("pack.yaml has no sync: section (sync: {dir: <the team's flow folder>})")
+        bad = [e for e in pack.errors if ": sync" in e]  # a malformed section is cleared on load: say why
+        raise PackError("\n".join(bad) or "pack.yaml has no sync: section (sync: {dir: <the team's flow folder>})")
     d = (pack.root / pack.sync["dir"]).resolve()
     if d.exists() and not d.is_dir():
         raise PackError(f"sync.dir {d} is a file, not a folder")
@@ -70,8 +71,13 @@ def render(pack: Pack, j: Journey) -> str:
     flow, notes = export(pack, j)
     body = flow.split("\n", 1)[1]  # the export's own first comment line names no file to edit
     head = [f"{MARK} from journey {j.name}; edit the journey in the pack, then run `journeys sync`.",
-            f"# journeys-hash: {_sha(body)}", *(f"# note: {' '.join(n.split())}" for n in notes)]
+            f"# journeys-hash: {_sha(j.name + chr(10) + body)}", *(f"# note: {' '.join(n.split())}" for n in notes)]
     return "\n".join(head) + "\n" + body
+
+
+def intact(gen: tuple[str, str, str]) -> bool:
+    """A generated file nobody edited: its hash covers the journey name in the header and the body."""
+    return _sha(gen[0] + "\n" + gen[2]) == gen[1]
 
 
 def generated(text: str) -> tuple[str, str, str] | None:
@@ -220,7 +226,7 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
                 else:
                     out.append(Drift("name-taken", f, name, "a developer's flow has this journey's file name: "
                                                             "rename one of them"))
-            elif _sha(gen[2]) != gen[1]:
+            elif not intact(gen):
                 out.append(Drift("hand-edited", f, name, "edited by hand: move the change into the journey, "
                                                          "then delete the file and run `journeys sync`"))
             elif want != text:
@@ -397,7 +403,8 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
     j = loaded.journeys.get(draft["name"]) or loaded.drafts.get(draft["name"])
     state[f] = {"journey": draft["name"], "hash": _sha(text), "journey_hash": journey_hash(j) if j else None,
                 "empty": any("no command could be imported" in n for n in more),
-                "left_out": [n for n in more if "left out" in n or "no command could be imported" in n]}
+                "left_out": [n for n in more if "left out" in n or "no command could be imported" in n
+                             or "the flow is for" in n]}  # another app's flow: replacing it changes its appId
     return draft["name"]
 
 
@@ -450,7 +457,7 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
                 state.pop(x.file, None)  # generated now: no longer a developer's flow
         elif x.kind in ("orphan", "duplicate") and prune:
             gen = generated(flows[x.file])
-            if _sha(gen[2]) != gen[1]:  # edited by hand since: a person's work, never pruned
+            if not intact(gen):  # edited by hand since: a person's work, never pruned
                 left.append(Drift("hand-edited", x.file, x.journey, "edited by hand: not pruned (if it is a new "
                                   "flow, delete its two header lines and sync imports it)"))
                 continue

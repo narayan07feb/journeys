@@ -579,7 +579,7 @@ def test_round_7_a_note_with_a_newline_stays_one_header_line(synced, monkeypatch
     monkeypatch.setattr(sync_mod, "export", lambda pack, j: (real(pack, j)[0], ["line one\nline two"]))
     text = sync_mod.render(Pack.load(synced), Pack.load(synced).journeys["open-display"])
     gen = generated(text)
-    assert gen and sync_mod._sha(gen[2]) == gen[1]  # not read as a hand edit
+    assert gen and sync_mod.intact(gen)  # not read as a hand edit
 
 
 def test_round_8_replace_never_deletes_a_flow_another_flow_runs(synced):
@@ -649,3 +649,40 @@ def test_round_8_a_deleted_draft_never_relinks_to_another_flows_draft(synced):
     (synced / "flows" / "b.yaml").write_text(flow("b", 'tapOn: "About phone"'))  # same steps
     sync(Pack.load(synced))
     assert ("unlinked", "a.yaml") in kinds(synced)
+
+
+def test_round_9_an_edited_header_is_a_hand_edit_and_prune_settles(synced):
+    sync(Pack.load(synced))
+    f = synced / "flows" / "search-settings.yaml"
+    f.write_text(f.read_text().replace("from journey search-settings", "from journey xsearch-settings"))
+    assert cli(synced, "sync", "--prune") == 1 and f.exists()
+    done, _ = sync(Pack.load(synced), prune=True)
+    assert done == [] and f.exists()  # settles: nothing written, nothing deleted
+
+
+def test_round_9_another_apps_flow_is_lossy(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "other.yaml").write_text("appId: com.other.app\n---\n- launchApp\n- tapOn: Display\n")
+    sync(Pack.load(synced))
+    (synced / "drafts" / "other.yaml").write_text(
+        "name: other\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-DISPLAY\n")
+    assert cli(synced, "promote-journey", "other") == 0
+    assert kinds(synced) == [("lossy", "other.yaml")]
+
+
+def test_round_9_mcp_check_sync_names_a_malformed_section(pack_dir, tmp_path):
+    from journeys.mcp_server import Server
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text() + "sync:\n  dir: 5\n")
+    out = Server(str(pack_dir), str(tmp_path / "s"))._call("check_sync", {})
+    assert out["isError"] and "sync.dir is the folder" in out["content"][0]["text"]
+
+
+def test_round_9_env_values_reach_neither_flows_nor_state_nor_drafts(synced, monkeypatch):
+    monkeypatch.setenv("DEMO_SEARCH", "topsecret99")
+    sync(Pack.load(synced))
+    (synced / "flows" / "dev.yaml").write_text(flow("dev", "inputText: hello"))
+    sync(Pack.load(synced))
+    for p in [*(synced / "flows").rglob("*"), *(synced / "drafts").rglob("*"), synced / "sync-state.json"]:
+        if p.is_file():
+            assert "topsecret99" not in p.read_text(), p
