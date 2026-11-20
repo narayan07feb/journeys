@@ -153,3 +153,79 @@ def test_mcp_check_sync(synced, tmp_path):
     out = Server(str(synced), str(tmp_path / "s"))._call("check_sync", {})
     drift = json.loads(out["content"][0]["text"])
     assert {d["kind"] for d in drift} == {"missing"} and len(drift) == 3
+
+
+def test_round_1_a_developer_flow_with_another_name_is_replaced_once_promoted(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "Login_Flow.yaml"
+    dev.write_text(flow("Login_Flow", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    d = synced / "drafts" / "login-flow.yaml"
+    assert d.exists() and kinds(synced) == []
+    d.write_text("name: login-flow\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "login-flow") == 0
+    assert ("superseded", "Login_Flow.yaml") in kinds(synced)
+    sync(Pack.load(synced))
+    assert not dev.exists() and generated((synced / "flows" / "login-flow.yaml").read_text())
+    assert kinds(synced) == []
+
+
+def test_round_1_a_yml_flow_named_like_a_journey_is_reported(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "open-display.yml").write_text(flow("x", 'tapOn: "Display"'))
+    assert ("name-taken", "open-display.yml") in kinds(synced)
+
+
+def test_round_1_a_broken_flow_edit_is_left_not_reported_done(framework, capsys):
+    f = framework / "flows" / "about.yaml"
+    f.write_text(flow("about", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    f.write_text("appId: com.android.settings\n---\n- tapOn: [unclosed\n")
+    capsys.readouterr()
+    assert cli(framework, "sync") == 1
+    out = capsys.readouterr().out
+    assert "0 changes" in out and "not-imported" in out
+
+
+def test_round_1_a_reimport_keeps_tags_and_reports_both_sides_changed(framework):
+    f = framework / "flows" / "about.yaml"
+    f.write_text(flow("about", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    d = framework / "drafts" / "about.yaml"
+    d.write_text(d.read_text().replace("- imported", "- smoke\n- mine"))
+    f.write_text(flow("about", 'tapOn: "About phone"', 'assertVisible: "Android version"'))
+    sync(Pack.load(framework))
+    text = d.read_text()
+    assert "Android version" in text and "smoke" in text and "mine" in text and kinds(framework) == []
+    d.write_text(text.replace("About phone", "About tablet"))  # Journeys side
+    f.write_text(flow("about", 'tapOn: "About phone"', 'assertVisible: "Build number"'))  # flow side
+    assert kinds(framework) == [("conflict", "drafts/about.yaml")]
+    sync(Pack.load(framework))
+    assert "About tablet" in d.read_text()  # never overwritten
+
+
+def test_round_1_odd_state_and_unreadable_flows(synced):
+    (synced / "flows").mkdir()
+    (synced / "flows" / "bad.yaml").write_bytes(b"\xff\xfe")
+    (synced / "sync-state.json").write_text(json.dumps({"flows": {"a.yaml": {"journey": ["x"], "hash": 1}}}))
+    assert ("unreadable", "bad.yaml") in kinds(synced)
+
+
+def test_round_1_a_superseded_copy_stays_until_its_generated_flow_exists(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "Login_Flow.yaml"
+    dev.write_text(flow("Login_Flow", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "login-flow.yaml").write_text(
+        "name: login-flow\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "login-flow") == 0
+    (synced / "flows" / "login-flow.yaml").write_text(flow("other", 'tapOn: "Display"'))  # someone else's file
+    sync(Pack.load(synced))
+    assert dev.exists()  # no generated login-flow.yaml, so the copy it came from stays
+
+
+def test_round_1_a_state_record_with_a_bad_hash_is_ignored(synced):
+    (synced / "flows").mkdir()
+    (synced / "flows" / "x.yaml").write_text(flow("x", 'tapOn: "Display"'))
+    (synced / "sync-state.json").write_text(json.dumps({"flows": {"x.yaml": {"journey": "open-display", "hash": [1]}}}))
+    assert ("unimported", "x.yaml") in kinds(synced)
