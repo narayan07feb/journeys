@@ -229,3 +229,75 @@ def test_round_1_a_state_record_with_a_bad_hash_is_ignored(synced):
     (synced / "flows" / "x.yaml").write_text(flow("x", 'tapOn: "Display"'))
     (synced / "sync-state.json").write_text(json.dumps({"flows": {"x.yaml": {"journey": "open-display", "hash": [1]}}}))
     assert ("unimported", "x.yaml") in kinds(synced)
+
+
+def test_round_2_a_journey_named_config_never_touches_maestros_config(synced):
+    (synced / "flows").mkdir()
+    cfg = synced / "flows" / "config.yaml"
+    cfg.write_text('flows:\n  - "*.yaml"\n')
+    (synced / "journeys" / "cfg.yaml").write_text("name: config\nsteps:\n  - expect: SETTINGS-HOME\n")
+    assert ("name-taken", "config.yaml") in kinds(synced)
+    sync(Pack.load(synced))
+    assert cfg.read_text() == 'flows:\n  - "*.yaml"\n'
+    done, _ = sync(Pack.load(synced))
+    assert done == []  # it settles
+
+
+def test_round_2_subfolders_are_flows_too(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "checkout").mkdir()
+    (synced / "flows" / "checkout" / "pay.yml").write_text(flow("pay", 'tapOn: "Display"'))
+    (synced / "flows" / ".hidden").mkdir()
+    (synced / "flows" / ".hidden" / "x.yaml").write_text(flow("x", 'tapOn: "Display"'))
+    assert kinds(synced) == [("unimported", "checkout/pay.yml")]
+    sync(Pack.load(synced))
+    assert (synced / "drafts" / "pay.yaml").exists() and kinds(synced) == []
+
+
+def test_round_2_a_declined_flow_stays_declined_until_it_changes(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "extra.yaml"
+    dev.write_text(flow("extra", 'tapOn: "Display"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "extra.yaml").unlink()  # declined
+    assert kinds(synced) == []
+    dev.write_text(flow("extra", 'tapOn: "Display"', "back"))
+    assert kinds(synced) == [("unimported", "extra.yaml")]
+
+
+def test_round_2_an_empty_import_is_reported_until_it_gets_steps(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "other.yaml").write_text("appId: com.android.settings\n---\n- runFlow: sub.yaml\n")
+    sync(Pack.load(synced))
+    assert kinds(synced) == [("empty-import", "other.yaml")]
+    (synced / "drafts" / "other.yaml").write_text("name: other\nsteps:\n  - expect: SETTINGS-HOME\n")
+    assert kinds(synced) == []
+
+
+def test_round_2_duplicates_unexportable_journeys_and_stale_state(synced):
+    sync(Pack.load(synced))
+    src = synced / "flows" / "open-display.yaml"
+    (synced / "flows" / "copy.yaml").write_text(src.read_text())
+    assert ("duplicate", "copy.yaml") in kinds(synced)
+    assert cli(synced, "sync", "--prune") == 0 and not (synced / "flows" / "copy.yaml").exists()
+    j = synced / "journeys" / "display.yaml"
+    j.write_text(j.read_text().replace("scroll_to", "frobnicate"))
+    assert ("unexportable", "open-display.yaml") in kinds(synced)  # listed, not a traceback
+    # a developer file deleted after its import leaves no record behind
+    j.write_text(j.read_text().replace("frobnicate", "scroll_to"))
+    dev = synced / "flows" / "gone.yaml"
+    dev.write_text(flow("gone", 'tapOn: "Display"'))
+    sync(Pack.load(synced))
+    dev.unlink()
+    (synced / "drafts" / "gone.yaml").unlink()
+    sync(Pack.load(synced))
+    assert "gone.yaml" not in json.loads((synced / "sync-state.json").read_text())["flows"]
+
+
+def test_round_2_prune_never_deletes_a_hand_edited_orphan(synced):
+    sync(Pack.load(synced))
+    f = synced / "flows" / "open-display.yaml"
+    f.write_text(f.read_text() + "- back\n")
+    (synced / "journeys" / "display.yaml").unlink()
+    (synced / "sets.yaml").write_text("sets: {}\n")
+    assert cli(synced, "sync", "--prune") == 1 and f.exists()

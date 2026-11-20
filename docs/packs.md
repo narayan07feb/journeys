@@ -177,6 +177,14 @@ sync:
   and journeys with no flow. `sync` fixes
   what it safely can and lists the rest; it never overwrites a hand edit, and deletes a generated
   flow whose journey is gone only with `--prune`.
+- Every `.yaml` and `.yml` file under `dir` is a flow, subfolders too, except Maestro's
+  `config.yaml` (never written: a journey named `config` is reported) and files or folders that
+  start with a dot.
+- To decline a developer's flow, delete the draft it became: the flow stays declined until it
+  changes. A flow none of whose commands could be imported is reported (`empty-import`) until its
+  draft gets real steps or is deleted. A journey that cannot be written as a flow is reported
+  (`unexportable`); a generated flow under another file name is a `duplicate` (`--prune` deletes it,
+  as it does orphans, unless it was edited by hand).
 - `sync-state.json` in the pack remembers which flow became which journey: commit it with the pack.
 
 ## Secrets
