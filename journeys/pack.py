@@ -102,6 +102,7 @@ class Pack:
     devices: dict = field(default_factory=dict)
     project: Path | None = None   # the app's project folder, for framework detection
     app_packages: list[str] = field(default_factory=list)  # other packages the app's screens run in
+    sync: dict = field(default_factory=dict)  # two-way sync with the team's flow files (journeys/sync.py)
     tap_allowed: bool = True
     deny: list[Rule] = field(default_factory=lambda: list(DEFAULT_DENY))
     map: AppMap = field(default_factory=AppMap)
@@ -167,6 +168,19 @@ class Pack:
             p.app_packages = []
         if raw.get("project"):
             p.project = (root / str(raw["project"])).resolve()
+        p.sync = shaped("sync", dict, "a map with source, dir and format")
+        if p.sync:
+            if set(p.sync) - {"source", "dir", "format"}:
+                errors.append(f"{pf}: sync keys are source, dir and format, not {sorted(set(p.sync) - {'source', 'dir', 'format'})}")
+            if p.sync.get("source", "journeys") not in ("journeys", "framework"):
+                errors.append(f"{pf}: sync.source is journeys (journeys are the truth; flows are generated) or "
+                              f"framework (the team's flows are the truth), not {p.sync['source']!r}")
+            if not isinstance(p.sync.get("dir"), str) or not p.sync["dir"].strip():
+                errors.append(f"{pf}: sync.dir is the folder of the team's flow files, like ../app/.maestro/journeys")
+            if p.sync.get("format", "maestro") != "maestro":
+                errors.append(f"{pf}: sync.format is maestro (the flow format Journeys writes today), not {p.sync['format']!r}")
+            if any(e.startswith(f"{pf}: sync") for e in errors):
+                p.sync = {}
         taps = shaped("tap_all", dict, "a map with allowed and deny")
         p.errors += errors
         p.tap_allowed = taps.get("allowed", True) if isinstance(raw.get("tap_all", {}), (dict, type(None))) else False

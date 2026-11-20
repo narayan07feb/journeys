@@ -7,7 +7,7 @@ claude mcp add journeys -- /path/to/journeys/bin/journeys --pack /path/to/pack m
 ```
 
 Tools: `doctor`, `list_journeys`, `start_run` (target, serial, driver), `run_status`, `wait_run`,
-`failures`, `failure`, `proposals`, `promote`, `reject`, `tracker`.
+`failures`, `failure`, `proposals`, `promote`, `reject`, `tracker`, `check_sync`.
 
 `start_run` starts the run as a separate process and returns its id at once. `wait_run` returns
 when the run ends, or after `timeout_s` with "still running: call wait_run again". A real driver

@@ -43,6 +43,8 @@ TOOLS = {
     "promote": ("Write a proposal into the pack's files. name: a new screen's name.",
                 _schema({"id": _S, "name": _S}, ["id"])),
     "reject": ("Reject a proposal, with the reason.", _schema({"id": _S, "why": _S}, ["id", "why"])),
+    "check_sync": ("Where the journeys and the team's flow files (pack.yaml sync:) disagree: missing, stale, "
+                   "hand-edited, orphan, unimported flows and more. Empty means in sync.", _schema()),
     "tracker": ("Runs, the work queue (open failures, proposals, drafts), agent activity and agent usage "
                 "(journeys built, issues solved, per agent and day).", _schema()),
 }
@@ -155,6 +157,12 @@ class Server:
         if not f:
             raise ValueError(f"no failure {id}")
         return f
+
+    def check_sync(self) -> list:
+        from dataclasses import asdict
+
+        from .sync import check_sync
+        return [asdict(d) for d in check_sync(self._pack())]
 
     def tracker(self) -> dict:
         from .tracker import summary

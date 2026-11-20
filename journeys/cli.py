@@ -506,6 +506,32 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_check_sync(args) -> int:
+    from .sync import check_sync, flow_dir, source
+    pack = _load(args)
+    drift = check_sync(pack)
+    for x in drift:
+        print(f"{x.kind:15} {x.file}" + (f"  (journey {x.journey})" if x.journey else "") + f"  {x.detail}")
+    print(f"{'OK' if not drift else 'DRIFT'} {len(drift)} differences between the journeys and "
+          f"{flow_dir(pack)} (the truth: {source(pack)})")
+    return 1 if drift else 0
+
+
+def cmd_sync(args) -> int:
+    from .sync import sync
+    pack = _load(args)
+    _refuse_errors(pack)  # a broken journey would be written out as a broken flow
+    done, left = sync(pack, dry_run=args.dry_run, prune=args.prune)
+    for line in done:
+        print(("would " if args.dry_run else "") + line)
+    for x in left:
+        print(f"left   {x.kind:15} {x.file}" + (f"  (journey {x.journey})" if x.journey else "") + f"  {x.detail}")
+    if done and not args.dry_run:
+        _log(args, pack, "sync", changes=len(done), left=len(left))
+    print(f"{len(done)} changes{' (dry run)' if args.dry_run else ''}, {len(left)} left for a person")
+    return 1 if left else 0
+
+
 def cmd_import(args) -> int:
     import yaml
 
@@ -569,6 +595,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("journey")
     s.add_argument("-o", "--out", help="file to write (default: print)")
     s.set_defaults(fn=cmd_export)
+    s = sub.add_parser("sync", help="bring the journeys and the team's flow files (pack.yaml sync:) together")
+    s.add_argument("--dry-run", action="store_true", help="say what it would do, change nothing")
+    s.add_argument("--prune", action="store_true", help="also delete generated flows whose journey is gone")
+    s.set_defaults(fn=cmd_sync)
+    sub.add_parser("check-sync", help="list where the journeys and the flow files disagree (exit 1 if any)"
+                   ).set_defaults(fn=cmd_check_sync)
     s = sub.add_parser("import", help="turn another tool's tests into draft journeys (maestro)")
     s.add_argument("format", choices=["maestro"])
     s.add_argument("paths", nargs="+", help="flow files or folders")
