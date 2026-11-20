@@ -169,8 +169,9 @@ sync:
   deletes the developer's file (whatever its name), if that file did not change since the import.
   When the import left something out (a `runFlow`, a `swipe`: no neutral word), the flow is `lossy`:
   sync keeps it until you carry those parts into the journey and run `journeys sync --accept <file>`.
-  When two flows in different subfolders have one name, the second becomes a `<folder>-<name>`
-  draft. A file that differs from a journey's file only in case (`Open-Display.yaml`) is never
+  When two flows have one name, the top-level one keeps it and one in a subfolder becomes a
+  `<folder>-<name>` draft (`login.yaml` is `login`, `auth/login.yaml` is `auth-login`); a name that
+  is still taken is reported as `name-taken`. A file that differs from a journey's file only in case (`Open-Display.yaml`) is never
   written over (macOS and Windows folders ignore case): it is `name-taken`, unless it is the flow
   that journey was imported from, which sync replaces like any other (the same holds for
   `<name>.yml`). A flow that another flow runs (`runFlow`) is never deleted: it is `referenced`

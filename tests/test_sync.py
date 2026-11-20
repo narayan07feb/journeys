@@ -580,3 +580,72 @@ def test_round_7_a_note_with_a_newline_stays_one_header_line(synced, monkeypatch
     text = sync_mod.render(Pack.load(synced), Pack.load(synced).journeys["open-display"])
     gen = generated(text)
     assert gen and sync_mod._sha(gen[2]) == gen[1]  # not read as a hand edit
+
+
+def test_round_8_replace_never_deletes_a_flow_another_flow_runs(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "login.yml"
+    dev.write_text(flow("login", 'tapOn: "About phone"'))
+    (synced / "flows" / "main.yaml").write_text(flow("main", "runFlow: login.yml"))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "login.yaml").write_text(
+        "name: login\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "login") == 0
+    assert ("referenced", "login.yml") in kinds(synced)
+    sync(Pack.load(synced))
+    assert dev.exists()
+
+
+def test_round_8_top_level_and_subfolder_flows_with_one_name_both_import(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "auth").mkdir()
+    (synced / "flows" / "auth" / "login.yaml").write_text(flow("a", 'tapOn: "About phone"'))
+    (synced / "flows" / "login.yaml").write_text(flow("b", 'tapOn: "Display"'))
+    planned = sorted((d.kind, d.file, d.journey) for d in check_sync(Pack.load(synced)))
+    assert planned == [("unimported", "auth/login.yaml", "auth-login"), ("unimported", "login.yaml", "login")]
+    dry, dry_left = sync(Pack.load(synced), dry_run=True)
+    real, real_left = sync(Pack.load(synced))
+    assert dry == real and not real_left and kinds(synced) == []
+    assert (synced / "drafts" / "login.yaml").exists() and (synced / "drafts" / "auth-login.yaml").exists()
+
+
+def test_round_8_same_slug_in_one_folder_is_name_taken(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "login_flow.yaml").write_text(flow("a", 'tapOn: "About phone"'))
+    (synced / "flows" / "login-flow.yaml").write_text(flow("b", 'tapOn: "Display"'))
+    assert sorted(k for k, _ in kinds(synced)) == ["name-taken", "unimported"]
+    real, left = sync(Pack.load(synced))
+    assert [x.kind for x in left] == ["name-taken"]
+
+
+def test_round_8_an_empty_import_is_left_for_a_person(synced, capsys):
+    sync(Pack.load(synced))
+    (synced / "flows" / "sw.yaml").write_text("appId: com.android.settings\n---\n- swipe: {direction: UP}\n")
+    capsys.readouterr()
+    assert cli(synced, "sync") == 1 and "empty-import" in capsys.readouterr().out
+
+
+def test_round_8_check_sync_names_a_malformed_sync_section(pack_dir, capsys):
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text() + "sync:\n  dir: 5\n")
+    assert cli(pack_dir, "check-sync") == 2
+    assert "sync.dir is the folder" in capsys.readouterr().err
+
+
+def test_round_8_hints_quote_paths_with_spaces(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "Login Flow.yaml").write_text(flow("x", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "login-flow.yaml").unlink()
+    (d,) = [x for x in check_sync(Pack.load(synced)) if x.kind == "unlinked"]
+    assert "--decline 'Login Flow.yaml'" in d.detail
+
+
+def test_round_8_a_deleted_draft_never_relinks_to_another_flows_draft(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "a.yaml").write_text(flow("a", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "a.yaml").unlink()  # declined on purpose
+    (synced / "flows" / "b.yaml").write_text(flow("b", 'tapOn: "About phone"'))  # same steps
+    sync(Pack.load(synced))
+    assert ("unlinked", "a.yaml") in kinds(synced)

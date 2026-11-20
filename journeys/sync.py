@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -151,9 +152,10 @@ def _write(path: Path, text: str) -> None:
 def _relink(state: dict, every: dict) -> bool:
     """A journey renamed since its flow was imported: follow it by what it does. True if any moved."""
     moved = False
+    linked = {rec["journey"] for rec in state.values()}
     for rec in state.values():
         if rec["journey"] not in every and rec["journey_hash"]:
-            same = [n for n, j in every.items() if journey_hash(j) == rec["journey_hash"]]
+            same = [n for n, j in every.items() if journey_hash(j) == rec["journey_hash"] and n not in linked]
             if len(same) == 1:
                 rec["journey"], moved = same[0], True
     return moved
@@ -235,7 +237,7 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
                 if rec and rec["journey"] not in every and rec["hash"] == _sha(text):
                     if not rec.get("declined"):  # deleted, or renamed and edited: a person says which
                         out.append(Drift("unlinked", f, rec["journey"], f"its draft {rec['journey']} is gone: "
-                                         f"`journeys sync --decline {f}` keeps this flow out; if a journey you "
+                                         f"`journeys sync --decline {shlex.quote(f)}` keeps this flow out; if a journey you "
                                          "renamed replaces it, delete this file"))
                     continue
                 if rec and rec["journey"] in every:
@@ -290,7 +292,39 @@ def check_sync(pack: Pack, state: dict | None = None) -> list[Drift]:
         if rec.get("empty") and j and journey_hash(j) == rec["journey_hash"] and f in flows:
             out.append(Drift("empty-import", f, j.name, "no command of the flow could be imported: write the "
                                                         "journey's steps by hand, or delete it"))
-    return out
+    return _plan(pack, out, flows, every)
+
+
+def _plan(pack: Pack, out: list[Drift], flows: dict, every: dict) -> list[Drift]:
+    """Settle what sync would do, so check-sync, a dry run and the real run agree: each flow to import
+    gets its draft name now (top-level flows first: login.yaml is login, auth/login.yaml auth-login),
+    and a flow another flow runs (runFlow) is never planned for deletion."""
+    taken = set(every) | {p.stem for p in (pack.root / "drafts").glob("*.yaml")}
+    names: dict[str, Drift] = {}
+    for x in sorted((x for x in out if x.kind in ("unimported", "new-flow", "journey-missing")),
+                    key=lambda x: ("/" in x.file, x.file)):
+        base = slug(Path(x.file).stem)
+        if "/" in x.file and base in taken:
+            base = slug(x.file.rsplit(".", 1)[0].replace("/", "-"))
+        if base == "all" or base in pack.sets:
+            base += "-flow"
+        if base in taken:
+            names[x.file] = Drift("name-taken", x.file, base, f"would become draft {base}, which exists: rename "
+                                  "the flow")
+        else:
+            taken.add(base)
+            names[x.file] = Drift(x.kind, x.file, base, x.detail)
+    planned = []
+    for x in out:
+        if x.file in names and x.kind in ("unimported", "new-flow", "journey-missing"):
+            x = names[x.file]
+        elif x.kind in ("replace", "superseded"):
+            users = [o for o, t in flows.items() if o != x.file and "runFlow" in t and Path(x.file).name in t]
+            if users:  # deleting it would break the flows that run it
+                x = Drift("referenced", x.file, x.journey, f"run by {', '.join(users)}: point them at "
+                          f"{x.journey}.yaml, then sync")
+        planned.append(x)
+    return planned
 
 
 def _unimportable(path: Path, pack: Pack) -> str | None:
@@ -316,7 +350,7 @@ def _lossy(f: str, journey: str, rec: dict) -> Drift | None:
         return None
     return Drift("lossy", f, journey, f"its import left out {len(rec['left_out'])} thing(s) "
                  f"({'; '.join(rec['left_out'])[:300]}): carry them into the journey, then run "
-                 f"`journeys sync --accept {f}` to let the generated flow replace it")
+                 f"`journeys sync --accept {shlex.quote(f)}` to let the generated flow replace it")
 
 
 def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: Path | None = None,
@@ -424,13 +458,16 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
             if not dry_run:
                 (d / x.file).unlink()
         elif x.kind in ("unimported", "new-flow", "journey-missing"):
-            done.append(f"import {x.file} as a draft")
+            done.append(f"import {x.file} as draft {x.journey}")
             notes: list[str] = []
-            if _import(pack, x.file, flows[x.file], state, notes, write=not dry_run) is None:
+            if _import(pack, x.file, flows[x.file], state, notes, name=x.journey, write=not dry_run) is None:
                 left.append(Drift("not-imported", x.file, None, "; ".join(notes)))
                 done.pop()
             else:
                 done += [f"  note {n}" for n in notes]
+                if any("no command could be imported" in n for n in notes):
+                    left.append(Drift("empty-import", x.file, x.journey, "no command of the flow could be "
+                                      "imported: write the journey's steps by hand, or delete it"))
         elif x.kind == "flow-changed":
             j = {**pack.journeys, **pack.drafts}[x.journey]
             if sum(o.file == j.file for o in {**pack.journeys, **pack.drafts}.values()) > 1:
@@ -452,11 +489,6 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
             ready = target.exists() and generated(target.read_text())
         except (OSError, UnicodeDecodeError):
             ready = False
-        users = [o for o, t in flows.items() if t and o != x.file and "runFlow" in t and Path(x.file).name in t]
-        if users:  # another flow runs this one: deleting it would break that flow
-            left.append(Drift("referenced", x.file, x.journey, f"run by {', '.join(users)}: point them at "
-                              f"{x.journey}.yaml, then sync"))
-            continue
         if ready or (dry_run and target.name in planned):
             done.append(f"delete {x.file} (now generated as {x.journey}.yaml)")
             if not dry_run:
