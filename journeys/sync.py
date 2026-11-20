@@ -22,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from .actions import ActionError
-from .formats.maestro import export, import_flow
+from .formats.maestro import export, import_flow, slug
 from .journey import Journey
 from .pack import Pack, PackError
 
@@ -111,8 +111,9 @@ def _state(pack: Pack) -> dict:
     if not isinstance(flows, dict):
         return {}
     return {k: v for k, v in flows.items() if isinstance(v, dict) and isinstance(v.get("journey"), str)
-            and isinstance(v.get("hash"), str) and isinstance(v.get("journey_hash"), (str, type(None)))
-            and isinstance(v.get("empty", False), bool)}
+            and isinstance(v.get("hash"), str) and "journey_hash" in v
+            and isinstance(v["journey_hash"], (str, type(None))) and isinstance(v.get("empty", False), bool)
+            and isinstance(v.get("left_out", []), list)}
 
 
 def _save_state(pack: Pack, flows: dict) -> None:
@@ -135,6 +136,10 @@ def check_sync(pack: Pack) -> list[Drift]:
     every = {**pack.journeys, **pack.drafts}
     out = [Drift("unreadable", f, None, "cannot be read as text: fix or remove it") for f, t in flows.items() if t is None]
     flows = {f: t for f, t in flows.items() if t is not None}
+    bad = {f for f, t in flows.items() if not _parses(t)}
+    out += [Drift("bad-flow", f, None, "not valid YAML: fix it, then sync") for f in sorted(bad)]
+    flows = {f: t for f, t in flows.items() if f not in bad}
+    folded = {f.lower(): f for f in flows}  # macOS and Windows folders ignore case: Open-Display.yaml is the same file
     if source(pack) == "journeys":
         for name, j in pack.journeys.items():  # drafts are not generated until promoted
             f = f"{name}.yaml"
@@ -146,6 +151,10 @@ def check_sync(pack: Pack) -> list[Drift]:
             except ActionError as e:
                 out.append(Drift("unexportable", f, name, f"cannot be written as a flow: {e}"))
                 continue
+            if folded.get(f.lower(), f) != f:
+                out.append(Drift("name-taken", folded[f.lower()], name, f"differs from {f} only in case, and this "
+                                 "folder may ignore case: rename one of them"))
+                continue
             text = flows.get(f)
             if text is None:
                 out.append(Drift("missing", f, name, "no flow file yet: run `journeys sync`"))
@@ -154,8 +163,8 @@ def check_sync(pack: Pack) -> list[Drift]:
             if gen is None:
                 rec = state.get(f)
                 if rec and rec.get("hash") == _sha(text) and rec.get("journey") == name:
-                    out.append(Drift("stale", f, name, "the flow this journey came from: sync replaces it "
-                                                       "with the generated one"))
+                    out.append(_lossy(f, name, rec) or Drift("stale", f, name, "the flow this journey came from: "
+                                                                    "sync replaces it with the generated one"))
                 else:
                     out.append(Drift("name-taken", f, name, "a developer's flow has this journey's file name: "
                                                             "rename one of them"))
@@ -181,8 +190,9 @@ def check_sync(pack: Pack) -> list[Drift]:
                                          f"{rec['journey']}: the journeys are the truth; move the change into "
                                          "the journey, then delete this file"))
                     elif rec["journey"] in pack.journeys:
-                        out.append(Drift("superseded", f, rec["journey"], f"the flow journey {rec['journey']} came "
-                                         f"from, now generated as {rec['journey']}.yaml: sync deletes this copy"))
+                        out.append(_lossy(f, rec["journey"], rec) or Drift(
+                            "superseded", f, rec["journey"], f"the flow journey {rec['journey']} came from, now "
+                            f"generated as {rec['journey']}.yaml: sync deletes this copy"))
                 elif stem in pack.journeys:
                     out.append(Drift("name-taken", f, stem, "a developer's flow named like a journey: rename one"))
                 else:
@@ -208,7 +218,7 @@ def check_sync(pack: Pack) -> list[Drift]:
             elif rec["hash"] != _sha(text):
                 out.append(Drift("flow-changed", f, j.name, "`journeys sync` imports the change"))
         for f, rec in state.items():
-            if f not in flows:
+            if f not in flows and f not in bad:  # a broken flow is still there: reported above
                 out.append(Drift("flow-removed", f, rec.get("journey"), "its flow is gone: delete the journey "
                                                                         "or put the flow back"))
         made = {rec.get("journey") for rec in state.values()}
@@ -224,6 +234,23 @@ def check_sync(pack: Pack) -> list[Drift]:
     return out
 
 
+def _parses(text: str) -> bool:
+    try:
+        list(yaml.safe_load_all(text))
+        return True
+    except yaml.YAMLError:
+        return False
+
+
+def _lossy(f: str, journey: str, rec: dict) -> Drift | None:
+    """A developer's flow whose import left something out: replacing or deleting it would lose that."""
+    if not rec.get("left_out"):
+        return None
+    return Drift("lossy", f, journey, f"its import left out {len(rec['left_out'])} thing(s) "
+                 f"({'; '.join(rec['left_out'])[:300]}): carry them into the journey, then run "
+                 f"`journeys sync --accept {f}` to let the generated flow replace it")
+
+
 def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: Path | None = None,
             name: str | None = None) -> str | None:
     """Import one flow as a draft (or over `dest`), record it in the state; the journey's name or None."""
@@ -235,11 +262,15 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
         return None
     draft["name"] = name or draft["name"]
     if dest is None:
+        taken = lambda n: n in pack.journeys or n in pack.drafts or (pack.root / "drafts" / f"{n}.yaml").exists()
+        if "/" in f and taken(draft["name"]):  # auth/login.yaml next to checkout/login.yaml: auth-login
+            draft["name"] = slug(f.rsplit(".", 1)[0].replace("/", "-"))
         if draft["name"] == "all" or draft["name"] in pack.sets:
             draft["name"] += "-flow"
         dest = pack.root / "drafts" / f"{draft['name']}.yaml"
         if draft["name"] in pack.journeys or draft["name"] in pack.drafts or dest.exists():
-            notes.append(f"{f}: not imported: a journey or draft named {draft['name']} exists")
+            notes.append(f"{f}: not imported: a journey or draft named {draft['name']} exists; rename the flow "
+                         "or that journey")
             return None
     else:  # the flow owns the steps; tags and other keys added in Journeys stay
         try:
@@ -256,13 +287,21 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
     loaded = Pack.load(pack.root)
     j = loaded.journeys.get(draft["name"]) or loaded.drafts.get(draft["name"])
     state[f] = {"journey": draft["name"], "hash": _sha(text), "journey_hash": journey_hash(j) if j else None,
-                "empty": any("no command could be imported" in n for n in more)}
+                "empty": any("no command could be imported" in n for n in more), "left_out": more}
     return draft["name"]
 
 
-def sync(pack: Pack, dry_run: bool = False, prune: bool = False) -> tuple[list[str], list[Drift]]:
-    """Fix what can be fixed safely; return what was done and the drift that is left for a person."""
-    drift, flows, state = check_sync(pack), _flows(pack), _state(pack)
+def sync(pack: Pack, dry_run: bool = False, prune: bool = False,
+         accept: list[str] | None = None) -> tuple[list[str], list[Drift]]:
+    """Fix what can be fixed safely; return what was done and the drift that is left for a person.
+    accept: developer flows whose left-out parts a person has dealt with (see `lossy`)."""
+    state = _state(pack)
+    accepted = [f for f in accept or [] if f in state and state[f].get("left_out")]
+    for f in accepted:
+        state[f]["left_out"] = []
+    if accepted and not dry_run:
+        _save_state(pack, state)
+    drift, flows = check_sync(pack), _flows(pack)
     done: list[str] = []
     left: list[Drift] = []
     later: list[Drift] = []
@@ -313,6 +352,9 @@ def sync(pack: Pack, dry_run: bool = False, prune: bool = False) -> tuple[list[s
             if not dry_run:
                 (d / x.file).unlink()
                 state.pop(x.file, None)
+                parent = (d / x.file).parent
+                if parent != d and not any(parent.iterdir()):
+                    parent.rmdir()  # the folder it was in, now empty
         else:
             left.append(x)
     gone = [k for k in state if k not in flows] if source(pack) == "journeys" else []

@@ -184,7 +184,7 @@ def test_round_1_a_broken_flow_edit_is_left_not_reported_done(framework, capsys)
     capsys.readouterr()
     assert cli(framework, "sync") == 1
     out = capsys.readouterr().out
-    assert "0 changes" in out and "not-imported" in out
+    assert "0 changes" in out and "bad-flow" in out and "flow-removed" not in out
 
 
 def test_round_1_a_reimport_keeps_tags_and_reports_both_sides_changed(framework):
@@ -301,3 +301,57 @@ def test_round_2_prune_never_deletes_a_hand_edited_orphan(synced):
     (synced / "journeys" / "display.yaml").unlink()
     (synced / "sets.yaml").write_text("sets: {}\n")
     assert cli(synced, "sync", "--prune") == 1 and f.exists()
+
+
+def test_round_3_a_name_differing_only_in_case_is_never_written_over(synced):
+    (synced / "flows").mkdir()
+    dev = synced / "flows" / "Open-Display.yaml"
+    dev.write_text(flow("x", 'tapOn: "Display"'))
+    assert ("name-taken", "Open-Display.yaml") in kinds(synced)
+    sync(Pack.load(synced))
+    assert generated(dev.read_text()) is None and 'tapOn: "Display"' in dev.read_text()
+
+
+def test_round_3_a_lossy_flow_stays_until_accepted(synced, capsys):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "checkout.yaml"
+    dev.write_text(flow("checkout", "runFlow: login.yaml", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "checkout.yaml").write_text(
+        "name: checkout\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "checkout") == 0
+    assert kinds(synced) == [("lossy", "checkout.yaml")]
+    sync(Pack.load(synced))
+    assert "runFlow" in dev.read_text()  # kept: the import left that out
+    capsys.readouterr()
+    assert cli(synced, "sync", "--accept", "checkout.yaml") == 0
+    assert generated(dev.read_text())[0] == "checkout" and kinds(synced) == []
+
+
+def test_round_3_same_name_in_two_subfolders_and_bad_yaml(synced):
+    sync(Pack.load(synced))
+    for sub in ("auth", "checkout"):
+        (synced / "flows" / sub).mkdir()
+        (synced / "flows" / sub / "login.yaml").write_text(flow("login", 'tapOn: "Display"'))
+    sync(Pack.load(synced))
+    assert (synced / "drafts" / "login.yaml").exists() and (synced / "drafts" / "checkout-login.yaml").exists()
+    (synced / "flows" / "broken.yaml").write_text("- tapOn: [x\n")
+    assert kinds(synced) == [("bad-flow", "broken.yaml")]
+
+
+def test_round_3_superseding_removes_the_empty_folder(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "team").mkdir()
+    (synced / "flows" / "team" / "Pay.yaml").write_text(flow("Pay", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "pay.yaml").write_text("name: pay\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-ABOUT\n")
+    assert cli(synced, "promote-journey", "pay") == 0
+    sync(Pack.load(synced))
+    assert not (synced / "flows" / "team").exists() and kinds(synced) == []
+
+
+def test_round_3_a_state_record_without_journey_hash_is_ignored(framework):
+    f = framework / "flows" / "about.yaml"
+    f.write_text(flow("about", 'tapOn: "About phone"'))
+    (framework / "sync-state.json").write_text(json.dumps({"flows": {"about.yaml": {"journey": "about", "hash": "x"}}}))
+    assert kinds(framework) == [("new-flow", "about.yaml")]
