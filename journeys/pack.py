@@ -179,6 +179,8 @@ class Pack:
                 errors.append(f"{pf}: sync.dir is the folder of the team's flow files, like ../app/.maestro/journeys")
             elif root == (root / p.sync["dir"]).resolve() or root.is_relative_to((root / p.sync["dir"]).resolve()):
                 errors.append(f"{pf}: sync.dir holds the pack itself: point it at the team's flow folder")
+            elif any((root / p.sync["dir"]).resolve().is_relative_to(root / sub) for sub in ("journeys", "drafts", "map", "fake")):
+                errors.append(f"{pf}: sync.dir is inside the pack's own journeys, drafts, map or fake folder")
             if p.sync.get("format", "maestro") != "maestro":
                 errors.append(f"{pf}: sync.format is maestro (the flow format Journeys writes today), not {p.sync['format']!r}")
             if any(e.startswith(f"{pf}: sync") for e in errors):

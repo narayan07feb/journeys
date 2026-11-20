@@ -187,8 +187,10 @@ sync:
 - Every `.yaml` and `.yml` file under `dir` is a flow, subfolders too, except Maestro's
   `config.yaml` (never written: a journey named `config` is reported) and files or folders that
   start with a dot.
-- With `source: journeys`, to decline a developer's flow, delete the draft it became: the flow stays
-  declined until it changes. (With `source: framework` the flow is the truth: delete the flow.) A flow none of whose commands could be imported is reported (`empty-import`) until its
+- With `source: journeys`, to decline a developer's flow, delete the draft it became and run
+  `journeys sync --decline <file>`: the flow stays out until it changes. Until then it is reported as
+  `unlinked` (a draft renamed and edited before promotion looks the same: delete the old flow then).
+  With `source: framework` the flow is the truth: delete the flow to drop it. A flow none of whose commands could be imported is reported (`empty-import`) until its
   draft gets real steps or is deleted. A journey that cannot be written as a flow is reported
   (`unexportable`); a generated flow under another file name is a `duplicate` (`--prune` deletes it,
   as it does orphans, unless it was edited by hand).

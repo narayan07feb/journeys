@@ -521,7 +521,7 @@ def cmd_sync(args) -> int:
     from .sync import sync
     pack = _load(args)
     _refuse_errors(pack)  # a broken journey would be written out as a broken flow
-    done, left = sync(pack, dry_run=args.dry_run, prune=args.prune, accept=args.accept)
+    done, left = sync(pack, dry_run=args.dry_run, prune=args.prune, accept=args.accept, decline=args.decline)
     for line in done:
         print(("would " if args.dry_run else "") + line)
     for x in left:
@@ -601,6 +601,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--prune", action="store_true", help="also delete generated flows whose journey is gone")
     s.add_argument("--accept", action="append", default=[], metavar="FILE",
                    help="a developer flow whose left-out commands you carried into its journey: let sync replace it")
+    s.add_argument("--decline", action="append", default=[], metavar="FILE",
+                   help="a developer flow whose draft you deleted on purpose: keep it out of the journeys")
     s.set_defaults(fn=cmd_sync)
     sub.add_parser("check-sync", help="list where the journeys and the flow files disagree (exit 1 if any)"
                    ).set_defaults(fn=cmd_check_sync)

@@ -261,7 +261,9 @@ def test_round_2_a_declined_flow_stays_declined_until_it_changes(synced):
     dev = synced / "flows" / "extra.yaml"
     dev.write_text(flow("extra", 'tapOn: "Display"'))
     sync(Pack.load(synced))
-    (synced / "drafts" / "extra.yaml").unlink()  # declined
+    (synced / "drafts" / "extra.yaml").unlink()
+    assert kinds(synced) == [("unlinked", "extra.yaml")]  # deleted on purpose, or renamed? a person says
+    assert cli(synced, "sync", "--decline", "extra.yaml") == 0
     assert kinds(synced) == []
     dev.write_text(flow("extra", 'tapOn: "Display"', "back"))
     assert kinds(synced) == [("unimported", "extra.yaml")]
@@ -309,7 +311,7 @@ def test_round_3_a_name_differing_only_in_case_is_never_written_over(synced):
     (synced / "flows").mkdir()
     dev = synced / "flows" / "Open-Display.yaml"
     dev.write_text(flow("x", 'tapOn: "Display"'))
-    assert ("name-taken", "Open-Display.yaml") in kinds(synced)
+    assert [k for k in kinds(synced) if k[1] == "Open-Display.yaml"] == [("name-taken", "Open-Display.yaml")]
     sync(Pack.load(synced))
     assert generated(dev.read_text()) is None and 'tapOn: "Display"' in dev.read_text()
 
@@ -465,3 +467,59 @@ def test_round_5_env_values_never_reach_a_flow_file(synced, monkeypatch):
     assert cli(synced, "sync") == 0
     assert not any("SECRETVAL" in p.read_text() for p in (synced / "flows").iterdir())
     assert "${DEMO_SEARCH}" in (synced / "flows" / "search-settings.yaml").read_text()
+
+
+def test_round_6_a_draft_renamed_and_edited_leaves_no_silent_copy(synced):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "Net_Check.yaml"
+    dev.write_text(flow("Net_Check", 'tapOn: "About phone"'))
+    sync(Pack.load(synced))
+    (synced / "drafts" / "net-check.yaml").unlink()
+    (synced / "journeys" / "signin.yaml").write_text(
+        "name: signin\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-DISPLAY\n")
+    sync(Pack.load(synced))
+    assert ("unlinked", "Net_Check.yaml") in kinds(synced)  # reported until a person decides
+
+
+def test_round_6_a_dry_run_predicts_refused_imports(synced):
+    sync(Pack.load(synced))
+    (synced / "flows" / "empty.yaml").write_text("")
+    (synced / "flows" / "hdr.yaml").write_text("appId: com.android.settings\n")
+    assert ("bad-flow", "empty.yaml") in kinds(synced) and ("bad-flow", "hdr.yaml") in kinds(synced)
+    (synced / "drafts").mkdir(exist_ok=True)
+    (synced / "drafts" / "taken.yaml").write_text("name: taken\nsteps:\n  - expect: SETTINGS-HOME\n")
+    (synced / "flows" / "taken.yaml").write_text(flow("taken", 'tapOn: "Display"'))
+    dry, dry_left = sync(Pack.load(synced), dry_run=True)
+    real, real_left = sync(Pack.load(synced))
+    assert dry == real and [x.kind for x in dry_left] == [x.kind for x in real_left]
+
+
+def test_round_6_a_yml_twin_blocks_writing(synced):
+    (synced / "flows").mkdir()
+    (synced / "flows" / "open-display.yml").write_text(flow("x", 'tapOn: "Display"'))
+    sync(Pack.load(synced))
+    assert not (synced / "flows" / "open-display.yaml").exists()
+    assert ("name-taken", "open-display.yml") in kinds(synced)
+
+
+def test_round_6_framework_unreadable_flow_is_not_removed(framework):
+    f = framework / "flows" / "about.yaml"
+    f.write_text(flow("about", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    f.write_bytes(b"\xff\xfe")
+    assert kinds(framework) == [("unreadable", "about.yaml")]
+
+
+def test_round_6_bad_state_is_never_written_over(synced):
+    sync(Pack.load(synced))
+    (synced / "sync-state.json").write_text("{broken")
+    assert ("bad-state", "sync-state.json") in kinds(synced)
+    (synced / "flows" / "new.yaml").write_text(flow("new", 'tapOn: "Display"'))
+    assert cli(synced, "sync") == 1
+    assert (synced / "sync-state.json").read_text() == "{broken"
+
+
+def test_round_6_sync_dir_inside_the_packs_own_folders_is_refused(pack_dir):
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text() + "sync:\n  dir: drafts\n")
+    assert any("inside the pack's own" in e for e in Pack.load(pack_dir).errors)

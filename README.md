@@ -71,7 +71,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 | `history [--last N]` | Recent results per journey; flaky ones marked. |
 | `serve [--port 8765]` / `watch` | Tracker page on 127.0.0.1 / live state as JSON lines. |
 | `tracker [--json]` | The tracker's four parts as text or JSON. |
-| `sync [--dry-run] [--prune] [--accept FILE]` / `check-sync` | Keep the journeys and the team's flow files as one (pack.yaml `sync:`) / list the drift. |
+| `sync [--dry-run] [--prune] [--accept FILE] [--decline FILE]` / `check-sync` | Keep the journeys and the team's flow files as one (pack.yaml `sync:`) / list the drift. |
 | `build` / `install --serial S` | The pack's build and install steps. |
 | `mcp` | MCP tools on stdin and stdout. |
 | `setup [--version vX]` | Install upstream Speedrun. |
