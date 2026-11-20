@@ -413,3 +413,55 @@ def test_round_4_accept_says_when_it_matched_nothing(synced, capsys):
     capsys.readouterr()
     assert cli(synced, "sync", "--accept", "./nothing.yaml") == 1
     assert "not-accepted" in capsys.readouterr().out
+
+
+def test_round_5_a_broken_file_with_a_journeys_name_is_never_written_over(synced):
+    sync(Pack.load(synced))
+    f = synced / "flows" / "open-display.yaml"
+    f.write_text(f.read_text() + '- tapOn: "unclosed\n')  # mid-edit
+    assert kinds(synced) == [("bad-flow", "open-display.yaml")]  # not also "missing"
+    sync(Pack.load(synced))
+    assert "unclosed" in f.read_text()
+
+
+def test_round_5_a_removed_flow_whose_journey_is_gone_clears(framework):
+    f = framework / "flows" / "open.yaml"
+    f.write_text(flow("open", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    f.unlink()
+    assert kinds(framework) == [("flow-removed", "open.yaml")]
+    (framework / "drafts" / "open.yaml").unlink()
+    assert kinds(framework) == []
+    sync(Pack.load(framework))
+    assert "open.yaml" not in json.loads((framework / "sync-state.json").read_text())["flows"]
+
+
+def test_round_5_typed_text_is_not_a_loss_and_notes_are_not_changes(synced, capsys):
+    sync(Pack.load(synced))
+    dev = synced / "flows" / "search.yaml"
+    dev.write_text(flow("search", 'tapOn: "Search settings"', "inputText: battery"))
+    capsys.readouterr()
+    assert cli(synced, "sync") == 0
+    assert "1 changes" in capsys.readouterr().out  # the import; its note is not a change
+    (synced / "drafts" / "search.yaml").write_text(
+        "name: search\nsteps:\n  - expect: SETTINGS-HOME\n  - goto: SETTINGS-SEARCH\n")
+    assert cli(synced, "promote-journey", "search") == 0
+    assert kinds(synced) == [("stale", "search.yaml")]  # replaceable: typing was carried over, nothing lost
+
+
+def test_round_5_sync_dir_must_be_a_flow_folder(pack_dir):
+    f = pack_dir / "pack.yaml"
+    keep = f.read_text()
+    for d in (".", ".."):
+        f.write_text(keep + f"sync:\n  dir: '{d}'\n")
+        assert any("holds the pack itself" in e for e in Pack.load(pack_dir).errors), d
+    (pack_dir / "flowfile").write_text("")
+    f.write_text(keep + "sync:\n  dir: flowfile\n")
+    assert cli(pack_dir, "check-sync") == 2  # a file, not a folder: a clear error
+
+
+def test_round_5_env_values_never_reach_a_flow_file(synced, monkeypatch):
+    monkeypatch.setenv("DEMO_SEARCH", "SECRETVAL")
+    assert cli(synced, "sync") == 0
+    assert not any("SECRETVAL" in p.read_text() for p in (synced / "flows").iterdir())
+    assert "${DEMO_SEARCH}" in (synced / "flows" / "search-settings.yaml").read_text()

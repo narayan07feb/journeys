@@ -528,7 +528,8 @@ def cmd_sync(args) -> int:
         print(f"left   {x.kind:15} {x.file}" + (f"  (journey {x.journey})" if x.journey else "") + f"  {x.detail}")
     if done and not args.dry_run:
         _log(args, pack, "sync", changes=len(done), left=len(left))
-    print(f"{len(done)} changes{' (dry run)' if args.dry_run else ''}, {len(left)} left for a person")
+    changes = sum(not line.startswith("  note") for line in done)
+    print(f"{changes} changes{' (dry run)' if args.dry_run else ''}, {len(left)} left for a person")
     return 1 if left else 0
 
 
