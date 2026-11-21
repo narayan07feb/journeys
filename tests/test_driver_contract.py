@@ -108,8 +108,8 @@ def test_driver_choice_has_no_silent_fallback(monkeypatch, pack_dir, tmp_path):
     from journeys.pack import Pack
     from journeys.results import Store
     pack = Pack.load(pack_dir)
-    monkeypatch.setattr(cli, "availability", lambda: {"maestro": "maestro is not on PATH", "speedrun": None,
-                                                      "fake": None})
+    every = {"maestro": "maestro is not on PATH", "speedrun": None, "appium": "no Appium server", "fake": None}
+    monkeypatch.setattr(cli, "availability", lambda only=None: {k: v for k, v in every.items() if only in (None, k)})
     with pytest.raises(DriverError, match="maestro is not on PATH.*these can: speedrun"):
         cli.make_driver("maestro", pack, None, Store(tmp_path))
     for gone in ("uiautomator", "espresso"):  # Journeys has no driver of its own

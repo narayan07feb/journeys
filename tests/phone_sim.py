@@ -154,6 +154,9 @@ def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
         acts = body["actions"][0]["actions"]
         pts = [(a["x"], a["y"]) for a in acts if a["type"] == "pointerMove"]
         if len(pts) == 1:
+            els = self._elements()
+            row = pts[0][1] // ROW
+            self.field = 0 <= row < len(els) and els[row].kind == "Field"  # a tapped field takes the focus
             return {"value": self.adb("shell", "input", "tap", str(pts[0][0]), str(pts[0][1])) and None}
         (x1, y1), (x2, y2) = pts[0], pts[-1]
         self.adb("shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2))
@@ -177,7 +180,10 @@ def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
         else:
             raise AssertionError(script)
         return {"value": None}
-    if path == "/element/active":
+    if path == "/element/active":  # like Appium: nothing focused is a 404 "no such element"
+        if not getattr(self, "field", False):
+            from journeys.drivers.appium import AppiumError
+            raise AppiumError("appium GET /session/s1/element/active: 404 no such element")
         return {"value": {"element-6066-11e4-a52e-4f735466cecf": "e1"}}
     if path == "/element/e1/value":
         self.typed.append(body["text"])

@@ -24,7 +24,7 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
     """The driver the pack names, or the --driver override. No silent fallback to another one."""
     if kind not in DRIVERS:
         raise DriverError(f"driver {kind} is not one of {', '.join(DRIVERS)}")
-    missing = availability()[kind]
+    missing = availability(kind)[kind]
     if missing:
         others = [k for k, why in availability().items() if not why and k not in (kind, "fake")]
         raise DriverError(f"driver {kind} cannot run: {missing}"

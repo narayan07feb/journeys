@@ -16,6 +16,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -23,9 +24,17 @@ from pathlib import Path
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, changes_allowed, command_name, find, kind_of, shown
 
+IDLE_S = 900  # seconds Appium keeps an idle session; above the runner's 300 s hook limit
 KEYCODES = {"enter": 66, "back": 4, "home": 3, "tab": 61, "backspace": 67, "search": 84}
 _W3C_ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
+
+
+def _opener(url: str):
+    """A local server is reached directly, never through an http_proxy the shell happens to set."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    local = host in ("127.0.0.1", "localhost", "::1")
+    return urllib.request.build_opener(urllib.request.ProxyHandler({})) if local else urllib.request.build_opener()
 
 
 def server_url() -> str:
@@ -36,7 +45,7 @@ def reachable(url: str | None = None, timeout: float = 2.0) -> str | None:
     """None when an Appium server answers at the URL, else why not (for doctor)."""
     url = url or server_url()
     try:
-        with urllib.request.urlopen(f"{url}/status", timeout=timeout) as r:
+        with _opener(url).open(f"{url}/status", timeout=timeout) as r:
             json.loads(r.read() or b"{}")
         return None
     except (OSError, ValueError, http.client.HTTPException) as e:
@@ -80,11 +89,11 @@ class AppiumDriver(AdbDriver):
 
     # the wire
     def _http(self, method: str, path: str, body: dict | None = None) -> dict:
-        req = urllib.request.Request(f"{self.url}{path}", method=method,
-                                     data=None if body is None else json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            req = urllib.request.Request(f"{self.url}{path}", method=method,
+                                         data=None if body is None else json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with _opener(self.url).open(req, timeout=self.timeout) as r:
                 body = json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:  # WebDriver errors come back as JSON with value.message
             try:
@@ -115,7 +124,9 @@ class AppiumDriver(AdbDriver):
             raise DriverError("Appium sets up its helper apps on the device at session start; pack.yaml "
                               "devices.allow_settings_changes does not allow that on this device")
         caps = {"platformName": "Android", "appium:automationName": "UiAutomator2", "appium:noReset": True,
-                "appium:appPackage": app_id, "appium:autoLaunch": False}
+                "appium:appPackage": app_id, "appium:autoLaunch": False,
+                # a hook step may run for 300 s with no Appium call: the session must outlive it
+                "appium:newCommandTimeout": IDLE_S}
         if serial:
             caps["appium:udid"] = serial
         value = self._http("POST", "/session", {"capabilities": {"alwaysMatch": caps}}).get("value")
@@ -139,7 +150,7 @@ class AppiumDriver(AdbDriver):
     def screenshot(self, path: Path) -> Path | None:
         try:
             data = base64.b64decode(self._s("GET", "/screenshot") or "")
-        except (DriverError, ValueError):
+        except (DriverError, ValueError, TypeError):
             return None
         if not data.startswith(b"\x89PNG"):
             return None
@@ -158,9 +169,15 @@ class AppiumDriver(AdbDriver):
         self._s("POST", "/actions", {"actions": [{"type": "pointer", "id": "finger", "parameters":
                                                   {"pointerType": "touch"}, "actions": acts}]})
 
+    def _window(self) -> tuple[int, int]:
+        r = self._s("GET", "/window/rect")
+        try:
+            return int(r["width"]), int(r["height"])
+        except (TypeError, KeyError, ValueError):
+            raise DriverError(f"appium window size: not a width and height ({str(r)[:100]})") from None
+
     def _swipe(self, up: bool) -> None:
-        r = self._s("GET", "/window/rect") or {}
-        w, h = int(r.get("width", 1080)), int(r.get("height", 2400))
+        w, h = self._window()
         a, b = (int(h * 0.7), int(h * 0.3)) if up else (int(h * 0.3), int(h * 0.7))
         self._pointer([(w // 2, a), (w // 2, b)])
 
@@ -176,10 +193,11 @@ class AppiumDriver(AdbDriver):
             time.sleep(0.5)
         if i is None:
             return None
-        r = self._s("GET", "/window/rect") or {}
-        w, h = int(r.get("width", 10**6)), int(r.get("height", 10**6))
+        w, h = self._window()
         x1, y1, x2, y2 = boxes[i]
         x1, y1, x2, y2 = max(x1, 0), max(y1, 0), min(x2, w), min(y2, h)
+        if x1 >= x2 or y1 >= y2:
+            return None  # all of it is off the screen: not visible, nothing to tap
         return (x1 + x2) // 2, (y1 + y2) // 2
 
     def do(self, commands: list) -> CommandResult:
@@ -211,11 +229,17 @@ class AppiumDriver(AdbDriver):
                 return CommandResult(False, f"Element not found: {shown(arg)}")
             self._tap(*at)
         elif name == "inputText":
-            active = self._s("GET", "/element/active")
-            el = active.get(_W3C_ELEMENT) if isinstance(active, dict) else None
+            try:
+                active = self._s("GET", "/element/active")
+                el = active.get(_W3C_ELEMENT) if isinstance(active, dict) else None
+                if el:
+                    self._s("POST", f"/element/{el}/value", {"text": str(arg)})
+            except AppiumError as e:
+                if "invalid session" in str(e):
+                    raise
+                el = None  # no such element, or it went stale: nothing focused to type into
             if not el:
                 return CommandResult(False, "appium: no field has the focus to type into")
-            self._s("POST", f"/element/{el}/value", {"text": str(arg)})
         elif name == "eraseText":
             try:
                 n = int(arg if arg is not None else 50)
@@ -226,8 +250,9 @@ class AppiumDriver(AdbDriver):
         elif name == "hideKeyboard":
             try:
                 self._s("POST", "/appium/device/hide_keyboard", {})
-            except AppiumError:
-                pass  # Appium says no keyboard is up: nothing to hide (a dead server still fails)
+            except AppiumError as e:  # Appium says no keyboard is up: nothing to hide
+                if "invalid session" in str(e):
+                    raise  # a dead or expired session still fails
         elif name == "scroll":
             self._swipe(up=True)
         elif name == "scrollUntilVisible":
@@ -244,9 +269,12 @@ class AppiumDriver(AdbDriver):
         elif name == "assertVisible":
             if self._find(arg) is None:
                 return CommandResult(False, f"Element not found: {shown(arg)}")
-        elif name == "assertNotVisible":
-            if self._find(arg, wait=0) is not None:
-                return CommandResult(False, f"Element is visible: {shown(arg)}")
+        elif name == "assertNotVisible":  # waits a short while for it to go, as for assertVisible to come
+            end = time.monotonic() + self.wait
+            while self._find(arg, wait=0) is not None:
+                if time.monotonic() >= end:
+                    return CommandResult(False, f"Element is visible: {shown(arg)}")
+                time.sleep(0.5)
         else:
             return CommandResult(False, f"this driver does not know the action {name}")
         return CommandResult(True)

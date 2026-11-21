@@ -75,10 +75,9 @@ def test_clear_failures_for_keys_typing_and_screenshots():
     d = driver(phone, allow_changes="any")
     d.start("com.example.app", "emulator-5554")
     assert not d.do([{"pressKey": "Volume"}]).ok
-    real = d._http
-    d._http = lambda m, p, b=None: {"value": None} if p.endswith("/element/active") else real(m, p, b)
-    res = d.do([{"inputText": "hi"}])
+    res = d.do([{"inputText": "hi"}])  # nothing focused: Appium answers 404
     assert not res.ok and "no field has the focus" in res.message
+    real = d._http
     d._http = lambda m, p, b=None: {"value": "bm90IGEgcG5n"} if p.endswith("/screenshot") else real(m, p, b)
     assert d.screenshot(__import__("pathlib").Path("/nonexistent/x.png")) is None  # not a PNG: no file
 
@@ -240,6 +239,7 @@ def test_typing_erasing_keys_and_the_keyboard():
     seen = []
     real = d._http
     d._http = lambda m, p, b=None: seen.append((m, p)) or real(m, p, b)
+    phone.field = True  # a field has the focus
     assert d.do([{"inputText": "hi"}]).ok and ("GET", "/session/s1/element/active") in seen
     assert phone.typed == ["hi"]
     assert not d.do([{"eraseText": "lots"}]).ok
@@ -247,3 +247,91 @@ def test_typing_erasing_keys_and_the_keyboard():
     d._http = lambda m, p, b=None: (_ for _ in ()).throw(DriverError("connection refused"))
     with pytest.raises(DriverError):
         d.do(["hideKeyboard"])  # a dead server is never "no keyboard"
+
+
+def test_round_2_session_outlives_a_long_hook_and_offscreen_is_not_visible():
+    from journeys.drivers.appium import IDLE_S
+    phone, sent = Phone(APP), []
+    d = driver(phone, allow_changes="any")
+    real = d._http
+    d._http = lambda m, p, b=None: sent.append(b) or real(m, p, b)
+    d.start("com.example.app", "emulator-5554")
+    assert sent[0]["capabilities"]["alwaysMatch"]["appium:newCommandTimeout"] == IDLE_S > 300
+    xml = ('<hierarchy><android.widget.Button class="android.widget.Button" text="Below" clickable="true" '
+           'bounds="[0,2500][1080,2600]"/></hierarchy>')
+    d._http = lambda m, p, b=None: {"value": xml} if p.endswith("/source") else real(m, p, b)
+    assert not d.do([{"assertVisible": "Below"}]).ok and not d.do([{"tapOn": "Below"}]).ok
+
+
+def test_round_2_odd_window_screenshot_and_url():
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    real = d._http
+    for rect in ([1], "x", {"width": "wide", "height": 1}):
+        d._http = lambda m, p, b=None, r=rect: {"value": r} if p.endswith("/window/rect") else real(m, p, b)
+        with pytest.raises(DriverError, match="window size"):
+            d.do(["scroll"])
+    d._http = lambda m, p, b=None: {"value": {"a": 1}} if p.endswith("/screenshot") else real(m, p, b)
+    assert d.screenshot(__import__("pathlib").Path("/nonexistent/x.png")) is None
+    bad = AppiumDriver(url="appium-host", allow_changes="any")
+    bad._adb = phone.adb
+    with pytest.raises(DriverError):
+        bad.start("com.example.app", "emulator-5554")
+
+
+def test_round_2_an_expired_session_is_never_hidden():
+    from journeys.drivers.appium import AppiumError
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+
+    def http(m, p, b=None, msg="404 invalid session id"):
+        raise AppiumError(f"appium {m} {p}: {msg}")
+    d._http = http
+    with pytest.raises(AppiumError):
+        d.do(["hideKeyboard"])
+    with pytest.raises(AppiumError):
+        d.do([{"inputText": "x"}])
+    d._http = lambda m, p, b=None: http(m, p, b, "500 Soft keyboard not present")
+    assert d.do(["hideKeyboard"]).ok
+
+
+def test_round_2_not_see_waits_for_the_element_to_go():
+    phone = Phone(APP)
+    d = AppiumDriver(wait_s=2, allow_changes="any")
+    d._http, d._adb = phone.appium, phone.adb
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp"]).ok
+    reads = []
+    real = d._http
+
+    def http(m, p, b=None):
+        if p.endswith("/source"):
+            reads.append(1)
+            if len(reads) == 2:  # the dialog closes after the first look
+                phone.app.do([{"tapOn": "Far down"}])
+        return real(m, p, b)
+    d._http = http
+    assert d.do([{"assertNotVisible": "Row 0"}]).ok and len(reads) >= 2
+
+
+def test_round_2_only_the_chosen_driver_is_probed_and_a_proxy_is_skipped_locally(monkeypatch):
+    from journeys import drivers
+    from journeys.drivers import appium
+    probes = []
+    monkeypatch.setattr(appium, "reachable", lambda *a, **k: probes.append(1))
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/" + name)  # adb is there: only the probe decides
+    drivers.availability("maestro")
+    assert probes == []
+    drivers.availability()
+    assert probes == [1]
+    srv = HTTPServer(("127.0.0.1", 0), _Server)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")  # a proxy that answers nothing
+        monkeypatch.setattr(appium, "reachable", reachable)
+        assert reachable(f"http://127.0.0.1:{srv.server_address[1]}") is None
+    finally:
+        srv.shutdown()
+        srv.server_close()
