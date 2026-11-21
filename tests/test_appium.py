@@ -16,7 +16,7 @@ APP = {"app": "com.example.app", "start": "HOME", "screens": {
 
 
 def driver(phone, **kw):
-    d = AppiumDriver(wait_s=0, **kw)
+    d = AppiumDriver(wait_s=0, scroll_s=2, **kw)
     d._http, d._adb = phone.appium, phone.adb
     return d
 
@@ -115,7 +115,7 @@ def test_the_wire_over_real_http():
         d._adb = Phone(APP).adb
         d.start("com.example.app", "emulator-5554")
         assert d.session == "abc"
-        with pytest.raises(DriverError, match="500 the device went away"):
+        with pytest.raises(DriverError, match="500 unknown error: the device went away"):
             d.do(["back"])
     finally:
         srv.shutdown()
@@ -287,7 +287,7 @@ def test_round_2_an_expired_session_is_never_hidden():
     d.start("com.example.app", "emulator-5554")
 
     def http(m, p, b=None, msg="404 invalid session id"):
-        raise AppiumError(f"appium {m} {p}: {msg}")
+        raise AppiumError(f"appium {m} {p}: {msg}", "", msg)
     d._http = http
     with pytest.raises(AppiumError):
         d.do(["hideKeyboard"])
@@ -335,3 +335,96 @@ def test_round_2_only_the_chosen_driver_is_probed_and_a_proxy_is_skipped_locally
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+class _Expired(BaseHTTPRequestHandler):
+    """A server whose session is gone: the standard W3C error body, as Appium sends it."""
+    def log_message(self, *a):
+        pass
+
+    def _reply(self, code, body):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def do_GET(self):
+        self._reply(404, {"value": {"error": "invalid session id", "message": "A session is either terminated or not started"}})
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.path.endswith("/hide_keyboard"):
+            return self._reply(404, {"value": {"error": "invalid session id", "message": "A session is gone"}})
+        self._reply(404, {"value": {"error": "invalid session id", "message": "A session is gone"}})
+
+
+def test_round_3_an_expired_session_fails_by_its_w3c_code():
+    srv = HTTPServer(("127.0.0.1", 0), _Expired)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        d = AppiumDriver(url=f"http://127.0.0.1:{srv.server_address[1]}", allow_changes="any", wait_s=0)
+        d._adb = Phone(APP).adb
+        d.session = "old"
+        for cmd in ("hideKeyboard", {"inputText": "x"}):
+            with pytest.raises(DriverError, match="invalid session id"):
+                d.do([cmd])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_round_3_other_errors_are_not_mistaken_for_no_keyboard_or_no_focus():
+    from journeys.drivers.appium import AppiumError
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    real = d._http
+
+    def http(m, p, b=None, err=("500 unknown error: instrumentation is not running", "unknown error")):
+        if p.endswith(("/hide_keyboard", "/element/active")):
+            raise AppiumError(f"appium {m} {p}: {err[0]}", err[1], err[0])
+        return real(m, p, b)
+    d._http = http
+    for cmd in ("hideKeyboard", {"inputText": "x"}):
+        with pytest.raises(AppiumError):
+            d.do([cmd])
+    d._http = lambda m, p, b=None: http(m, p, b, ("500 unknown error: Soft keyboard not present", "unknown error"))
+    assert d.do(["hideKeyboard"]).ok
+
+
+def test_round_3_a_passing_source_error_is_looked_at_again_and_launch_waits_for_the_app():
+    from journeys.drivers.appium import AppiumError
+    phone = Phone(APP)
+    d = AppiumDriver(wait_s=3, scroll_s=2, allow_changes="any")
+    d._http, d._adb = phone.appium, phone.adb
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp"]).ok
+    fails = []
+    real = d._http
+
+    def http(m, p, b=None):
+        if p.endswith("/source") and not fails:
+            fails.append(1)
+            raise AppiumError(f"appium {m} {p}: 500 unknown error: could not dump", "unknown error")
+        return real(m, p, b)
+    d._http = http
+    assert d.do([{"tapOn": "Row 0"}]).ok and fails == [1]
+    seen = []
+    d._http = real
+    d.foreground_app = lambda: seen.append(1) or ("com.example.app" if len(seen) > 1 else "launcher")
+    assert d.do(["launchApp"]).ok and len(seen) >= 2  # it waited for the app to come up
+
+
+def test_round_3_no_such_window_is_fatal_and_a_session_start_gets_time():
+    from journeys.drivers.appium import START_S, AppiumError
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    timeouts = []
+    real = d._http
+    d._http = lambda m, p, b=None: (timeouts.append((p, d.timeout)), real(m, p, b))[1]
+    d.start("com.example.app", "emulator-5554")
+    assert timeouts[0] == ("/session", START_S) and d.timeout < START_S  # longer for the start only
+    d._http = lambda m, p, b=None: (_ for _ in ()).throw(AppiumError("appium: 404 gone", "no such window",
+                                                                     "keyboard window gone"))
+    with pytest.raises(AppiumError):
+        d.do(["hideKeyboard"])  # the app's window is gone: fatal, even though the words say keyboard

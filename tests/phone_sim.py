@@ -183,7 +183,8 @@ def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
     if path == "/element/active":  # like Appium: nothing focused is a 404 "no such element"
         if not getattr(self, "field", False):
             from journeys.drivers.appium import AppiumError
-            raise AppiumError("appium GET /session/s1/element/active: 404 no such element")
+            raise AppiumError("appium GET /session/s1/element/active: 404 no such element: no focused element",
+                              "no such element")
         return {"value": {"element-6066-11e4-a52e-4f735466cecf": "e1"}}
     if path == "/element/e1/value":
         self.typed.append(body["text"])
@@ -207,7 +208,7 @@ def hooked(kind: str, phone: Phone, tmp: Path):
         d._sr = phone.speedrun
     elif kind == "appium":
         from journeys.drivers.appium import AppiumDriver
-        d = AppiumDriver(allow_changes="any", wait_s=0)
+        d = AppiumDriver(allow_changes="any", wait_s=0, scroll_s=0.5)
         d._http = phone.appium
     elif kind == "maestro":
         from journeys.drivers.maestro import MaestroDriver

@@ -24,6 +24,8 @@ from pathlib import Path
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, changes_allowed, command_name, find, kind_of, shown
 
+SCROLL_S = 20  # seconds scroll_to looks for its element
+START_S = 300  # seconds a session start may take (Appium may install its helpers first)
 IDLE_S = 900  # seconds Appium keeps an idle session; above the runner's 300 s hook limit
 KEYCODES = {"enter": 66, "back": 4, "home": 3, "tab": 61, "backspace": 67, "search": 84}
 _W3C_ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -79,12 +81,23 @@ def parse_source(xml) -> tuple[Screen, list[tuple[int, int, int, int]]]:
 
 
 class AppiumError(DriverError):
-    """Appium answered, with a WebDriver error (an HTTP status): the server itself is fine."""
+    """Appium answered with a WebDriver error: `error` is the W3C code ("no such element", ...)."""
+
+    def __init__(self, message: str, error: str = "", detail: str = ""):
+        super().__init__(message)
+        self.error, self.detail = error, detail  # the W3C code, and the server's own message
+
+    @property
+    def fatal(self) -> bool:
+        """The session is gone: nothing later in the run can work."""
+        return self.error in ("invalid session id", "no such window") or "invalid session" in str(self)
 
 
 class AppiumDriver(AdbDriver):
-    def __init__(self, url: str | None = None, timeout_s: int = 60, allow_changes="emulator", wait_s: float = 5.0):
+    def __init__(self, url: str | None = None, timeout_s: int = 60, allow_changes="emulator", wait_s: float = 5.0,
+                 scroll_s: float = SCROLL_S):
         self.url, self.timeout, self.allow_changes, self.wait = url or server_url(), timeout_s, allow_changes, wait_s
+        self.scroll_s = scroll_s
         self.serial, self.app, self.session = None, "", None
 
     # the wire
@@ -102,7 +115,9 @@ class AppiumDriver(AdbDriver):
                 err = None
             value = err.get("value") if isinstance(err, dict) else None
             msg = str(value.get("message", "")) if isinstance(value, dict) else ""
-            raise AppiumError(f"appium {method} {path}: {e.code} {msg[:300]}") from None
+            code = str(value.get("error", "")) if isinstance(value, dict) else ""
+            raise AppiumError(f"appium {method} {path}: {e.code} {code + ': ' if code else ''}{msg[:300]}",
+                              code, msg) from None
         except (OSError, ValueError, http.client.HTTPException) as e:
             raise DriverError(f"appium {method} {path}: {e}") from None
         if not isinstance(body, dict):
@@ -129,7 +144,11 @@ class AppiumDriver(AdbDriver):
                 "appium:newCommandTimeout": IDLE_S}
         if serial:
             caps["appium:udid"] = serial
-        value = self._http("POST", "/session", {"capabilities": {"alwaysMatch": caps}}).get("value")
+        quick, self.timeout = self.timeout, max(self.timeout, START_S)  # a first session sets up helper apps
+        try:
+            value = self._http("POST", "/session", {"capabilities": {"alwaysMatch": caps}}).get("value")
+        finally:
+            self.timeout = quick
         self.session = value.get("sessionId") if isinstance(value, dict) else None
         if not self.session:
             raise DriverError(f"appium did not start a session: {str(value)[:300]}")
@@ -141,7 +160,7 @@ class AppiumDriver(AdbDriver):
             finally:
                 self.session = None
 
-    def _read(self) -> tuple[Screen, list[tuple[int, int]]]:
+    def _read(self) -> tuple[Screen, list[tuple[int, int, int, int]]]:
         return parse_source(self._s("GET", "/source") or "")
 
     def look(self) -> Screen:
@@ -186,7 +205,13 @@ class AppiumDriver(AdbDriver):
         looking again for a short while."""
         end = time.monotonic() + (self.wait if wait is None else wait)
         while True:
-            screen, boxes = self._read()
+            try:
+                screen, boxes = self._read()
+            except AppiumError as e:  # a dump during an animation can fail once: look again
+                if e.fatal or time.monotonic() >= end:
+                    raise
+                time.sleep(0.5)
+                continue
             i = find(screen.elements, sel)
             if i is not None or time.monotonic() >= end:
                 break
@@ -214,6 +239,9 @@ class AppiumDriver(AdbDriver):
             if isinstance(arg, dict) and arg.get("clearState"):
                 self._mobile("clearApp", appId=self.app)
             self._mobile("activateApp", appId=self.app)
+            end = time.monotonic() + self.wait  # activateApp returns before the first screen is drawn
+            while self.foreground_app() != self.app and time.monotonic() < end:
+                time.sleep(0.3)
         elif name == "stopApp":
             self._mobile("terminateApp", appId=self.app)
         elif name == "back":
@@ -235,9 +263,9 @@ class AppiumDriver(AdbDriver):
                 if el:
                     self._s("POST", f"/element/{el}/value", {"text": str(arg)})
             except AppiumError as e:
-                if "invalid session" in str(e):
-                    raise
-                el = None  # no such element, or it went stale: nothing focused to type into
+                if e.error not in ("no such element", "stale element reference"):
+                    raise  # an expired session or a failed type is that, not "no focus"
+                el = None  # nothing focused, or it went stale: nothing to type into
             if not el:
                 return CommandResult(False, "appium: no field has the focus to type into")
         elif name == "eraseText":
@@ -251,17 +279,19 @@ class AppiumDriver(AdbDriver):
             try:
                 self._s("POST", "/appium/device/hide_keyboard", {})
             except AppiumError as e:  # Appium says no keyboard is up: nothing to hide
-                if "invalid session" in str(e):
-                    raise  # a dead or expired session still fails
+                if e.fatal or "keyboard" not in e.detail.lower():  # the server's words, not the route's
+                    raise  # a dead session or any other error still fails
         elif name == "scroll":
             self._swipe(up=True)
         elif name == "scrollUntilVisible":
             opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
             up = str(opts.get("direction", "DOWN")).upper() != "UP"  # finger moves up to see what is below
-            for _ in range(10):
+            end = time.monotonic() + self.scroll_s  # as long as Maestro looks, not a fixed number of swipes
+            while time.monotonic() < end:
                 if self._find(opts["element"], wait=0) is not None:
                     return CommandResult(True)
                 self._swipe(up=up)
+                time.sleep(0.3)  # let the list settle before reading it
             if self._find(opts["element"], wait=0) is None:
                 return CommandResult(False, f"Element not found: {shown(opts['element'])}")
         elif name == "waitForAnimationToEnd":
