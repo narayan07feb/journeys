@@ -55,7 +55,7 @@ def test_parse_source_reads_labels_states_and_skips_what_cannot_be_tapped():
            "</hierarchy>")
     screen, centres = parse_source(xml)
     assert [e.line() for e in screen.elements] == ['@1 Button "Menu"', '@2 Switch "Wi-Fi" checked disabled']
-    assert centres == [(50, 50), (540, 150)]
+    assert centres == [(0, 0, 100, 100), (0, 100, 1080, 200)]
     with pytest.raises(DriverError, match="unreadable XML"):
         parse_source("<hierarchy><oops")
 
@@ -141,3 +141,109 @@ def test_launch_with_clear_state_clears_the_app_first():
     assert d.do([{"launchApp": {"clearState": True}}]).ok
     assert "pm clear com.example.app" in phone.shell_log
     assert d.do(["launchApp"]).ok and phone.shell_log.count("pm clear com.example.app") == 1
+
+
+def test_launch_starts_fresh_even_when_the_app_is_running():
+    """Appium's activateApp only brings a running app up; every journey's launch must start it again."""
+    app = {"app": "com.example.app", "start": "HOME", "screens": {
+        "HOME": {"elements": [{"kind": "Button", "text": "Next", "to": "TWO"}]},
+        "TWO": {"elements": [{"kind": "Text", "text": "Second"}]}}}
+    phone = Phone(app)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": "Next"}]).ok and [e.text for e in d.look().elements] == ["Second"]
+    assert d.do(["launchApp"]).ok and [e.text for e in d.look().elements] == ["Next"]
+
+
+def test_ids_labels_and_taps_like_the_other_drivers():
+    xml = ('<hierarchy><android.widget.EditText class="android.widget.EditText" hint="Email" '
+           'resource-id="com.example.app:id/email" bounds="[0,0][1080,100]"/>'
+           '<android.widget.Button class="android.widget.Button" text="Pay" clickable="true" '
+           'bounds="[0,2300][1080,2500]"/></hierarchy>')
+    screen, boxes = parse_source(xml)
+    assert [e.line() for e in screen.elements] == ['@1 Field "Email" #email', '@2 Button "Pay"']
+    phone, taps = Phone(APP), []
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    real = d._http
+
+    def http(m, p, b=None):
+        if p.endswith("/source"):
+            return {"value": xml}
+        if p.endswith("/actions"):
+            taps.append(b["actions"][0]["actions"][0])
+            return {"value": None}
+        return real(m, p, b)
+    d._http = http
+    assert d.do([{"tapOn": "Pay"}]).ok
+    assert (taps[0]["x"], taps[0]["y"]) == (540, 2350)  # the part of the button that is on the screen
+
+
+def test_odd_replies_are_driver_errors_not_tracebacks():
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    for reply in ([1], "x", None):
+        d._http = lambda m, p, b=None, r=reply: {"value": r} if p == "/session" else {}
+        with pytest.raises(DriverError):
+            d.start("com.example.app", "emulator-5554")
+    d.session = "s1"
+    d._http = lambda m, p, b=None: {"value": {"not": "xml"}}
+    with pytest.raises(DriverError, match="not XML text"):
+        d.look()
+
+
+class _Broken(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        self.wfile.write(b"garbage\r\n\r\n")  # not HTTP at all
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(n)
+        if self.path == "/session":
+            body = b"[1, 2]"  # JSON, but not a WebDriver reply
+            self.send_response(200)
+        else:
+            body = b'["odd"]'  # an error whose body is a list
+            self.send_response(500)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def test_a_broken_server_is_a_driver_error():
+    srv = HTTPServer(("127.0.0.1", 0), _Broken)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        assert "no Appium server" in reachable(url)
+        d = AppiumDriver(url=url, allow_changes="any")
+        d._adb = Phone(APP).adb
+        with pytest.raises(DriverError, match="not a WebDriver reply"):
+            d.start("com.example.app", "emulator-5554")
+        d.session = "s1"
+        with pytest.raises(DriverError, match="500"):
+            d.do(["back"])
+        with pytest.raises(DriverError, match="appium GET"):
+            d.look()  # the reply is not HTTP at all
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_typing_erasing_keys_and_the_keyboard():
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    seen = []
+    real = d._http
+    d._http = lambda m, p, b=None: seen.append((m, p)) or real(m, p, b)
+    assert d.do([{"inputText": "hi"}]).ok and ("GET", "/session/s1/element/active") in seen
+    assert phone.typed == ["hi"]
+    assert not d.do([{"eraseText": "lots"}]).ok
+    assert d.do([{"pressKey": "home"}]).ok  # any case
+    d._http = lambda m, p, b=None: (_ for _ in ()).throw(DriverError("connection refused"))
+    with pytest.raises(DriverError):
+        d.do(["hideKeyboard"])  # a dead server is never "no keyboard"

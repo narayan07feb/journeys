@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .drivers import DRIVERS, TOOLS
+from .drivers import DRIVERS
+from .drivers import TOOLS as DRIVER_NAMES
 from .heal import promote, reject
 from .pack import Pack, PackError
 from .results import Store, read_json, write_json
@@ -30,7 +31,7 @@ TOOLS = {
     "doctor": ("Check the pack (screens, edges, journeys) and list its errors.", _schema()),
     "list_journeys": ("List the pack's sets and journeys.", _schema()),
     "start_run": ("Start a run of a journey, a set, or `all` on one device; returns its run id at once. "
-                  f"driver: {TOOLS} or fake (default: the pack's; when the pack has none, ask the user). A real driver needs serial.",
+                  f"driver: {DRIVER_NAMES} or fake (default: the pack's; when the pack has none, ask the user). A real driver needs serial.",
                   _schema({"target": _S, "serial": _S, "driver": _S}, ["target"])),
     "run_status": ("Status of a run: per journey passed/failed, failure ids and proposals.",
                    _schema({"run_id": _S}, ["run_id"])),
@@ -93,7 +94,7 @@ class Server:
             raise ValueError(f"driver {driver} is not one of {', '.join(DRIVERS)}")
         if not (driver or pack.driver):
             raise ValueError(f"pack {pack.name} has no driver: ask the user which tool their team uses "
-                             f"({TOOLS}) and pass it as driver; never pick one yourself")
+                             f"({DRIVER_NAMES}) and pass it as driver; never pick one yourself")
         if (driver or pack.driver) != "fake" and not serial:
             raise ValueError("serial is required: Journeys never picks a device by itself")
         store = self._store(pack)

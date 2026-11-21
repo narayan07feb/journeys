@@ -145,3 +145,12 @@ def test_any_error_inside_handle_is_an_error_reply(pack_dir, tmp_path, monkeypat
     out = io.StringIO()
     serve_stdio(srv, io.StringIO('{"jsonrpc": "2.0", "id": 7, "method": "ping"}\n'), out)
     assert json.loads(out.getvalue())["error"]["code"] == -32603
+
+
+def test_the_no_driver_message_names_the_driver_tools(pack_dir, tmp_path):
+    import pytest
+    from journeys.mcp_server import Server
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    with pytest.raises(ValueError) as e:
+        srv.start_run("smoke", serial="emulator-5554")
+    assert "(maestro, speedrun, appium)" in str(e.value)

@@ -163,8 +163,11 @@ def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
         return {"value": None}
     if path == "/execute/sync":
         script, args = body["script"], (body.get("args") or [{}])[0]
-        if script == "mobile: activateApp":
-            self.app.do(["launchApp"])
+        if script == "mobile: activateApp":  # like Appium: a running app only comes to the front
+            if self.app.alive:
+                self.app.home = False
+            else:
+                self.app.do(["launchApp"])
         elif script == "mobile: terminateApp":
             self.app.do(["stopApp"])
         elif script == "mobile: pressKey":

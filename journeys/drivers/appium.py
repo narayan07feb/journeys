@@ -10,6 +10,7 @@ session start, so this driver starts only on a device pack.yaml allows to change
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
@@ -22,7 +23,7 @@ from pathlib import Path
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, changes_allowed, command_name, find, kind_of, shown
 
-KEYCODES = {"Enter": 66, "Back": 4, "Home": 3, "Tab": 61, "Backspace": 67, "Search": 84}
+KEYCODES = {"enter": 66, "back": 4, "home": 3, "tab": 61, "backspace": 67, "search": 84}
 _W3C_ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
 _BOUNDS = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 
@@ -38,33 +39,38 @@ def reachable(url: str | None = None, timeout: float = 2.0) -> str | None:
         with urllib.request.urlopen(f"{url}/status", timeout=timeout) as r:
             json.loads(r.read() or b"{}")
         return None
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         return f"no Appium server at {url} ({e}): start the team's Appium, or set JOURNEYS_APPIUM_URL"
 
 
-def parse_source(xml: str) -> tuple[Screen, list[tuple[int, int]]]:
-    """Appium's page source -> the elements a user can see or act on, in order, and each one's centre."""
+def parse_source(xml) -> tuple[Screen, list[tuple[int, int, int, int]]]:
+    """Appium's page source -> the elements a user can see or act on, in order, and each one's bounds."""
+    if not isinstance(xml, str):
+        raise DriverError(f"appium source: not XML text but {type(xml).__name__}")
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as e:
         raise DriverError(f"appium source: unreadable XML ({e})") from None
     out: list[Element] = []
-    centres: list[tuple[int, int]] = []
+    boxes: list[tuple[int, int, int, int]] = []
     for node in root.iter():
         a = node.attrib
-        text = a.get("text") or a.get("content-desc") or ""
-        rid = a.get("resource-id") or ""
-        clickable = a.get("clickable") == "true"
         m = _BOUNDS.fullmatch(a.get("bounds", ""))
+        text = a.get("text") or a.get("content-desc") or a.get("hint") or ""
+        rid = (a.get("resource-id") or "").rsplit("/", 1)[-1]  # the bare name, as the other drivers report it
+        clickable = a.get("clickable") == "true"
         if not m or not (text or rid or clickable):
             continue
-        x1, y1, x2, y2 = map(int, m.groups())
         state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")
         if a.get("enabled") == "false":
             state += ("disabled",)
         out.append(Element(f"@{len(out) + 1}", kind_of(a.get("class", node.tag), clickable, text), text, rid, state))
-        centres.append(((x1 + x2) // 2, (y1 + y2) // 2))
-    return Screen(out, header=f"{len(out)} elements"), centres
+        boxes.append(tuple(map(int, m.groups())))
+    return Screen(out, header=f"{len(out)} elements"), boxes
+
+
+class AppiumError(DriverError):
+    """Appium answered, with a WebDriver error (an HTTP status): the server itself is fine."""
 
 
 class AppiumDriver(AdbDriver):
@@ -79,15 +85,20 @@ class AppiumDriver(AdbDriver):
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                return json.loads(r.read() or b"{}")
+                body = json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:  # WebDriver errors come back as JSON with value.message
             try:
-                msg = json.loads(e.read() or b"{}").get("value", {}).get("message", "")
-            except ValueError:
-                msg = ""
-            raise DriverError(f"appium {method} {path}: {e.code} {msg[:300]}") from None
-        except (OSError, ValueError) as e:
+                err = json.loads(e.read() or b"{}")
+            except (ValueError, OSError, http.client.HTTPException):
+                err = None
+            value = err.get("value") if isinstance(err, dict) else None
+            msg = str(value.get("message", "")) if isinstance(value, dict) else ""
+            raise AppiumError(f"appium {method} {path}: {e.code} {msg[:300]}") from None
+        except (OSError, ValueError, http.client.HTTPException) as e:
             raise DriverError(f"appium {method} {path}: {e}") from None
+        if not isinstance(body, dict):
+            raise DriverError(f"appium {method} {path}: not a WebDriver reply ({str(body)[:100]})")
+        return body
 
     def _s(self, method: str, path: str, body: dict | None = None):
         if not self.session:
@@ -107,8 +118,8 @@ class AppiumDriver(AdbDriver):
                 "appium:appPackage": app_id, "appium:autoLaunch": False}
         if serial:
             caps["appium:udid"] = serial
-        value = self._http("POST", "/session", {"capabilities": {"alwaysMatch": caps}}).get("value") or {}
-        self.session = value.get("sessionId")
+        value = self._http("POST", "/session", {"capabilities": {"alwaysMatch": caps}}).get("value")
+        self.session = value.get("sessionId") if isinstance(value, dict) else None
         if not self.session:
             raise DriverError(f"appium did not start a session: {str(value)[:300]}")
 
@@ -154,14 +165,22 @@ class AppiumDriver(AdbDriver):
         self._pointer([(w // 2, a), (w // 2, b)])
 
     def _find(self, sel, wait: float | None = None) -> tuple[int, int] | None:
-        """The centre of the element the selector names, looking again for a short while."""
+        """Where to tap the element the selector names (the centre of its part on the screen),
+        looking again for a short while."""
         end = time.monotonic() + (self.wait if wait is None else wait)
         while True:
-            screen, centres = self._read()
+            screen, boxes = self._read()
             i = find(screen.elements, sel)
             if i is not None or time.monotonic() >= end:
-                return None if i is None else centres[i]
+                break
             time.sleep(0.5)
+        if i is None:
+            return None
+        r = self._s("GET", "/window/rect") or {}
+        w, h = int(r.get("width", 10**6)), int(r.get("height", 10**6))
+        x1, y1, x2, y2 = boxes[i]
+        x1, y1, x2, y2 = max(x1, 0), max(y1, 0), min(x2, w), min(y2, h)
+        return (x1 + x2) // 2, (y1 + y2) // 2
 
     def do(self, commands: list) -> CommandResult:
         for cmd in commands:
@@ -172,7 +191,8 @@ class AppiumDriver(AdbDriver):
 
     def _one(self, cmd) -> CommandResult:
         name, arg = command_name(cmd)
-        if name == "launchApp":
+        if name == "launchApp":  # a fresh start, as in the other drivers: activateApp alone only brings it up
+            self._mobile("terminateApp", appId=self.app)
             if isinstance(arg, dict) and arg.get("clearState"):
                 self._mobile("clearApp", appId=self.app)
             self._mobile("activateApp", appId=self.app)
@@ -181,7 +201,7 @@ class AppiumDriver(AdbDriver):
         elif name == "back":
             self._s("POST", "/back", {})
         elif name == "pressKey":
-            code = KEYCODES.get(str(arg))
+            code = KEYCODES.get(str(arg).lower())
             if code is None:
                 return CommandResult(False, f"appium: no key {arg}")
             self._mobile("pressKey", keycode=code)
@@ -191,18 +211,23 @@ class AppiumDriver(AdbDriver):
                 return CommandResult(False, f"Element not found: {shown(arg)}")
             self._tap(*at)
         elif name == "inputText":
-            el = (self._s("POST", "/element/active", {}) or {}).get(_W3C_ELEMENT)
+            active = self._s("GET", "/element/active")
+            el = active.get(_W3C_ELEMENT) if isinstance(active, dict) else None
             if not el:
                 return CommandResult(False, "appium: no field has the focus to type into")
             self._s("POST", f"/element/{el}/value", {"text": str(arg)})
         elif name == "eraseText":
-            for _ in range(int(arg if arg is not None else 50)):
-                self._mobile("pressKey", keycode=KEYCODES["Backspace"])
+            try:
+                n = int(arg if arg is not None else 50)
+            except (TypeError, ValueError):
+                return CommandResult(False, f"appium: erase takes a number of characters, not {arg!r}")
+            for _ in range(n):
+                self._mobile("pressKey", keycode=KEYCODES["backspace"])
         elif name == "hideKeyboard":
             try:
                 self._s("POST", "/appium/device/hide_keyboard", {})
-            except DriverError:
-                pass  # no keyboard up: nothing to hide
+            except AppiumError:
+                pass  # Appium says no keyboard is up: nothing to hide (a dead server still fails)
         elif name == "scroll":
             self._swipe(up=True)
         elif name == "scrollUntilVisible":
