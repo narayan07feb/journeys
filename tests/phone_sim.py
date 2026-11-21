@@ -175,6 +175,8 @@ def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
             self.app.do(["stopApp"])
         elif script == "mobile: pressKey":
             self.adb("shell", "input", "keyevent", str(args["keycode"]))
+        elif script == "mobile: hideKeyboard":
+            self.keyboard = False
         elif script == "mobile: clearApp":
             self.shell_log.append(f"pm clear {args['appId']}")  # what Appium's clearApp does on the device
         else:

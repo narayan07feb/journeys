@@ -19,6 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from pathlib import Path
 
 from .adb import AdbDriver
@@ -160,8 +161,19 @@ class AppiumDriver(AdbDriver):
             finally:
                 self.session = None
 
-    def _read(self) -> tuple[Screen, list[tuple[int, int, int, int]]]:
-        return parse_source(self._s("GET", "/source") or "")
+    def _read(self) -> tuple[Screen, list[tuple[int, int]], list[bool]]:
+        """The screen as the user sees it: elements entirely outside the window are left out (so a
+        hidden duplicate never hides the visible one, and @N counts what is on screen), each with the
+        point to tap (the centre of its part inside the window) and whether all of it is inside."""
+        screen, boxes = parse_source(self._s("GET", "/source") or "")
+        w, h = self._window()
+        keep = []
+        for e, (x1, y1, x2, y2) in zip(screen.elements, boxes):
+            cx1, cy1, cx2, cy2 = max(x1, 0), max(y1, 0), min(x2, w), min(y2, h)
+            if cx1 < cx2 and cy1 < cy2:
+                keep.append((e, ((cx1 + cx2) // 2, (cy1 + cy2) // 2), (cx1, cy1, cx2, cy2) == (x1, y1, x2, y2)))
+        els = [replace(e, ref=f"@{i}") for i, (e, _, _) in enumerate(keep, 1)]
+        return Screen(els, header=f"{len(els)} elements"), [c for _, c, _ in keep], [f for _, _, f in keep]
 
     def look(self) -> Screen:
         return self._read()[0]
@@ -183,7 +195,7 @@ class AppiumDriver(AdbDriver):
         """A finger: down at the first point, through the rest, up. One point is a tap."""
         acts = [{"type": "pointerMove", "duration": 0, "x": points[0][0], "y": points[0][1]},
                 {"type": "pointerDown", "button": 0}]
-        acts += [{"type": "pointerMove", "duration": 300, "x": x, "y": y} for x, y in points[1:]]
+        acts += [{"type": "pointerMove", "duration": 600, "x": x, "y": y} for x, y in points[1:]]  # a drag, no fling
         acts += [{"type": "pointerUp", "button": 0}]
         self._s("POST", "/actions", {"actions": [{"type": "pointer", "id": "finger", "parameters":
                                                   {"pointerType": "touch"}, "actions": acts}]})
@@ -200,13 +212,13 @@ class AppiumDriver(AdbDriver):
         a, b = (int(h * 0.7), int(h * 0.3)) if up else (int(h * 0.3), int(h * 0.7))
         self._pointer([(w // 2, a), (w // 2, b)])
 
-    def _find(self, sel, wait: float | None = None) -> tuple[int, int] | None:
+    def _find(self, sel, wait: float | None = None, whole: bool = False) -> tuple[int, int] | None:
         """Where to tap the element the selector names (the centre of its part on the screen),
-        looking again for a short while."""
+        looking again for a short while. whole: only when all of it is on the screen."""
         end = time.monotonic() + (self.wait if wait is None else wait)
         while True:
             try:
-                screen, boxes = self._read()
+                screen, centres, full = self._read()
             except AppiumError as e:  # a dump during an animation can fail once: look again
                 if e.fatal or time.monotonic() >= end:
                     raise
@@ -216,14 +228,9 @@ class AppiumDriver(AdbDriver):
             if i is not None or time.monotonic() >= end:
                 break
             time.sleep(0.5)
-        if i is None:
+        if i is None or (whole and not full[i]):
             return None
-        w, h = self._window()
-        x1, y1, x2, y2 = boxes[i]
-        x1, y1, x2, y2 = max(x1, 0), max(y1, 0), min(x2, w), min(y2, h)
-        if x1 >= x2 or y1 >= y2:
-            return None  # all of it is off the screen: not visible, nothing to tap
-        return (x1 + x2) // 2, (y1 + y2) // 2
+        return centres[i]
 
     def do(self, commands: list) -> CommandResult:
         for cmd in commands:
@@ -259,7 +266,7 @@ class AppiumDriver(AdbDriver):
         elif name == "inputText":
             try:
                 active = self._s("GET", "/element/active")
-                el = active.get(_W3C_ELEMENT) if isinstance(active, dict) else None
+                el = (active.get(_W3C_ELEMENT) or active.get("ELEMENT")) if isinstance(active, dict) else None
                 if el:
                     self._s("POST", f"/element/{el}/value", {"text": str(arg)})
             except AppiumError as e:
@@ -277,7 +284,12 @@ class AppiumDriver(AdbDriver):
                 self._mobile("pressKey", keycode=KEYCODES["backspace"])
         elif name == "hideKeyboard":
             try:
-                self._s("POST", "/appium/device/hide_keyboard", {})
+                try:
+                    self._s("POST", "/appium/device/hide_keyboard", {})
+                except AppiumError as old:  # a newer Appium may serve only the mobile: command
+                    if old.error not in ("unknown command", "unknown method"):
+                        raise
+                    self._mobile("hideKeyboard")
             except AppiumError as e:  # Appium says no keyboard is up: nothing to hide
                 if e.fatal or "keyboard" not in e.detail.lower():  # the server's words, not the route's
                     raise  # a dead session or any other error still fails
@@ -288,14 +300,20 @@ class AppiumDriver(AdbDriver):
             up = str(opts.get("direction", "DOWN")).upper() != "UP"  # finger moves up to see what is below
             end = time.monotonic() + self.scroll_s  # as long as Maestro looks, not a fixed number of swipes
             while time.monotonic() < end:
-                if self._find(opts["element"], wait=0) is not None:
+                if self._find(opts["element"], wait=0, whole=True) is not None:  # all of it, as in Maestro
                     return CommandResult(True)
                 self._swipe(up=up)
                 time.sleep(0.3)  # let the list settle before reading it
-            if self._find(opts["element"], wait=0) is None:
+            if self._find(opts["element"], wait=0, whole=True) is None:
                 return CommandResult(False, f"Element not found: {shown(opts['element'])}")
-        elif name == "waitForAnimationToEnd":
-            time.sleep(0.5)
+        elif name == "waitForAnimationToEnd":  # until two reads of the screen agree, at most a few seconds
+            end, last = time.monotonic() + 3, None
+            while time.monotonic() < end:
+                now = self._s("GET", "/source")
+                if now == last:
+                    break
+                last = now
+                time.sleep(0.3)
         elif name == "assertVisible":
             if self._find(arg) is None:
                 return CommandResult(False, f"Element not found: {shown(arg)}")

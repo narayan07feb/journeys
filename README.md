@@ -59,7 +59,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 |---|---|
 | `doctor` | Check the pack, the drivers, adb and devices. |
 | `validate` | Check the pack, every journey and draft (file:line). |
-| `look --serial S` | The screen on the device now and its map screen. |
+| `look --serial S` | The screen on the device now and its map screen. Reads only, but the driver's own session start still applies (appium: only where changes are allowed). |
 | `new NAME --start SCREEN` / `promote-journey NAME` | Start a draft / move it into `journeys/`. |
 | `import maestro FLOWS` / `export maestro NAME` | Maestro flows to drafts / a journey to a flow. |
 | `init --project APP` | A new pack; asks which driver the team uses (or `--driver`). |

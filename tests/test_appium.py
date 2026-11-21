@@ -428,3 +428,72 @@ def test_round_3_no_such_window_is_fatal_and_a_session_start_gets_time():
                                                                      "keyboard window gone"))
     with pytest.raises(AppiumError):
         d.do(["hideKeyboard"])  # the app's window is gone: fatal, even though the words say keyboard
+
+
+def _custom(phone, sources, calls=None):
+    """A driver whose page source comes from `sources` (one per read; the last one repeats)."""
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    real, reads = d._http, []
+
+    def http(m, p, b=None):
+        if calls is not None:
+            calls.append((m, p, b))
+        if p.endswith("/source"):
+            reads.append(1)
+            return {"value": sources[min(len(reads), len(sources)) - 1]}
+        if p.endswith("/actions"):
+            return {"value": None}
+        return real(m, p, b)
+    d._http = http
+    return d, reads
+
+
+def _btn(text, y1, y2):
+    return (f'<android.widget.Button class="android.widget.Button" text="{text}" clickable="true" '
+            f'bounds="[0,{y1}][1080,{y2}]"/>')
+
+
+def test_round_4_an_offscreen_duplicate_never_hides_the_visible_one():
+    xml = "<hierarchy>" + _btn("Next", 3000, 3100) + _btn("Next", 100, 200) + "</hierarchy>"
+    calls = []
+    d, _ = _custom(Phone(APP), [xml], calls)
+    assert d.do([{"tapOn": "Next"}]).ok
+    tap = [b for m, p, b in calls if p.endswith("/actions")][0]["actions"][0]["actions"][0]
+    assert tap["y"] == 150 and [e.line() for e in d.look().elements] == ['@1 Button "Next"']
+
+
+def test_round_4_wait_idle_waits_until_the_screen_stops_changing():
+    a = "<hierarchy>" + _btn("A", 0, 100) + "</hierarchy>"
+    b = "<hierarchy>" + _btn("B", 0, 100) + "</hierarchy>"
+    d, reads = _custom(Phone(APP), [a, b, b])
+    assert d.do(["waitForAnimationToEnd"]).ok and len(reads) == 3  # a, b, b: settled
+
+
+def test_round_4_scroll_to_wants_all_of_the_element_on_screen():
+    part = "<hierarchy>" + _btn("Pay", 2300, 2500) + "</hierarchy>"
+    whole = "<hierarchy>" + _btn("Pay", 1000, 1200) + "</hierarchy>"
+    calls = []
+    d, _ = _custom(Phone(APP), [part, part, whole], calls)
+    assert d.do([{"scrollUntilVisible": {"element": "Pay"}}]).ok
+    assert any(p.endswith("/actions") for _, p, _ in calls)  # it scrolled once the button was only partly in
+
+
+def test_round_4_hide_keyboard_falls_back_and_typing_reads_a_legacy_key():
+    from journeys.drivers.appium import AppiumError
+    phone = Phone(APP)
+    d = driver(phone, allow_changes="any")
+    d.start("com.example.app", "emulator-5554")
+    real, sent = d._http, []
+
+    def http(m, p, b=None):
+        sent.append((p, b))
+        if p.endswith("/hide_keyboard"):
+            raise AppiumError("appium: 404 unknown command", "unknown command", "The requested resource could not be found")
+        if p.endswith("/element/active"):
+            return {"value": {"ELEMENT": "e1"}}
+        return real(m, p, b)
+    d._http = http
+    assert d.do(["hideKeyboard"]).ok
+    assert any(b and b.get("script") == "mobile: hideKeyboard" for _, b in sent)
+    assert d.do([{"inputText": "hi"}]).ok and phone.typed == ["hi"]
