@@ -7,7 +7,7 @@ description: Create, check, run and promote end-to-end journeys for an Android a
 
 Journeys tests an Android app by walking a map of its screens. A pack (a folder) holds the map and
 the journeys. The format is neutral: no step names a test framework. The pack's `driver` (or
-`--driver`) is the team's own tool that drives the device: `maestro` or `speedrun` (`fake` runs
+`--driver`) is the team's own tool that drives the device: `maestro`, `speedrun` or `appium` (`fake` runs
 without a device). Every step below works the same with any driver; nothing here needs Speedrun.
 Never pick a driver for the user, not even from the project's tests: when the pack has no `driver:`,
 ask the user which tool their team uses and pass the answer as `--driver` (or `driver` on

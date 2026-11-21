@@ -250,7 +250,8 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M13 | Drafts (`new`, `validate`, `run --draft`, `promote-journey`) and the skill (`skills/journeys/`) | a fresh agent writes a valid journey from the skill alone |
 | M14 | Device check with the team's driver on a real phone | owner-approved device |
 | M15 (built 20 Nov) | Two-way sync, one source of truth (`sync:` in pack.yaml: source journeys (default) or framework). Journeys -> generated team-framework files with a header and hash; a developer's new flow -> draft journey; `check-sync` reports hand edits, stale or missing files, unimported flows | fake tests per drift case, mutation-checked |
-| Next | Appium driver (W3C WebDriver, host side) + export; Espresso/Compose export as an androidTest (whole journey at once: no detours or explore there) | per framework |
+| M16 (built 22 Nov) | Appium driver (W3C WebDriver to the team's Appium server, host side): passes the same driver contract tests (pretend phone), tap-all and journeys; device check owed | contract tests + wire tests |
+| Next | Appium export (a WebdriverIO spec); Espresso/Compose export as an androidTest (whole journey at once: no detours or explore there) | per framework |
 
 ## 6. Tests
 

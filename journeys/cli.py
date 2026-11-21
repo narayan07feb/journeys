@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from .drivers import DRIVERS, availability
+from .drivers import DRIVERS, TOOLS, availability
 from .drivers.base import Driver, DriverError
 from .heal import PromoteError
 from .pack import Pack, PackError
@@ -37,6 +37,9 @@ def make_driver(kind: str, pack: Pack, args, store: Store) -> Driver:
     if kind == "maestro":
         from .drivers.maestro import MaestroDriver
         return MaestroDriver()
+    if kind == "appium":
+        from .drivers.appium import AppiumDriver
+        return AppiumDriver(allow_changes=pack.devices.get("allow_settings_changes", "emulator"))
     app = Path(args.fake_app) if args.fake_app else pack.root / "fake" / "app.yaml"
     if not app.exists():
         raise DriverError(f"{app} not found: the fake driver needs a fake app file")
@@ -82,7 +85,7 @@ def cmd_doctor(args) -> int:
         rows.append(("FAIL", f"driver {wanted} is not one of {', '.join(DRIVERS)}"))
     if "pack" in locals() and not wanted:
         rows.append(("WARN", f"pack {pack.name} has no driver: ask the team which tool drives their device "
-                             "(maestro or speedrun) and set driver: in pack.yaml; runs ask until then"))
+                             f"({TOOLS}) and set driver: in pack.yaml; runs ask until then"))
     if wanted and pack.project:
         from .detect import pick, scan
         try:
@@ -451,7 +454,7 @@ def cmd_validate(args) -> int:
         return 1
     if not pack.driver:  # not an error: device commands ask for it (or take --driver)
         print(f"WARN {pack.root / 'pack.yaml'}: no driver: ask the team which tool drives their device "
-              "(maestro or speedrun), then set driver: (Journeys never picks one; runs ask until then)")
+              f"({TOOLS}), then set driver: (Journeys never picks one; runs ask until then)")
     for e in pack.errors:
         print(f"FAIL {e}")
     print(f"{'OK' if not pack.errors else 'FAIL'} pack {pack.name}: {len(pack.journeys)} journeys, "

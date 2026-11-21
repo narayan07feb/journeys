@@ -8,6 +8,7 @@ with the tool it already uses:
 |---|---|---|
 | `maestro` | `maestro` on PATH | Each step runs as a Maestro flow. |
 | `speedrun` | `journeys setup` | Upstream [Speedrun](https://github.com/hubastard/speedrun); fast; changes some device state (docs/packs.md). |
+| `appium` | the team's Appium server (UiAutomator2) | Journeys talks W3C WebDriver to it (`JOURNEYS_APPIUM_URL`, default `http://127.0.0.1:4723`); starts only on a device the pack allows to change, since Appium sets up its helper apps there. |
 | `fake` | nothing | A small model of the app, for tests without a device. |
 
 Journeys has no device driver of its own: every feature (journeys, detours, explore, tap-all,

@@ -23,7 +23,7 @@ APP = {
         "HELP": {"elements": [{"kind": "Text", "text": "Help"}]},
     },
 }
-DRIVERS = ["fake", "speedrun", "maestro"]
+DRIVERS = ["fake", "speedrun", "maestro", "appium"]
 
 
 @pytest.fixture(params=DRIVERS)

@@ -1,4 +1,4 @@
-"""A pretend phone for driver tests: answers adb, speedrun and maestro calls from one FakeDriver app,
+"""A pretend phone for driver tests: answers adb, speedrun, maestro and appium calls from one FakeDriver app,
 so every driver can run the same contract tests without a device."""
 from __future__ import annotations
 
@@ -127,6 +127,67 @@ class Phone:
         raise AssertionError(args)
 
 
+def _appium(self, method: str, path: str, body: dict | None = None) -> dict:
+    """The phone as an Appium (UiAutomator2) server would answer W3C WebDriver calls."""
+    from xml.sax.saxutils import quoteattr
+    body = body or {}
+    if method == "POST" and path == "/session":
+        return {"value": {"sessionId": "s1", "capabilities": {}}}
+    assert path.startswith("/session/s1"), path
+    path = path[len("/session/s1"):]
+    if method == "DELETE" and path == "":
+        return {"value": None}
+    if path == "/source":
+        rows = []
+        for i, e in enumerate(self._elements()):
+            cls = "android.widget.EditText" if e.kind == "Field" else f"android.widget.{e.kind}"
+            rows.append(f"<{cls} class={quoteattr(cls)} text={quoteattr(e.text)} resource-id={quoteattr(e.id)} "
+                        f"clickable=\"{str(e.kind == 'Button').lower()}\" enabled=\"true\" "
+                        f"bounds=\"[0,{i * ROW}][1080,{(i + 1) * ROW}]\"/>")
+        return {"value": "<?xml version='1.0' encoding='UTF-8'?><hierarchy rotation=\"0\">" + "".join(rows) + "</hierarchy>"}
+    if path == "/window/rect":
+        return {"value": {"x": 0, "y": 0, "width": 1080, "height": 2400}}
+    if path == "/screenshot":
+        import base64
+        return {"value": base64.b64encode(b"\x89PNG fake").decode()}
+    if path == "/actions":
+        acts = body["actions"][0]["actions"]
+        pts = [(a["x"], a["y"]) for a in acts if a["type"] == "pointerMove"]
+        if len(pts) == 1:
+            return {"value": self.adb("shell", "input", "tap", str(pts[0][0]), str(pts[0][1])) and None}
+        (x1, y1), (x2, y2) = pts[0], pts[-1]
+        self.adb("shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2))
+        return {"value": None}
+    if path == "/back":
+        self.app.do(["back"])
+        return {"value": None}
+    if path == "/execute/sync":
+        script, args = body["script"], (body.get("args") or [{}])[0]
+        if script == "mobile: activateApp":
+            self.app.do(["launchApp"])
+        elif script == "mobile: terminateApp":
+            self.app.do(["stopApp"])
+        elif script == "mobile: pressKey":
+            self.adb("shell", "input", "keyevent", str(args["keycode"]))
+        elif script == "mobile: clearApp":
+            self.shell_log.append(f"pm clear {args['appId']}")  # what Appium's clearApp does on the device
+        else:
+            raise AssertionError(script)
+        return {"value": None}
+    if path == "/element/active":
+        return {"value": {"element-6066-11e4-a52e-4f735466cecf": "e1"}}
+    if path == "/element/e1/value":
+        self.typed.append(body["text"])
+        return {"value": None}
+    if path == "/appium/device/hide_keyboard":
+        self.keyboard = False
+        return {"value": None}
+    raise AssertionError((method, path))
+
+
+Phone.appium = _appium
+
+
 def hooked(kind: str, phone: Phone, tmp: Path):
     """A real driver of the given kind, wired to the pretend phone."""
     if kind == "fake":
@@ -135,6 +196,10 @@ def hooked(kind: str, phone: Phone, tmp: Path):
         from journeys.drivers.speedrun import SpeedrunDriver
         d = SpeedrunDriver("/bin/true", tmp / "srhome", allow_changes="any")
         d._sr = phone.speedrun
+    elif kind == "appium":
+        from journeys.drivers.appium import AppiumDriver
+        d = AppiumDriver(allow_changes="any", wait_s=0)
+        d._http = phone.appium
     elif kind == "maestro":
         from journeys.drivers.maestro import MaestroDriver
         d = MaestroDriver("/bin/true")

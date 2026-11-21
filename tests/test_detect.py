@@ -21,12 +21,16 @@ def test_maestro_flows_pick_maestro_and_the_app_id_comes_from_gradle(tmp_path):
 
 
 def test_frameworks_without_a_driver_need_an_explicit_driver(tmp_path):
-    proj = _project(tmp_path, {"e2e/wdio.conf.ts": "export const config = {}",
-                               "build/ignored/wdio.conf.js": "", "app/build.gradle": "applicationId 'com.a'"})
-    found, app = scan(proj)
+    ap = _project(tmp_path / "ap", {"e2e/wdio.conf.ts": "export const config = {}",
+                                    "build/ignored/wdio.conf.js": "", "app/build.gradle": "applicationId 'com.a'"})
+    found, app = scan(ap)
     assert [f.framework for f in found] == ["appium"] and app == "com.a"
+    assert pick(found)[0] == "appium"  # a hint for the question, never the choice
+    proj = _project(tmp_path, {"app/build.gradle": "applicationId 'com.a'\n"
+                               "dependencies { androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1' }"})
+    found, app = scan(proj)
     driver, why = pick(found)
-    assert driver is None and "appium (e2e/wdio.conf.ts)" in why and "no driver" in why
+    assert driver is None and "espresso (app/build.gradle)" in why and "no driver" in why
     assert pick([])[0] is None
     import pytest
     from journeys.detect import init_pack
@@ -43,7 +47,7 @@ def test_init_asks_for_the_driver_and_never_takes_the_projects(tmp_path, capsys,
     assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 2  # no terminal: no answer, no pack
     err = capsys.readouterr().err
     assert "Which tool does your team use" in err and "flows/home.yml" in err and not dest.exists()
-    answers = iter(["appium", "speedrun"])
+    answers = iter(["espresso", "speedrun"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 0

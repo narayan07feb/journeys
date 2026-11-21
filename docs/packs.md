@@ -23,7 +23,7 @@ The exact format, every step and action, and a worked example are in
 ```yaml
 name: my-app                 # also the state folder's name
 app: com.example.app
-driver: maestro              # the team's answer: maestro or speedrun (fake for tests); never guessed,
+driver: maestro              # the team's answer: maestro, speedrun or appium (fake for tests); never guessed,
                              # a pack without it makes every device command ask the user
 env: [SEARCH_TEXT]           # variables a journey may use as ${SEARCH_TEXT}
 accounts:                    # test accounts: values only from env vars, never in the pack
@@ -37,7 +37,8 @@ build:   [[./gradlew, assembleDebug]]
 install: [[adb, -s, "{serial}", install, -r, app/build/outputs/apk/debug/app-debug.apk]]
 devices:
   allow_settings_changes: emulator  # devices Journeys may change: emulator, any, or a list of serials.
-                                    # --dka sets "don't keep activities" over adb (maestro, speedrun).
+                                    # --dka sets "don't keep activities" over adb (maestro, speedrun, appium).
+                                    # appium starts only where changes are allowed (it installs its helpers).
                                     # On a device not listed --dka is refused (the fake driver models an
                                     # emulator), and Speedrun does not start when it would change the phone
                                     # (Android 13+, other agent builds, a Maestro driver, animation scales)

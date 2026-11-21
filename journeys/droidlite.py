@@ -3,7 +3,7 @@
 Settings come from the environment:
   JOURNEYS_PACK    the pack (default: <project>/journeys-pack if present, else the example pack)
   JOURNEYS_SERIAL  the device; without it only JOURNEYS_DRIVER=fake can run
-  JOURNEYS_DRIVER  maestro | speedrun | fake (default: the pack's driver; with neither, ask the user)
+  JOURNEYS_DRIVER  maestro | speedrun | appium | fake (default: the pack's driver; with neither, ask the user)
   JOURNEYS_STATE   the state folder (default ~/.local/state/journeys/<pack>)
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from .cli import _stop, make_driver, on_kill
-from .drivers import DRIVERS
+from .drivers import DRIVERS, TOOLS
 from .drivers.base import DriverError
 from .live import panel, watch
 from .pack import Pack, PackError
@@ -43,7 +43,7 @@ def driver_kind(pack: Pack) -> str | None:
     return os.environ.get("JOURNEYS_DRIVER") or pack.driver or None
 
 
-ASK = ("no driver: ask the user which tool their team uses (maestro or speedrun), then set "
+ASK = (f"no driver: ask the user which tool their team uses ({TOOLS}), then set "
        "JOURNEYS_DRIVER or driver: in pack.yaml; Journeys never picks one")
 
 
