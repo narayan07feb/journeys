@@ -10,64 +10,17 @@ from pathlib import Path
 
 import yaml
 
+from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
 from ..drivers.maestro import to_maestro
-from ..actions import KEYS, ActionError, escape, from_selector, to_command, to_commands, to_selector
 from ..journey import Journey
 from ..pack import Pack
-
-def screen_checks(pack: Pack, screen: str, notes: list[str] | None = None) -> list:
-    """Maestro asserts that stand for `expect: SCREEN` (its `all` rules with text or id). A map rule's
-    /regex/ may match part of a text; Maestro's must match all of it, hence the .*(?:...).*"""
-    out = []
-    for r in pack.map.screens[screen].all:
-        sel = {}
-        if r.text is not None:
-            regex = len(r.text) > 1 and r.text.startswith("/") and r.text.endswith("/")
-            sel["text"] = f".*(?:{r.text[1:-1]}).*" if regex else escape(r.text)
-        if r.id is not None:
-            sel["id"] = r.id
-        if sel:
-            out.append({"assertVisible": sel})
-    sd = pack.map.screens[screen]
-    dropped = [k for k, rules in (("any", sd.any), ("none", sd.none)) if rules]
-    if any(r.kind for r in sd.all):
-        dropped.append("kind")
-    if notes is not None and dropped:
-        notes.append(f"screen {screen}: its {', '.join(dropped)} rules have no Maestro check; "
-                     f"the flow checks {len(out)} 'all' rule(s)")
-    return out
+from . import journey_commands
 
 
 def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     """A Maestro flow for the journey, and what could not be exported."""
-    notes, cmds, here = [], [], None
-    if j.launch:
-        cmds.append({"launchApp": {"clearState": True}} if j.clear_state else "launchApp")
-    for s in j.steps:
-        at = f"{j.file.name}:{s.line}"
-        if s.kind == "expect":
-            cmds += screen_checks(pack, s.arg, notes)
-            here = s.arg
-        elif s.kind == "goto":
-            path = pack.map.path(here, s.arg) if here else None
-            if path is None:
-                notes.append(f"{at}: goto {s.arg}: start screen unknown (add an expect before it); left out")
-                continue
-            for e in path:
-                cmds += [to_maestro(c) for c in to_commands(e.do)]
-            cmds += screen_checks(pack, s.arg, notes)
-            here = s.arg
-        elif s.kind in ("see", "not_see"):
-            cmds += [to_maestro(c) for c in to_commands({s.kind: s.arg})]
-        elif s.kind == "do":
-            cmds += [to_maestro(c) for c in to_commands(s.arg)]
-            here = None  # an action may change the screen
-        elif s.kind == "input":
-            cmds.append({"inputText": str(s.arg)})
-            here = None
-        else:
-            here = None
-            notes.append(f"{at}: {s.kind} steps run only in Journeys (pack hooks and event checks); left out")
+    notes: list[str] = []
+    cmds = [to_maestro(c) for c in journey_commands(pack, j, "Maestro", notes)]
     if any(isinstance(c, dict) and c.get("pressKey") in ("Search", "Tab") for c in cmds):
         notes.append("press search/tab: check that your Maestro version has this key")
     if "${" in yaml.safe_dump(cmds):

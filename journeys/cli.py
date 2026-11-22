@@ -481,7 +481,8 @@ def cmd_promote_journey(args) -> int:
 
 def cmd_export(args) -> int:
     from .actions import ActionError
-    from .formats.maestro import export
+    from .formats import appium, maestro
+    export = {"maestro": maestro.export, "appium": appium.export}[args.format]
     pack = _load(args)
     j = pack.journeys.get(args.journey) or pack.drafts.get(args.journey)
     if not j:
@@ -594,8 +595,8 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("promote-journey", help="move a valid draft into journeys/")
     s.add_argument("name")
     s.set_defaults(fn=cmd_promote_journey)
-    s = sub.add_parser("export", help="write a journey as another tool's test (maestro)")
-    s.add_argument("format", choices=["maestro"])
+    s = sub.add_parser("export", help="write a journey as another tool's test (maestro flow, appium WebdriverIO spec)")
+    s.add_argument("format", choices=["maestro", "appium"])
     s.add_argument("journey")
     s.add_argument("-o", "--out", help="file to write (default: print)")
     s.set_defaults(fn=cmd_export)
