@@ -161,7 +161,7 @@ source of truth:
 sync:
   source: journeys      # journeys (default): the journeys are the truth; or framework: the flows are
   dir: ../app/.maestro/journeys   # the team's flow folder, from the pack folder
-  format: maestro       # the only flow format Journeys writes today
+  format: maestro       # the only format sync knows (the Appium export is one-way)
 ```
 
 - `source: journeys`: `journeys sync` writes each journey as `<name>.yaml` in `dir`, with a
@@ -202,11 +202,63 @@ sync:
   as it does orphans, unless it was edited by hand).
 - `sync-state.json` in the pack remembers which flow became which journey: commit it with the pack.
 
+## Export
+
+`journeys export maestro NAME [-o flow.yaml]` and `journeys export appium NAME [-o name.e2e.js]` write
+one journey (or draft) as the team's own test, to run with its own tool. Without `-o` the test goes to
+stdout; `-o` never writes over a file. Each line about a part that could not be exported starts with
+`NOTE` on stderr.
+
+What both exports do:
+
+- The whole journey runs at once, as one test. There are no detours, no explore and no proposals:
+  those need Journeys.
+- `goto` follows the map's path from the last `expect` or `goto` screen. With no such screen, or
+  with a `do`, `input` or hook step since then, the start is unknown: the `goto` is left out with a
+  note (add an `expect` before it).
+  `expect: SCREEN` becomes checks for the screen's `all` rules that have a text or an id.
+- Hook steps and `events.check` steps run only in Journeys: they are left out with a note.
+
+Maestro (`appId` + flow): `${NAME}` stays a Maestro variable; run it with `maestro test -e NAME=...`.
+
+Appium (a WebdriverIO mocha spec):
+
+- It uses only WebdriverIO's globals (`describe`, `it`, `$`, `driver`) and the team's `wdio.conf`
+  picks the Appium server and the device.
+- It finds elements as the Journeys Appium driver does. It reads the page source and gives each
+  element one label: its text, else its content description, else its hint. It leaves out elements
+  entirely outside the window, counts an `index` in page order, and taps the centre of the visible
+  part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
+  regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
+- Patterns run as JavaScript regexes; Journeys reads them as Python's. Most read the same. A
+  pattern JavaScript cannot read, such as `(?P<n>...)` or `(?i)`, stops the spec when it loads,
+  before it touches the device. `\A` and `\Z` are refused at export (JavaScript reads them as
+  letters). Some patterns read but match differently: in JavaScript `\w` and `\d` match only ASCII
+  letters and digits (`/\w+/` does not match "Café"), and `.` does not match `\r`. Write such
+  patterns with the letters you mean, or run those journeys with Journeys.
+- Checks and taps wait 5 s for the element; `scroll_to` swipes (a slow drag) for up to 20 s until
+  all of the element is on the screen; `wait_idle` waits up to 3 s for the screen to stop changing;
+  `launch` (`mobile: terminateApp`, `mobile: activateApp`) waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
+  number of steps (mocha's default 60 s is too short for most journeys).
+- Keys and `erase` use `mobile: pressKey`; `launch` with `clear_state` uses `mobile: clearApp`;
+  `hide_keyboard` uses the old route, else `mobile: hideKeyboard`, and no keyboard up is nothing to
+  hide. An expired session (WebdriverIO's `invalid session id`) fails the step at once; a page source that cannot be read is read again until
+  the wait ends.
+- Typed `${NAME}` is read from the environment when the spec runs (an account field from its env
+  var), so the value is never in the file. A `${NAME}` in a selector is refused: write the value, or
+  run that journey with Journeys.
+- A journey where every step is left out is refused ("nothing to export").
+- The export is one-way: a spec cannot be imported back, and `sync:` does not write specs.
+- Typed values reach the Appium server as element text, so its log and WebdriverIO's (`logLevel`,
+  `outputDir` in `wdio.conf`) can hold them, as with the Journeys Appium driver.
+- The spec is tested against a pretend WebdriverIO (`tests/wdio_sim.js`), not yet against a real
+  WebdriverIO and Appium server. Run it once on your setup before you trust it.
+
 ## Secrets
 
 Journeys masks `env:` values (as •••) in the text and JSON it writes to the state folder. Screenshots
 are pictures and are not masked: a typed value can show in one. Values shorter than 3 characters (a short PIN) are not
 masked either: too many ordinary words contain them. The driver's own
 tool keeps its own logs outside that: Maestro under `~/.maestro`, Speedrun under
-`<state>/speedrun-home`. Those logs can hold a typed value, such as a password. Use test accounts, and
+`<state>/speedrun-home`, Appium in the Appium server's log (and WebdriverIO's, for an exported spec). Those logs can hold a typed value, such as a password. Use test accounts, and
 clear or protect those folders on a shared machine.

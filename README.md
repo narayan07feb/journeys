@@ -18,8 +18,8 @@ pack's `driver:` is the team's answer; `--driver` overrides it. Journeys never a
 fail with the question when there is no terminal to ask in. The project's tests are shown as a hint
 only, never taken as the answer. The driver tests run each driver against a simulated phone:
 they check how Journeys calls the tool, not that your installed version accepts every key
-(`Search`, `Tab`); check those on your device. Maestro flows import into drafts, and journeys export back
-to Maestro flows, so a team keeps its tools.
+(`Search`, `Tab`); check those on your device. Maestro flows import into drafts, and a journey exports
+as a Maestro flow or a WebdriverIO spec for Appium, so a team keeps its tools (docs/packs.md, Export).
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).
 - **Journeys**: named paths through the map with checks (`expect` a screen, `see` a text, an
@@ -61,7 +61,7 @@ Journeys never picks a device: every real run names one with `--serial`.
 | `validate` | Check the pack, every journey and draft (file:line). |
 | `look --serial S` | The screen on the device now and its map screen. Reads only, but the driver's own session start still applies (appium: only where changes are allowed). |
 | `new NAME --start SCREEN` / `promote-journey NAME` | Start a draft / move it into `journeys/`. |
-| `import maestro FLOWS` / `export maestro NAME` | Maestro flows to drafts / a journey to a flow. |
+| `import maestro FLOWS` / `export maestro\|appium NAME [-o FILE]` | Maestro flows to drafts / a journey to a Maestro flow or a WebdriverIO spec. |
 | `init --project APP` | A new pack; asks which driver the team uses (or `--driver`). |
 | `list [--json]` | Sets and journeys. |
 | `run <journey\|set\|all> --serial S` | Run them. `--driver`, `--draft`, `--no-heal`. |

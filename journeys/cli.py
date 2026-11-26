@@ -481,7 +481,8 @@ def cmd_promote_journey(args) -> int:
 
 def cmd_export(args) -> int:
     from .actions import ActionError
-    from .formats.maestro import export
+    from .formats import appium, maestro
+    export = {"maestro": maestro.export, "appium": appium.export}[args.format]
     pack = _load(args)
     j = pack.journeys.get(args.journey) or pack.drafts.get(args.journey)
     if not j:
@@ -493,19 +494,24 @@ def cmd_export(args) -> int:
         flow, notes = export(pack, j)
     except ActionError as e:
         raise PackError(f"{j.name}: {e}") from None
-    for n in notes:
-        print(f"NOTE {n}", file=sys.stderr)
     if args.out:
         try:
-            with open(args.out, "x") as out:  # never over the team's file
-                out.write(flow)
+            out = open(args.out, "x")  # never over the team's file
         except FileExistsError:
             raise PackError(f"{args.out} exists: remove it first, or print the flow and diff") from None
         except OSError as e:
             raise PackError(f"cannot write {args.out}: {e.strerror}") from None
+        try:
+            with out:
+                out.write(flow)
+        except OSError as e:
+            Path(args.out).unlink(missing_ok=True)  # the file this run made, never a half one
+            raise PackError(f"cannot write {args.out}: {e.strerror}") from None
         print(f"written: {args.out}", file=sys.stderr)
     else:
         print(flow, end="")
+    for n in notes:
+        print(f"NOTE {n}", file=sys.stderr)
     return 0
 
 
@@ -594,8 +600,8 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("promote-journey", help="move a valid draft into journeys/")
     s.add_argument("name")
     s.set_defaults(fn=cmd_promote_journey)
-    s = sub.add_parser("export", help="write a journey as another tool's test (maestro)")
-    s.add_argument("format", choices=["maestro"])
+    s = sub.add_parser("export", help="write a journey as another tool's test (maestro flow, appium WebdriverIO spec)")
+    s.add_argument("format", choices=["maestro", "appium"])
     s.add_argument("journey")
     s.add_argument("-o", "--out", help="file to write (default: print)")
     s.set_defaults(fn=cmd_export)
