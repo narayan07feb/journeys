@@ -231,11 +231,14 @@ Appium (a WebdriverIO mocha spec):
   part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
   regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
 - Patterns run as JavaScript regexes; Journeys reads them as Python's. Most read the same. A
-  pattern JavaScript cannot read, such as `(?P<n>...)`, stops the spec when it loads, before it
-  touches the device.
+  pattern JavaScript cannot read, such as `(?P<n>...)` or `(?i)`, stops the spec when it loads,
+  before it touches the device. `\A` and `\Z` are refused at export (JavaScript reads them as
+  letters). Some patterns read but match differently: in JavaScript `\w` and `\d` match only ASCII
+  letters and digits (`/\w+/` does not match "Café"), and `.` does not match `\r`. Write such
+  patterns with the letters you mean, or run those journeys with Journeys.
 - Checks and taps wait 5 s for the element; `scroll_to` swipes (a slow drag) for up to 20 s until
   all of the element is on the screen; `wait_idle` waits up to 3 s for the screen to stop changing;
-  `launch` waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
+  `launch` (`mobile: terminateApp`, `mobile: activateApp`) waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
   number of steps (mocha's default 60 s is too short for most journeys).
 - Keys and `erase` use `mobile: pressKey`; `launch` with `clear_state` uses `mobile: clearApp`;
   `hide_keyboard` uses the old route, else `mobile: hideKeyboard`, and no keyboard up is nothing to
@@ -246,6 +249,8 @@ Appium (a WebdriverIO mocha spec):
   run that journey with Journeys.
 - A journey where every step is left out is refused ("nothing to export").
 - The export is one-way: a spec cannot be imported back, and `sync:` does not write specs.
+- Typed values reach the Appium server as element text, so its log and WebdriverIO's (`logLevel`,
+  `outputDir` in `wdio.conf`) can hold them, as with the Journeys Appium driver.
 - The spec is tested against a pretend WebdriverIO (`tests/wdio_sim.js`), not yet against a real
   WebdriverIO and Appium server. Run it once on your setup before you trust it.
 
@@ -255,5 +260,5 @@ Journeys masks `env:` values (as •••) in the text and JSON it writes to th
 are pictures and are not masked: a typed value can show in one. Values shorter than 3 characters (a short PIN) are not
 masked either: too many ordinary words contain them. The driver's own
 tool keeps its own logs outside that: Maestro under `~/.maestro`, Speedrun under
-`<state>/speedrun-home`. Those logs can hold a typed value, such as a password. Use test accounts, and
+`<state>/speedrun-home`, Appium in the Appium server's log (and WebdriverIO's, for an exported spec). Those logs can hold a typed value, such as a password. Use test accounts, and
 clear or protect those folders on a shared machine.

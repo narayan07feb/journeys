@@ -77,7 +77,6 @@ async function screen() {
 }
 
 function hit(sel, els) {
-  if (sel.at !== undefined) return els[sel.at - 1] ?? null;
   if (sel.text === null && sel.id === null) return null;
   const hits = els.filter((e) => (sel.id === null || (sel.id !== "" && e.id === sel.id))
     && (sel.text === null || e.text === sel.text || (sel.rx !== false && sel.rx.test(e.text))));
@@ -151,9 +150,9 @@ async function scrollTo(sel, up) {
 
 // A fresh start; activateApp returns before the first screen is drawn, so wait for the app's elements.
 async function launch(clear) {
-  await driver.terminateApp(APP);
+  await driver.execute("mobile: terminateApp", { appId: APP });
   if (clear) await driver.execute("mobile: clearApp", { appId: APP });
-  await driver.activateApp(APP);
+  await driver.execute("mobile: activateApp", { appId: APP });
   for (const end = Date.now() + WAIT; Date.now() < end; await driver.pause(300)) {
     try {
       if ((await driver.getPageSource()).includes(`package="${APP}"`)) return;
@@ -205,13 +204,22 @@ def _no_vars(value: str, what: str) -> str:
     return value
 
 
+def _anchor(pattern: str) -> bool:
+    """Whether the pattern has a \\A or \\Z escape (a "\\\\" before the letter is an escaped backslash)."""
+    i = 0
+    while i < len(pattern) - 1:
+        if pattern[i] == "\\":
+            if pattern[i + 1] in "AZ":
+                return True
+            i += 1
+        i += 1
+    return False
+
+
 def _sel(sel, sels: list[str]) -> str:
     """A shared-form selector -> SEL[n], an S({...}) made when the spec loads, matched as
     journeys.drivers.base.find does."""
     show = shown(sel)
-    if isinstance(sel, str) and sel.startswith("@") and sel[1:].isdigit():
-        sels.append(f"S({json.dumps({'at': int(sel[1:]), 'show': show})})")
-        return f"SEL[{len(sels) - 1}]"
     if isinstance(sel, str):
         sel = {"text": sel}
     try:
@@ -229,6 +237,9 @@ def _sel(sel, sels: list[str]) -> str:
             out["rx"] = True
         except re.error:
             pass  # Journeys then matches the exact text only
+        if out["rx"] and _anchor(out["text"]):
+            raise ActionError(f"pattern {show!r} uses \\A or \\Z, which JavaScript reads as the letters A and Z; "
+                              "leave them out (a pattern always matches the whole text)")
     sels.append(f"S({json.dumps(out)})")
     return f"SEL[{len(sels) - 1}]"
 
@@ -268,7 +279,7 @@ def _js(pack: Pack, cmd, sels: list[str]) -> str:
     if name == "launchApp":
         return f"await launch({'true' if isinstance(arg, dict) and arg.get('clearState') else 'false'});"
     if name == "stopApp":
-        return "await driver.terminateApp(APP);"
+        return 'await driver.execute("mobile: terminateApp", { appId: APP });'
     if name == "back":
         return "await driver.back();"
     if name == "hideKeyboard":
@@ -309,7 +320,8 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     # mocha's own 60 s is too short for a journey; erase is one call per character
     timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls + 200 * erased
     notes.append("patterns run as JavaScript regexes (Journeys reads them as Python's); one JavaScript "
-                 "cannot read stops the spec when it loads")
+                 "cannot read stops the spec when it loads; \\w and \\d match only ASCII letters and digits there "
+                 "(Python's match any language), and . does not match \\r")
     head = (f"// Exported from Journeys: journey {json.dumps(j.name)}, pack {json.dumps(pack.name)}.\n"
             "// Runs with WebdriverIO (mocha) and Appium UiAutomator2; your wdio.conf picks the server and "
             "the device.\n"

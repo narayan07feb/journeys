@@ -136,6 +136,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
            '<android.widget.TextView text="a &amp; b &#233; &quot;q&quot; &lt;x&gt;" bounds="[0,700][1080,800]"/>'
            '<android.widget.Button text="" clickable="true" resource-id="other.pkg:id/btn" bounds="[0,900][200,1000]"/>'
            '<android.widget.TextView text="Line&#10;two" bounds="[0,1100][1080,1200]"/>'
+           '<android.widget.TextView text="&#x1F600; ok" resource-id="com.x:id/caf\u00e9" bounds="[0,1500][1080,1600]"/>'
            '<android.view.View text="" bounds="[0,1300][1080,1400]"/>'
            '</android.widget.FrameLayout></hierarchy>')
     d = AppiumDriver.__new__(AppiumDriver)
@@ -145,7 +146,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
     app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
     sels = ["Menu", "Open", "Search here", {"id": "q"}, "Row", {"text": "Row", "index": 1}, {"text": "Row", "index": 2},
             'a & b é "q" <x>', {"id": "com.android.settings:id/btn"}, {"id": "btn"}, "/R.w/", "/Line.*/", "/Line\\ntwo/",
-            {"text": "/M.*/", "index": 0}, "@3", "@99"]
+            {"text": "/M.*/", "index": 0}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}]
     for sel in sels:
         i = find(screen.elements, to_command({"tap": sel})["tapOn"])
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
@@ -180,6 +181,15 @@ def test_hide_keyboard_falls_back_to_the_mobile_command_and_no_keyboard_is_nothi
     for app in (APP, {**APP, "old_routes": False}):
         calls, verdict = run(tmp_path, spec, app=app)
         assert verdict == "PASS" and [c for c in calls if c[0] == "hideKeyboard"] == [["hideKeyboard"]], app
+
+
+@needs_node
+def test_launch_waits_for_the_app_and_wait_idle_for_a_still_screen(pack_dir, tmp_path):
+    spec = spec_of(pack_dir, "steps:\n  - see: Network & internet\n")
+    calls, verdict = run(tmp_path, spec, app={**APP, "launcher_reads": 3})
+    assert verdict == "PASS" and calls[-1] == ["end", 900]  # three reads of the launcher, 300 ms apart
+    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - do: [wait_idle]\n"), app={**APP, "changing": 3})
+    assert verdict == "PASS" and calls[-1] == ["end", 900]  # launch took one changed read; idle three more
 
 
 @needs_node
@@ -239,6 +249,42 @@ def test_names_in_the_header_cannot_break_out_of_the_comment(pack_dir, tmp_path)
 def test_a_goto_with_no_known_start_is_left_out_with_a_note(pack_dir):
     pack, j = journey(pack_dir, "steps:\n  - do: [back]\n  - goto: SETTINGS-DISPLAY\n")
     assert any("goto SETTINGS-DISPLAY: start screen unknown" in n for n in export(pack, j)[1])
+
+
+def test_the_spec_file_holds_no_raw_line_separators(pack_dir):
+    spec = spec_of(pack_dir, 'steps:\n  - see: "a\\u2028b\\u2029c"\n  - do: [{type: "x\\u2028y"}]\n')
+    assert "\u2028" not in spec and "\u2029" not in spec and "\\u2028" in spec
+
+
+def test_an_anchor_javascript_reads_as_a_letter_is_refused(pack_dir):
+    for pattern in ("/Total\\Z/", "/\\ATotal/"):
+        pack, j = journey(pack_dir, f"steps:\n  - see: '{pattern}'\n")
+        with pytest.raises(ActionError, match="uses .A or .Z"):
+            export(pack, j)
+    pack, j = journey(pack_dir, "steps:\n  - see: '/a\\\\Z/'\n")  # an escaped backslash, then a plain Z
+    assert export(pack, j)
+
+
+def test_a_failed_write_leaves_no_file(pack_dir, tmp_path, capsys, monkeypatch):
+    out = tmp_path / "x.e2e.js"
+    real = open
+
+    class Full:
+        def __init__(self, f):
+            self.f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.f.close()
+
+        def write(self, _):
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("builtins.open", lambda p, m="r", *a, **k: Full(real(p, m)) if p == str(out) else real(p, m, *a, **k))
+    assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 2
+    assert "No space left on device" in capsys.readouterr().err and not out.exists()
 
 
 def test_an_erase_gets_time_for_each_character(pack_dir):

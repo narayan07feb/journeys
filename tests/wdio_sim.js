@@ -27,8 +27,15 @@ function bounds(e, i) {
   const y = e.y ?? 100 + i * 100;
   return (e.below || 0) > scrolled ? [0, H + 100 + i * 100, W, H + 180 + i * 100] : [0, y, W, y + 80];
 }
+const LAUNCHER = '<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0"><android.widget.FrameLayout package="launcher" bounds="[0,0][1080,2400]"/></hierarchy>';
+// app.json launcher_reads: N reads after a launch still show the launcher; changing: N reads differ each time.
 function source() {
-  if (!running) return '<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0"><android.widget.FrameLayout package="launcher" bounds="[0,0][1080,2400]"/></hierarchy>';
+  if (running && app.launching > 0) { app.launching--; return LAUNCHER; }
+  const s = page();
+  return running && app.changing > 0 ? `${s}<!--${app.changing--}-->` : s;
+}
+function page() {
+  if (!running) return LAUNCHER;
   const s = app.screens[screen];
   if (!Array.isArray(s)) return s.xml;
   const nodes = s.map((e, i) => {
@@ -66,6 +73,12 @@ function keys(name, args, want) {
 }
 const MOBILE = {
   "mobile: clearApp": (a) => { keys("mobile: clearApp", a, ["appId"]); log("mobile: clearApp", a.appId); },
+  "mobile: terminateApp": (a) => { keys("mobile: terminateApp", a, ["appId"]); log("terminate", a.appId); running = false; },
+  "mobile: activateApp": (a) => {
+    keys("mobile: activateApp", a, ["appId"]);
+    log("activate", a.appId);
+    running = true; screen = app.start; scrolled = 0; app.launching = app.launcher_reads || 0;
+  },
   "mobile: pressKey": (a) => { keys("mobile: pressKey", a, ["keycode"]); log("key", a.keycode); },
   "mobile: hideKeyboard": (a) => { keys("mobile: hideKeyboard", a, []); hide(); },
 };
@@ -78,8 +91,6 @@ function hide() {
   keyboard = false;
 }
 globalThis.driver = strict("driver", {
-  terminateApp: async (id) => { log("terminate", id); running = false; },
-  activateApp: async (id) => { log("activate", id); running = true; screen = app.start; scrolled = 0; },
   execute: async (name, args) => {
     if (!MOBILE[name]) throw new Error(`unknown mobile: command ${name}`);
     MOBILE[name](args);
