@@ -161,7 +161,7 @@ source of truth:
 sync:
   source: journeys      # journeys (default): the journeys are the truth; or framework: the flows are
   dir: ../app/.maestro/journeys   # the team's flow folder, from the pack folder
-  format: maestro       # the only flow format Journeys writes today
+  format: maestro       # the only format sync knows (the Appium export is one-way)
 ```
 
 - `source: journeys`: `journeys sync` writes each journey as `<name>.yaml` in `dir`, with a
@@ -201,6 +201,42 @@ sync:
   (`unexportable`); a generated flow under another file name is a `duplicate` (`--prune` deletes it,
   as it does orphans, unless it was edited by hand).
 - `sync-state.json` in the pack remembers which flow became which journey: commit it with the pack.
+
+## Export
+
+`journeys export maestro NAME [-o flow.yaml]` and `journeys export appium NAME [-o name.e2e.js]` write
+one journey (or draft) as the team's own test, to run with its own tool. Without `-o` the test goes to
+stdout; `-o` never writes over a file. Each line about a part that could not be exported starts with
+`NOTE` on stderr.
+
+What both exports do:
+
+- The whole journey runs at once, as one test. There are no detours, no explore and no proposals:
+  those need Journeys.
+- `goto` follows the map's path from the last `expect` or `goto` screen. With no such screen, or
+  with a `do`, `input` or hook step since then, the start is unknown: the `goto` is left out with a
+  note (add an `expect` before it).
+  `expect: SCREEN` becomes checks for the screen's `all` rules that have a text or an id.
+- Hook steps and `events.check` steps run only in Journeys: they are left out with a note.
+
+Maestro (`appId` + flow): `${NAME}` stays a Maestro variable; run it with `maestro test -e NAME=...`.
+
+Appium (a WebdriverIO mocha spec):
+
+- It uses only WebdriverIO's globals (`describe`, `it`, `$`, `$$`, `driver`, `browser`) and UiAutomator2
+  commands. The team's `wdio.conf` picks the Appium server and the device.
+- A text selector is a Java regex (UiAutomator) over the whole text or the whole content
+  description, never the hint. An `index` counts the matches on screen top to bottom, then left to
+  right. `{id: name}` matches the id by name in any package; `pkg:id/name` matches only that package.
+- Checks and taps wait 5 s for the element; `scroll_to` swipes for up to 20 s; `wait_idle` waits up
+  to 3 s for the screen to stop changing.
+- Typed `${NAME}` is read from the environment when the spec runs (an account field from its env
+  var), so the value is never in the file. A `${NAME}` in a selector is refused: write the value, or
+  run that journey with Journeys.
+- A journey where every step is left out is refused ("nothing to export").
+- The export is one-way: a spec cannot be imported back, and `sync:` does not write specs.
+- The spec is tested against a pretend WebdriverIO (`tests/wdio_sim.js`), not yet against a real
+  WebdriverIO and Appium server. Run it once on your setup before you trust it.
 
 ## Secrets
 

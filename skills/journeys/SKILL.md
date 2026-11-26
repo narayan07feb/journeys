@@ -51,6 +51,9 @@ Read `references/format.md` before you write a step. It has the exact format and
 - One journey per draft file. Names are lowercase words with dashes.
 - A team that uses Maestro: `journeys import maestro <flows>` makes drafts from its flows;
   `journeys export maestro <journey> -o flow.yaml` writes a flow for its own `maestro test`.
+- A team that uses Appium with WebdriverIO: `journeys export appium <journey> -o <journey>.e2e.js`
+  writes a spec for its own `wdio.conf`. Hooks and event checks are left out (NOTE lines), and a
+  `${NAME}` in a selector is refused; typed `${NAME}` is read from the environment at run time.
 - New pack for an app: `journeys --pack <new folder> init --project <app project> --driver <the
   user's answer>`; ask the user first (the project's test framework is a hint, never the answer).
 - The tracker (`journeys tracker`, the `serve` page, the MCP `tracker` tool) counts the journeys you

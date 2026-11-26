@@ -1,12 +1,14 @@
 """Appium export: the WebdriverIO spec is run under node against a pretend WebdriverIO (tests/wdio_sim.js)."""
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from journeys.actions import ActionError
 from journeys.cli import main
 from journeys.formats.appium import export
 from journeys.pack import Pack
@@ -136,3 +138,30 @@ def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
     assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 0
     assert out.read_text().startswith("// Exported from Journeys journey open-display")
     assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 2  # never over it
+
+
+@needs_node
+def test_index_counts_top_down_across_text_and_description_once(pack_dir, tmp_path):
+    app = {**APP, "screens": {**APP["screens"], "HOME": [
+        {"desc": "Top", "y": 10}, {"text": "Top", "y": 300, "go": "DISPLAY"}, {"text": "Both", "desc": "Both"}]}}
+    pack, j = journey(pack_dir, "steps:\n  - not_see: {text: Both, index: 1}\n"
+                                "  - do: [{tap: {text: Top, index: 1}}]\n  - see: Brightness level\n")
+    assert run(tmp_path, export(pack, j)[0], app=app)[1] == "PASS"  # the desc above counts first; Both once
+
+
+def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var(pack_dir):
+    for sel in ('{id: "${DEMO_SEARCH}"}', '"/x${DEMO_SEARCH}/"'):
+        pack, j = journey(pack_dir, f"steps:\n  - see: {sel}\n")
+        with pytest.raises(ActionError, match="cannot put a variable in a selector"):
+            export(pack, j)
+    y = pack_dir / "pack.yaml"
+    y.write_text(y.read_text() + "accounts:\n  demo: {user: DEMO_USER}\n")
+    pack, j = journey(pack_dir, 'steps:\n  - input: "${demo.user}/${DEMO_USER}"\n')
+    spec = export(pack, j)[0]
+    assert spec.count('env("DEMO_USER")') == 2 and "demo.user" not in spec
+
+
+def test_control_characters_never_reach_the_uiselector_string(pack_dir):
+    pack, j = journey(pack_dir, 'steps:\n  - see: "a\\tb"\n')
+    by = json.loads(re.search(r"find\((\{.*?\})\)", export(pack, j)[0]).group(1))["by"]
+    assert all("\t" not in b for b in by) and "\\x09" in by[0]
