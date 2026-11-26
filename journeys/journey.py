@@ -55,6 +55,9 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
         if not isinstance(tags, list):
             errors.append(f"{yamlio.where(path, item)}: tags is a list, like [smoke], not {tags!r}")
             tags = []
+        if "before" in item:  # setup is a hook: step at the start, or a set's before:
+            errors.append(f"{yamlio.where(path, item)}: a journey has no before:; start its steps with a "
+                          "hook: step, or put the hook in a set's before: (sets.yaml)")
         after = yamlio.strip_lines(item.get("after") or [])
         if not isinstance(after, list):
             errors.append(f"{yamlio.where(path, item)}: after is a list of hooks, like [reset_flag], not {after!r}")

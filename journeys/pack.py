@@ -29,6 +29,7 @@ DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     r"stop|unregist|deauthori|dial|sos|refund|abort|kill|delink)/",
 )]
 
+YAML_WORDS = "YAML reads a bare on, off, yes or no as true or false: quote it"
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 _JOURNEY_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 _PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+")
@@ -278,6 +279,7 @@ class Pack:
                     name = s.arg if isinstance(s.arg, str) else (s.arg or {}).get("name")
                     if not isinstance(name, str) or name not in self.hooks:
                         self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+                    self._check_hook_args(at, s.arg)
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
         for j in [*self.journeys.values(), *self.drafts.values()]:
@@ -310,12 +312,20 @@ class Pack:
         name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else None
         if not isinstance(name, str) or (isinstance(ref, dict) and (
                 set(ref) - {"name", "args"} or not isinstance(ref.get("args") or {}, dict))):
-            hint = " (YAML reads a bare on, off, yes or no as true or false: quote the name)" if isinstance(ref, bool) else ""
+            hint = f" ({YAML_WORDS})" if isinstance(ref, bool) else ""
             self.errors.append(f"{at}: a hook is a name or {{name: ..., args: {{...}}}}, not {ref!r}{hint}")
         elif name not in self.hooks:
             self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+        self._check_hook_args(at, ref)
         for var in sorted(set(_names(ref)) - declared):
             self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")
+
+    def _check_hook_args(self, at: str, ref) -> None:
+        """The args go to the script as JSON: `{on: true}` would arrive as {"true": true}."""
+        args = ref.get("args") if isinstance(ref, dict) else None
+        bad = [k for k in args if not isinstance(k, str)] if isinstance(args, dict) else []
+        if bad:
+            self.errors.append(f"{at}: hook args keys {bad} are not text ({YAML_WORDS})")
 
     def set_hooks(self, target: str | None) -> dict:
         """before: and after: of the set a run targets; none for `all`, one journey or a draft."""

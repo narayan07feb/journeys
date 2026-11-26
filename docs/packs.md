@@ -30,7 +30,9 @@ accounts:                    # test accounts: values only from env vars, never i
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}
 hooks:
   set_flag: [hooks/set_flag.sh]     # argv; the step's args come as one JSON text at the end
+  reset_flag: [hooks/reset_flag.sh]  # cleanup, for after:
   new_user: [python3, hooks/new_user.py]
+  delete_user: [python3, hooks/delete_user.py]
 events:
   check: [hooks/check_event.sh]     # prints {"fired": true} when the event was seen
 build:   [[./gradlew, assembleDebug]]
@@ -157,7 +159,7 @@ sets:
   nightly: {journeys: [buy-one, refund]}
   flagged:
     tags: [flag]
-    before: [{name: set_flag, args: {flag: new_checkout, on: true}}]
+    before: [{name: set_flag, args: {flag: new_checkout, enabled: true}}]
     after: [{name: reset_flag, args: {flag: new_checkout}}]
 ```
 

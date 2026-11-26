@@ -129,7 +129,7 @@ steps:
   - goto: SETTINGS-DISPLAY            # follows map edges
   - see: "Brightness level"           # text shown
   - do: [{tap: "Dark theme"}]         # neutral actions (docs/packs.md)
-  - hook: set_flag {flag: dark, on: true}   # pack script
+  - hook: {name: set_flag, args: {flag: dark, enabled: true}}   # pack script
   - event: {name: theme_changed}      # pack event checker
   - expect: SETTINGS-DISPLAY
 ```

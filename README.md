@@ -26,7 +26,7 @@ as a Maestro flow or a WebdriverIO spec for Appium, so a team keeps its tools (d
   `event` fired), grouped in sets.
 - **Server setup**: pack hooks set a flag or make a test user before a journey; a journey's
   `after:` and a set's `before:`/`after:` clean up, passed or failed. The agent skill asks the team
-  what the server needs and writes the scripts with them (docs/packs.md, Hooks).
+  what the server needs and writes the scripts with them (docs/packs.md, pack.yaml).
 - **Self-healing**: when the app shows another known screen, the run takes a detour through the
   map and saves a *proposal*. When it fails, it explores the screen's options and proposes a fix.
   A person (or an agent) promotes or rejects each proposal; nothing changes the pack on its own.

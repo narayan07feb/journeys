@@ -17,7 +17,7 @@ script). Never guess the tool and never name one in a public example.
 - Exit 0 means done. Any other exit fails the step, and the end of stderr (or stdout) is the
   message. It times out after 300 s.
 - Three places call hooks:
-  1. A step: `- hook: {name: set_flag, args: {flag: new_checkout, on: true}}`.
+  1. A step: `- hook: {name: set_flag, args: {flag: new_checkout, enabled: true}}`.
   2. A journey's `after:`: hooks that run when the journey ends, **passed or failed** (also after
      Ctrl-C or a lost device). Every one runs, even when one fails. A failed one fails a journey
      that had passed.
@@ -37,8 +37,9 @@ script). Never guess the tool and never name one in a public example.
    hides only declared values in its logs and results, and a hook's stderr goes into the results.
    Never write a key, token or password into the pack.
 4. **Write the setup script** into `hooks/<name>.sh` (or `.py`) and add it to `pack.yaml hooks:`.
-   Read its input from the JSON argument. Print a short reason to stderr and exit non-zero on any
-   error. Never print the token.
+   Make it executable (`chmod +x hooks/<name>.sh`), or name the interpreter first in the argv
+   (`[python3, hooks/<name>.py]`). Read its input from the JSON argument. Print a short reason to
+   stderr and exit non-zero on any error. Never print the token.
 5. **Write the cleanup script too** (for example `reset_flag`). It must be safe to run when setup
    never ran or only half ran (turning off a flag that is already off is fine; deleting a user
    that does not exist is fine).
@@ -68,7 +69,7 @@ hooks:
 name: new-checkout
 after: [{name: reset_flag, args: {flag: new_checkout}}]
 steps:
-  - hook: {name: set_flag, args: {flag: new_checkout, on: true}}
+  - hook: {name: set_flag, args: {flag: new_checkout, enabled: true}}
   - expect: HOME
   - goto: CHECKOUT
   - see: "Pay now"
@@ -79,7 +80,7 @@ steps:
 sets:
   nightly:
     tags: [nightly]
-    before: [{name: set_flag, args: {flag: new_checkout, on: true}}]
+    before: [{name: set_flag, args: {flag: new_checkout, enabled: true}}]
     after: [{name: reset_flag, args: {flag: new_checkout}}]
 ```
 

@@ -28,6 +28,8 @@ accounts:
   main: {user: SHOP_USER, password: SHOP_PASSWORD}   # ${SHOP_USER} or ${main.user}; values from env only
 hooks:
   new_user: [python3, hooks/new_user.py]   # argv; the step's args are added as one JSON text
+  set_flag: [hooks/set_flag.sh]            # a script named first must be executable (chmod +x)
+  reset_flag: [hooks/reset_flag.sh]        # cleanup, for after:
 events:
   check: [hooks/check_event.sh]            # prints {"fired": true} when the event was seen
 tap_all:
@@ -128,7 +130,7 @@ sets:
   nightly: {journeys: [buy-one, refund]}
   flagged:                     # before: once first; after: once at the end, always
     tags: [flag]               # (only when this set is the run target)
-    before: [{name: set_flag, args: {flag: x, on: true}}]
+    before: [{name: set_flag, args: {flag: x, enabled: true}}]
     after: [{name: reset_flag, args: {flag: x}}]
 ```
 

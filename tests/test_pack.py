@@ -80,3 +80,15 @@ def test_set_hooks_only_for_a_set(pack_dir):
     assert p.errors == []
     assert p.set_hooks("s1") == {"before": ["note"], "after": [{"name": "note"}]}
     assert p.set_hooks("all") == p.set_hooks("open-display") == p.set_hooks(None) == {}
+
+
+def test_hook_args_keys_are_text_and_a_journey_has_no_before(pack_dir):
+    (pack_dir / "journeys" / "hk.yaml").write_text(
+        "- name: hk-a\n  before: [note]\n  after: [{name: note, args: {on: true}}]\n"
+        "  steps:\n    - hook: {name: note, args: {yes: 1, ok: 2}}\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  s1: {journeys: [hk-a], before: [{name: note, args: {off: x}}]}\n")
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "hk.yaml:1: a journey has no before:; start its steps with a hook: step" in errs
+    assert "hk.yaml:1: after: hook args keys [True] are not text (YAML reads a bare on" in errs
+    assert "hk.yaml:5: hook args keys [True] are not text" in errs
+    assert "sets.yaml: set s1 before: hook args keys [False] are not text" in errs

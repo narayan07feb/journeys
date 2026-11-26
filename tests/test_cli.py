@@ -284,3 +284,13 @@ def test_a_failed_set_cleanup_fails_the_run_command(pack_dir, tmp_path, capsys):
     (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [cleanup]}\n")
     assert main(base + ["run", "smoke", "--driver", "fake"]) == 1
     assert "0/2 passed (no journey ran: a before: hook failed)" in capsys.readouterr().out
+
+
+def test_a_draft_named_like_a_set_never_runs(pack_dir, tmp_path, capsys):
+    """So `run --draft` never runs a set's before:/after: hooks: the draft cannot have a set's name."""
+    (pack_dir / "drafts").mkdir()
+    (pack_dir / "drafts" / "smoke.yaml").write_text("name: smoke\nsteps:\n  - expect: SETTINGS-HOME\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [note]}\n")
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--draft",
+                 "--driver", "fake"]) == 2
+    assert "journey name 'smoke'" in capsys.readouterr().err
