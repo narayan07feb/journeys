@@ -494,19 +494,24 @@ def cmd_export(args) -> int:
         flow, notes = export(pack, j)
     except ActionError as e:
         raise PackError(f"{j.name}: {e}") from None
-    for n in notes:
-        print(f"NOTE {n}", file=sys.stderr)
     if args.out:
         try:
-            with open(args.out, "x") as out:  # never over the team's file
-                out.write(flow)
+            out = open(args.out, "x")  # never over the team's file
         except FileExistsError:
             raise PackError(f"{args.out} exists: remove it first, or print the flow and diff") from None
         except OSError as e:
             raise PackError(f"cannot write {args.out}: {e.strerror}") from None
+        try:
+            with out:
+                out.write(flow)
+        except OSError as e:
+            Path(args.out).unlink(missing_ok=True)  # the file this run made, never a half one
+            raise PackError(f"cannot write {args.out}: {e.strerror}") from None
         print(f"written: {args.out}", file=sys.stderr)
     else:
         print(flow, end="")
+    for n in notes:
+        print(f"NOTE {n}", file=sys.stderr)
     return 0
 
 

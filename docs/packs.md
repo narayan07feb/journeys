@@ -223,13 +223,23 @@ Maestro (`appId` + flow): `${NAME}` stays a Maestro variable; run it with `maest
 
 Appium (a WebdriverIO mocha spec):
 
-- It uses only WebdriverIO's globals (`describe`, `it`, `$`, `$$`, `driver`, `browser`) and UiAutomator2
-  commands. The team's `wdio.conf` picks the Appium server and the device.
-- A text selector is a Java regex (UiAutomator) over the whole text or the whole content
-  description, never the hint. An `index` counts the matches on screen top to bottom, then left to
-  right. `{id: name}` matches the id by name in any package; `pkg:id/name` matches only that package.
-- Checks and taps wait 5 s for the element; `scroll_to` swipes for up to 20 s; `wait_idle` waits up
-  to 3 s for the screen to stop changing.
+- It uses only WebdriverIO's globals (`describe`, `it`, `$`, `driver`) and the team's `wdio.conf`
+  picks the Appium server and the device.
+- It finds elements as the Journeys Appium driver does. It reads the page source and gives each
+  element one label: its text, else its content description, else its hint. It leaves out elements
+  entirely outside the window, counts an `index` in page order, and taps the centre of the visible
+  part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
+  regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
+- Patterns run as JavaScript regexes; Journeys reads them as Python's. Most read the same. A
+  pattern JavaScript cannot read, such as `(?P<n>...)`, stops the spec when it loads, before it
+  touches the device.
+- Checks and taps wait 5 s for the element; `scroll_to` swipes (a slow drag) for up to 20 s until
+  all of the element is on the screen; `wait_idle` waits up to 3 s for the screen to stop changing;
+  `launch` waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
+  number of steps (mocha's default 60 s is too short for most journeys).
+- Keys and `erase` use `mobile: pressKey`; `launch` with `clear_state` uses `mobile: clearApp`.
+  An expired session fails the step at once; a page source that cannot be read is read again until
+  the wait ends.
 - Typed `${NAME}` is read from the environment when the spec runs (an account field from its env
   var), so the value is never in the file. A `${NAME}` in a selector is refused: write the value, or
   run that journey with Journeys.

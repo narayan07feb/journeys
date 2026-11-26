@@ -1,15 +1,16 @@
 """Appium export: the WebdriverIO spec is run under node against a pretend WebdriverIO (tests/wdio_sim.js)."""
 import json
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from journeys.actions import ActionError
+from journeys.actions import ActionError, to_command
 from journeys.cli import main
+from journeys.drivers.appium import AppiumDriver
+from journeys.drivers.base import find
 from journeys.formats.appium import export
 from journeys.pack import Pack
 
@@ -25,7 +26,7 @@ APP = {
                  {"desc": "Search settings", "go": "SEARCH"}],
         "DISPLAY": [{"text": "Brightness level"}, {"text": "Dark theme", "below": 2}],
         "SEARCH": [{"id": "com.android.settings.intelligence:id/search_src_text", "field": True},
-                   {"desc": "Row", "id": "second"}, {"text": "Row", "y": 50, "go": "DISPLAY"}, {"text": 'He said "hi" \\\\ ok'}],
+                   {"desc": "Row", "id": "second"}, {"text": "Row", "go": "DISPLAY"}, {"text": 'He said "hi" \\\\ ok'}],
     },
 }
 
@@ -47,83 +48,199 @@ def run(tmp_path, spec: str, app=APP, env=None):
     return [json.loads(c) for c in calls], verdict
 
 
+def spec_of(pack_dir, body):
+    pack, j = journey(pack_dir, body)
+    return export(pack, j)[0]
+
+
 @needs_node
 def test_example_journey_runs_through_the_map(pack_dir, tmp_path):
     pack = Pack.load(pack_dir)
     spec, notes = export(pack, pack.journeys["open-display"])
-    assert any("UiAutomator regexes" in n for n in notes)
+    assert any("JavaScript regexes" in n for n in notes)
     calls, verdict = run(tmp_path, spec)
     assert verdict == "PASS"
-    assert calls[:2] == [["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
-    assert ["click", "Display"] in calls
-    assert [c for c in calls if c[0] == "mobile: swipeGesture"] == [["mobile: swipeGesture", "up"]] * 3
+    assert calls[1:3] == [["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
+    assert ["tap", "Display", 540, 240] in calls  # the centre of its box, after one swipe
+    assert [c for c in calls if c[0] == "swipe"] == [["swipe", "up", 600]] * 3  # a slow drag, no fling
+
+
+@needs_node
+def test_the_test_gets_a_timeout_that_fits_the_journey(pack_dir, tmp_path):
+    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - see: Network & internet\n  - do: [{scroll_to: Display}]\n"))
+    assert verdict == "PASS" and calls[0] == ["timeout", 60_000 + 10_000 * 3 + 20_000]  # mocha's 60 s is too short
 
 
 @needs_node
 def test_a_missing_or_lingering_element_fails_the_spec(pack_dir, tmp_path):
-    pack, j = journey(pack_dir, "steps:\n  - see: Nope\n")
-    assert run(tmp_path, export(pack, j)[0])[1] == "FAIL not on the screen: Nope"
-    pack, j = journey(pack_dir, "steps:\n  - not_see: /Network.*/\n")
-    assert run(tmp_path, export(pack, j)[0])[1] == "FAIL still on the screen: /Network.*/"
-    pack, j = journey(pack_dir, "steps:\n  - do: [{scroll_to: Never}]\n")
-    calls, verdict = run(tmp_path, export(pack, j)[0])
+    assert run(tmp_path, spec_of(pack_dir, "steps:\n  - see: Nope\n"))[1] == "FAIL not on the screen: Nope"
+    assert run(tmp_path, spec_of(pack_dir, "steps:\n  - not_see: /Network.*/\n"))[1] == \
+        "FAIL still on the screen: /Network.*/"
+    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - do: [{scroll_to: Never}]\n"))
     assert verdict == "FAIL not found while scrolling: Never"
-    assert len([c for c in calls if c[0] == "mobile: swipeGesture"]) > 10  # it kept looking for 20 s
+    assert len([c for c in calls if c[0] == "swipe"]) > 10  # it kept looking for 20 s
 
 
 @needs_node
-def test_text_then_description_index_ids_and_escaping(pack_dir, tmp_path):
-    pack, j = journey(pack_dir, """steps:
+def test_scroll_to_wants_all_of_the_element_and_can_go_up(pack_dir, tmp_path):
+    app = {**APP, "screens": {**APP["screens"], "HOME": [{"text": "Half", "bounds": [0, 2350, 1080, 2450]}]}}
+    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - see: Half\n  - do: [{scroll_to: Half}]\n"), app=app)
+    assert verdict == "FAIL not found while scrolling: Half"  # seen (partly) but never all on the screen
+    calls, verdict = run(tmp_path, spec_of(
+        pack_dir, "steps:\n  - do: [{scroll_to: {element: Never, direction: up}}]\n"), app=app)
+    assert {c[1] for c in calls if c[0] == "swipe"} == {"down"}  # the finger moves down to see what is above
+
+
+@needs_node
+def test_labels_ids_index_and_escaping_follow_the_driver(pack_dir, tmp_path):
+    calls, verdict = run(tmp_path, spec_of(pack_dir, """steps:
   - do: [{tap: Search settings}]
   - see: {id: search_src_text}
-  - not_see: {id: "other.pkg:id/search_src_text"}
+  - see: {id: "other.pkg:id/search_src_text"}
   - see: {text: Row, index: 1}
   - not_see: {text: Row, index: 2}
   - see: {text: Row, index: 0, id: second}
-  - see: {id: second}
   - see: 'He said "hi" \\\\ ok'
-""")
-    calls, verdict = run(tmp_path, export(pack, j)[0])
+  - do: [{tap: {text: Row, index: 1}}]
+  - see: Brightness level
+"""))
     assert verdict == "PASS", calls
-    assert ["click", "Search settings"] in calls  # found by its content description
-    pack, j = journey(pack_dir, "steps:\n  - do: [{tap: Search settings}, {tap: {text: Row, index: 0}}]\n"
-                                "  - see: Brightness level\n")
-    assert run(tmp_path, export(pack, j)[0])[1] == "PASS"  # the top Row (by text, y 50) leads on, not the desc
+    assert ["tap", "Search settings", 540, 340] in calls  # found by its content description
+
+
+@needs_node
+def test_one_label_per_element_counted_in_page_order(pack_dir, tmp_path):
+    app = {**APP, "screens": {**APP["screens"], "HOME": [
+        {"text": "Open", "desc": "Menu"}, {"text": "Top", "y": 900, "go": "DISPLAY"}, {"text": "Top", "y": 300},
+        {"hint": "Type here"}, {"text": "a\tb"}]}}
+    calls, verdict = run(tmp_path, spec_of(pack_dir, """steps:
+  - not_see: Menu
+  - see: Type here
+  - see: "a\\tb"
+  - do: [{tap: Top}]
+  - see: Brightness level
+"""), app=app)
+    assert verdict == "PASS", calls  # text wins over the description; the first Top in the page, not the top one
+
+
+@needs_node
+def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">'
+           '<android.widget.FrameLayout package="com.android.settings" bounds="[0,0][1080,2400]">'
+           '<android.widget.TextView package="com.android.settings" text="Open" content-desc="Menu" bounds="[0,100][500,200]"/>'
+           '<android.widget.TextView text="" content-desc="Menu" bounds="[0,300][500,400]"/>'
+           '<android.widget.EditText text="" content-desc="" hint="Search here" resource-id="com.x:id/q" bounds="[0,500][1080,600]"/>'
+           '<android.widget.TextView text="Row" bounds="[0,2500][1080,2600]"/>'
+           '<android.widget.TextView text="Row" bounds="[0,2300][1080,2500]"/>'
+           '<android.widget.TextView text="Row" bounds="[-100,0][1080,80]"/>'
+           '<android.widget.TextView text="a &amp; b &#233; &quot;q&quot; &lt;x&gt;" bounds="[0,700][1080,800]"/>'
+           '<android.widget.Button text="" clickable="true" resource-id="other.pkg:id/btn" bounds="[0,900][200,1000]"/>'
+           '<android.widget.TextView text="Line&#10;two" bounds="[0,1100][1080,1200]"/>'
+           '<android.view.View text="" bounds="[0,1300][1080,1400]"/>'
+           '</android.widget.FrameLayout></hierarchy>')
+    d = AppiumDriver.__new__(AppiumDriver)
+    d._s = lambda *a, **k: xml
+    d._window = lambda: (1080, 2400)
+    screen, centres, _ = d._read()
+    app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
+    sels = ["Menu", "Open", "Search here", {"id": "q"}, "Row", {"text": "Row", "index": 1}, {"text": "Row", "index": 2},
+            'a & b é "q" <x>', {"id": "com.android.settings:id/btn"}, {"id": "btn"}, "/R.w/", "/Line.*/", "/Line\\ntwo/",
+            {"text": "/M.*/", "index": 0}, "@3", "@99"]
+    for sel in sels:
+        i = find(screen.elements, to_command({"tap": sel})["tapOn"])
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
+        got = [c[2:] for c in calls if c[0] == "tap"]
+        assert (got == [list(centres[i])] if i is not None else verdict.startswith("FAIL not on the screen")), sel
+
+
+@needs_node
+def test_a_pattern_javascript_cannot_read_stops_the_spec_at_load(pack_dir, tmp_path):
+    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - see: /(?P<n>Net).*/\n"))
+    assert verdict.startswith('FAIL the pattern "(?P<n>Net).*" works in Journeys but not in JavaScript')
+    assert calls == [["end", 0]]  # before it touched the device
+
+
+@needs_node
+def test_an_expired_session_fails_at_once_and_a_bad_read_is_read_again(pack_dir, tmp_path):
+    spec = spec_of(pack_dir, "steps:\n  - see: Network & internet\n")
+    for reads in (["dead"], ["ok", "dead"]):  # in launch, then in a check
+        calls, verdict = run(tmp_path, spec, app={**APP, "reads": reads})
+        assert verdict.startswith("FAIL invalid session id") and calls[-1] == ["end", 0], reads  # no waiting
+    calls, verdict = run(tmp_path, spec, app={**APP, "reads": ["fail", "ok", "fail", "fail", "ok"]})
+    assert verdict == "PASS" and calls[-1] == ["end", 1300]  # launch read again once, the check twice
+    calls, verdict = run(tmp_path, spec, app={**APP, "reads": ["ok"] + ["fail"] * 50})
+    assert verdict == "FAIL cannot read the screen"  # still unreadable at the end: its own error
 
 
 @needs_node
 def test_typing_reads_variables_from_the_environment(pack_dir, tmp_path):
-    pack, j = journey(pack_dir, """steps:
+    spec = spec_of(pack_dir, """steps:
   - do: [{tap: Search settings}, {tap: {id: search_src_text}}]
   - input: "find ${DEMO_SEARCH}!"
 """)
-    spec = export(pack, j)[0]
     assert 'env("DEMO_SEARCH")' in spec and "wifi" not in spec  # the value is never in the file
     calls, verdict = run(tmp_path, spec, env={"DEMO_SEARCH": "wifi"})
     assert verdict == "PASS" and ["type", "find wifi!"] in calls
     env = {k: v for k, v in os.environ.items() if k != "DEMO_SEARCH"}
-    (tmp_path / "spec.js").write_text(spec)
-    (tmp_path / "app.json").write_text(json.dumps(APP))
     out = subprocess.run([NODE, str(SIM), str(tmp_path / "spec.js"), str(tmp_path / "app.json")],
                          capture_output=True, text=True, timeout=60, env=env)
     assert out.stdout.strip().splitlines()[-1].startswith("FAIL set DEMO_SEARCH in the environment")
 
 
 @needs_node
+def test_typed_text_keeps_quotes_backslashes_newlines_and_other_letters(pack_dir, tmp_path):
+    calls, verdict = run(tmp_path, spec_of(pack_dir, """steps:
+  - do: [{tap: Search settings}, {tap: {id: search_src_text}}, {type: "a\\"b\\\\c\\nd é ✓"}]
+"""))
+    assert verdict == "PASS" and ["type", 'a"b\\c\nd é ✓'] in calls
+
+
+@needs_node
 def test_every_command_has_a_webdriverio_form(pack_dir, tmp_path):
-    pack, j = journey(pack_dir, """start: {clear_state: true}
+    calls, verdict = run(tmp_path, spec_of(pack_dir, """start: {clear_state: true}
 steps:
   - do: [{tap: Search settings}, {tap: {id: search_src_text}}, {type: abc}, {erase: 2}, {press: enter},
-         hide_keyboard, back, wait_idle, scroll, stop, launch]
-""")
-    calls, verdict = run(tmp_path, export(pack, j)[0])
+         hide_keyboard, hide_keyboard, back, wait_idle, scroll, stop, launch]
+"""))
     assert verdict == "PASS", calls
-    assert calls[:3] == [["terminate", "com.android.settings"], ["mobile: clearApp", "com.android.settings"],
-                         ["activate", "com.android.settings"]]
-    rest = [c for c in calls[3:] if c[0] != "click"]
+    assert calls[1:4] == [["terminate", "com.android.settings"], ["mobile: clearApp", "com.android.settings"],
+                          ["activate", "com.android.settings"]]
+    rest = [c for c in calls[4:] if c[0] not in ("tap", "end")]
     assert rest == [["type", "abc"], ["key", 67], ["key", 67], ["key", 66], ["hideKeyboard"], ["back"],
-                    ["mobile: swipeGesture", "up"], ["terminate", "com.android.settings"],
-                    ["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
+                    ["swipe", "up", 600], ["terminate", "com.android.settings"],
+                    ["terminate", "com.android.settings"], ["activate", "com.android.settings"]]  # one hide: then none up
+
+
+@needs_node
+def test_a_journey_without_launch_starts_on_the_screen_it_finds(pack_dir, tmp_path):
+    spec = spec_of(pack_dir, "start: {launch: false}\nsteps:\n  - see: Display\n")
+    assert "await launch(" not in spec
+    assert run(tmp_path, spec)[1] == "FAIL not on the screen: Display"  # nothing started the app
+
+
+def test_names_in_the_header_cannot_break_out_of_the_comment(pack_dir, tmp_path):
+    y = pack_dir / "pack.yaml"
+    y.write_text(y.read_text().replace("name: settings-demo", 'name: "a\\nconsole.log(1);//"'))
+    pack = Pack.load(pack_dir)
+    spec = export(pack, pack.journeys["open-display"])[0]
+    assert spec.splitlines()[0] == '// Exported from Journeys: journey "open-display", pack "a\\nconsole.log(1);//".'
+
+
+def test_a_goto_with_no_known_start_is_left_out_with_a_note(pack_dir):
+    pack, j = journey(pack_dir, "steps:\n  - do: [back]\n  - goto: SETTINGS-DISPLAY\n")
+    assert any("goto SETTINGS-DISPLAY: start screen unknown" in n for n in export(pack, j)[1])
+
+
+def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var(pack_dir):
+    for sel in ('{id: "${DEMO_SEARCH}"}', '"/x${DEMO_SEARCH}/"', '"${DEMO_SEARCH}"'):
+        pack, j = journey(pack_dir, f"steps:\n  - see: {sel}\n")
+        with pytest.raises(ActionError, match="cannot put a variable in a selector"):
+            export(pack, j)
+    y = pack_dir / "pack.yaml"
+    y.write_text(y.read_text() + "accounts:\n  demo: {user: DEMO_USER}\n")
+    pack, j = journey(pack_dir, 'steps:\n  - input: "${demo.user}/${DEMO_USER}"\n')
+    spec = export(pack, j)[0]
+    assert spec.count('env("DEMO_USER")') == 2 and "demo.user" not in spec
 
 
 def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
@@ -136,32 +253,7 @@ def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
     assert "nothing to export" in capsys.readouterr().err
     out = tmp_path / "open-display.e2e.js"
     assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 0
-    assert out.read_text().startswith("// Exported from Journeys journey open-display")
+    assert out.read_text().startswith("// Exported from Journeys: journey \"open-display\"")
+    capsys.readouterr()
     assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 2  # never over it
-
-
-@needs_node
-def test_index_counts_top_down_across_text_and_description_once(pack_dir, tmp_path):
-    app = {**APP, "screens": {**APP["screens"], "HOME": [
-        {"desc": "Top", "y": 10}, {"text": "Top", "y": 300, "go": "DISPLAY"}, {"text": "Both", "desc": "Both"}]}}
-    pack, j = journey(pack_dir, "steps:\n  - not_see: {text: Both, index: 1}\n"
-                                "  - do: [{tap: {text: Top, index: 1}}]\n  - see: Brightness level\n")
-    assert run(tmp_path, export(pack, j)[0], app=app)[1] == "PASS"  # the desc above counts first; Both once
-
-
-def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var(pack_dir):
-    for sel in ('{id: "${DEMO_SEARCH}"}', '"/x${DEMO_SEARCH}/"'):
-        pack, j = journey(pack_dir, f"steps:\n  - see: {sel}\n")
-        with pytest.raises(ActionError, match="cannot put a variable in a selector"):
-            export(pack, j)
-    y = pack_dir / "pack.yaml"
-    y.write_text(y.read_text() + "accounts:\n  demo: {user: DEMO_USER}\n")
-    pack, j = journey(pack_dir, 'steps:\n  - input: "${demo.user}/${DEMO_USER}"\n')
-    spec = export(pack, j)[0]
-    assert spec.count('env("DEMO_USER")') == 2 and "demo.user" not in spec
-
-
-def test_control_characters_never_reach_the_uiselector_string(pack_dir):
-    pack, j = journey(pack_dir, 'steps:\n  - see: "a\\tb"\n')
-    by = json.loads(re.search(r"find\((\{.*?\})\)", export(pack, j)[0]).group(1))["by"]
-    assert all("\t" not in b for b in by) and "\\x09" in by[0]
+    assert "NOTE" not in capsys.readouterr().err  # nothing was written, so no notes about it
