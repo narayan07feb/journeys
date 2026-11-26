@@ -117,3 +117,20 @@ def test_hook_scripts_in_the_pack_must_be_there_and_executable(pack_dir):
     assert "pack.yaml: hook plain: hooks/plain.sh is not executable (chmod +x hooks/plain.sh" in errs
     assert "pack.yaml: events.check: hooks/check.sh is not in the pack" in errs
     assert "hook py" not in errs and "hook abs" not in errs and "hook note" not in errs
+
+
+def test_hook_script_paths_like_the_runner_finds_them(pack_dir):
+    h = pack_dir / "hooks"
+    (h / "ok.sh").write_text("#!/bin/sh\n")
+    (h / "ok.sh").chmod(0o755)
+    (pack_dir / "run.sh").write_text("#!/bin/sh\n")  # bare name, a file in the pack: the runner runs it
+    (h / "dir").mkdir()
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  ok: [./hooks/ok.sh]\n  bare: [run.sh]\n"
+                                       "  folder: [hooks/dir]\n  home: [~/tools/x.sh]\n")
+                 + "events:\n  check: [hooks/ok.sh]\n")
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "hook ok" not in errs and "events.check" not in errs  # there and executable: fine
+    assert "hook bare: run.sh is not executable" in errs
+    assert "hook folder: hooks/dir is a folder, not a script" in errs
+    assert "hook home: ~/tools/x.sh is not in the pack (no ~ or $NAME here" in errs

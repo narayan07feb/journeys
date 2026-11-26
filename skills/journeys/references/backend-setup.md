@@ -48,12 +48,17 @@ script). Never guess the tool and never name one in a public example.
 5. **Write the cleanup script too** (for example `reset_flag`). It must be safe to run when setup
    never ran or only half ran (turning off a flag that is already off is fine; deleting a user
    that does not exist is fine).
-6. **Wire them in.** Put the setup `hook:` step first, before the first `expect`, so the app
-   opens with the server ready. Add it where the journey needs it, and the cleanup to the
-   journey's `after:` (or the set's `before:` / `after:` when many journeys share the state).
+6. **Wire them in.** A journey launches the app before its first step (`start: {launch: true}`
+   is the default), so a setup that the app reads at start must come before the launch: set
+   `start: {launch: false}`, put the setup `hook:` first, then `do: [launch]` (or
+   `do: [{launch: {clear_state: true}}]`), as in the example below. A setup the app reads later
+   (a test user to log in with) can be any step before it is needed. When many journeys share the
+   state, use the set's `before:` instead (it runs before any journey launches the app). Put the
+   cleanup in the journey's `after:` (or the set's `after:`).
    Run `journeys --pack P validate` until it prints `OK`.
 7. **Test once, only after the team says yes.** It changes a real server. A draft run changes it
-   too, even with `--driver fake`: hook steps and `after:` hooks always run for real. Ask first, and say which
+   too, even with `--driver fake`: hook steps and `after:` hooks always run for real. Ask
+   first, and say which
    server and what will change. Run it the way the runner does: from the pack folder, with the JSON
    argument last:
    `cd P && JOURNEYS_PACK=$PWD JOURNEYS_APP=<app> hooks/set_flag.sh '{"flag": "new_checkout", "enabled": true}'`
@@ -74,9 +79,11 @@ hooks:
 ```yaml
 # journeys/new-checkout.yaml
 name: new-checkout
+start: {launch: false}         # the flag must be on before the app starts
 after: [{name: reset_flag, args: {flag: new_checkout}}]
 steps:
   - hook: {name: set_flag, args: {flag: new_checkout, enabled: true}}
+  - do: [launch]
   - expect: HOME
   - goto: CHECKOUT
   - see: "Pay now"

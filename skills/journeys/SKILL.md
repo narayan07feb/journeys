@@ -58,7 +58,9 @@ Read `references/format.md` before you write a step. It has the exact format and
   `references/backend-setup.md` and follow it. Ask what the journey needs and which tool sets it,
   declare the key's env var in `env:`, write the setup and cleanup hook scripts, put the cleanup
   in the journey's `after:` (or a set's `before:`/`after:`), and test a hook only after the team
-  says yes (it changes a real server; a draft run with hooks does too, even with `--driver fake`). The team reviews the scripts before you promote.
+  says yes (it changes a real server; a draft run with hooks does too, even with
+  `--driver fake`). A setup the app reads at start goes before the launch (`start: {launch:
+  false}`, the hook, then `do: [launch]`). The team reviews the scripts before you promote.
 - New pack for an app: `journeys --pack <new folder> init --project <app project> --driver <the
   user's answer>`; ask the user first (the project's test framework is a hint, never the answer).
 - The tracker (`journeys tracker`, the `serve` page, the MCP `tracker` tool) counts the journeys you

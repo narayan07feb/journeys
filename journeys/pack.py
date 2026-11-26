@@ -54,13 +54,18 @@ def _names(obj) -> list[str]:
 
 
 def _script_errors(root: Path, at: str, first: str) -> list[str]:
-    """A command named by a path in the pack (hooks/x.sh) must be there and executable; a bare name
-    (python3, sh) is a program on PATH and an absolute path is the machine's, so neither is checked."""
-    if "/" not in first or Path(first).is_absolute():
-        return []
+    """A command the runner finds in the pack (hooks/x.sh, or a bare name that is a file there) must be
+    there and executable; another bare name (python3) is a program on PATH and an absolute path is
+    the machine's, so neither is checked."""
     f = root / first
+    if Path(first).is_absolute() or ("/" not in first and not f.exists()):
+        return []
+    if f.is_dir():
+        return [f"{at}: {first} is a folder, not a script"]
     if not f.is_file():
-        return [f"{at}: {first} is not in the pack"]
+        hint = (" (no ~ or $NAME here: declare the path in env: and read it in the script)"
+                if first.startswith(("~", "$")) else "")
+        return [f"{at}: {first} is not in the pack{hint}"]
     if not os.access(f, os.X_OK):
         return [f"{at}: {first} is not executable (chmod +x {first}, or name its interpreter first, like [sh, {first}])"]
     return []
@@ -155,7 +160,8 @@ class Pack:
                 del accounts[acc]
         events = shaped("events", dict, "a map with check: [command]")
         check = events.get("check")
-        if check is not None and not (isinstance(check, list) and check and all(isinstance(a, str) for a in check)):
+        check_ok = isinstance(check, list) and check and all(isinstance(a, str) for a in check)
+        if check is not None and not check_ok:
             errors.append(f"{pf}: events.check is a command list like [hooks/check.sh], not {check!r}")
             events = {}
         for name, argv in (raw.get("hooks") or {}).items() if isinstance(raw.get("hooks"), dict) else []:
@@ -163,7 +169,7 @@ class Pack:
                 errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
             else:
                 errors += _script_errors(root, f"{pf}: hook {name}", argv[0])
-        if check is not None and not any(e.startswith(f"{pf}: events.check") for e in errors):
+        if check_ok:
             errors += _script_errors(root, f"{pf}: events.check", check[0])
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver") or ""),
