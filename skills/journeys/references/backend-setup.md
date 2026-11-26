@@ -29,7 +29,9 @@ script). Never guess the tool and never name one in a public example.
 
 1. **Ask what the journey needs on the server.** One question at a time: which flag, user, or
    data, and in which state? Write down the answer.
-2. **Find how the team sets it.** Ask which tool or API does it. If the user points to the team's
+2. **Find how the team sets it.** Ask which tool or API does it. When the tool lives outside the
+   pack, ask for its path and declare an env var for it (like `FLAGS_TOOL` in `env:`); never guess a
+   relative path. If the user points to the team's
    own repo (their backend, their scripts), read it there to find the call. Never invent an
    endpoint. If nobody knows, stop and say so.
 3. **Find where the key lives.** Ask which env var holds the token or key (for example
@@ -38,16 +40,20 @@ script). Never guess the tool and never name one in a public example.
    Never write a key, token or password into the pack, not even in a hook's `args:` (results show
    args as written): pass `${FLAGS_TOKEN}` there, or let the script read the env var itself.
 4. **Write the setup script** into `hooks/<name>.sh` (or `.py`) and add it to `pack.yaml hooks:`.
+   In a shell script, read a field of the JSON argument with
+   `flag=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["flag"])' "$1")`.
    Make it executable (`chmod +x hooks/<name>.sh`), or name the interpreter first in the argv
    (`[python3, hooks/<name>.py]`). Read its input from the JSON argument. Print a short reason to
    stderr and exit non-zero on any error. Never print the token.
 5. **Write the cleanup script too** (for example `reset_flag`). It must be safe to run when setup
    never ran or only half ran (turning off a flag that is already off is fine; deleting a user
    that does not exist is fine).
-6. **Wire them in.** Add the `hook:` step where the journey needs it, and the cleanup to the
+6. **Wire them in.** Put the setup `hook:` step first, before the first `expect`, so the app
+   opens with the server ready. Add it where the journey needs it, and the cleanup to the
    journey's `after:` (or the set's `before:` / `after:` when many journeys share the state).
    Run `journeys --pack P validate` until it prints `OK`.
-7. **Test once, only after the team says yes.** It changes a real server. Ask first, and say which
+7. **Test once, only after the team says yes.** It changes a real server. A draft run changes it
+   too, even with `--driver fake`: hook steps and `after:` hooks always run for real. Ask first, and say which
    server and what will change. Run it the way the runner does: from the pack folder, with the JSON
    argument last:
    `cd P && JOURNEYS_PACK=$PWD JOURNEYS_APP=<app> hooks/set_flag.sh '{"flag": "new_checkout", "enabled": true}'`

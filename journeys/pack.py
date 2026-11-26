@@ -53,6 +53,19 @@ def _names(obj) -> list[str]:
     return []
 
 
+def _script_errors(root: Path, at: str, first: str) -> list[str]:
+    """A command named by a path in the pack (hooks/x.sh) must be there and executable; a bare name
+    (python3, sh) is a program on PATH and an absolute path is the machine's, so neither is checked."""
+    if "/" not in first or Path(first).is_absolute():
+        return []
+    f = root / first
+    if not f.is_file():
+        return [f"{at}: {first} is not in the pack"]
+    if not os.access(f, os.X_OK):
+        return [f"{at}: {first} is not executable (chmod +x {first}, or name its interpreter first, like [sh, {first}])"]
+    return []
+
+
 def fake_app_errors(app, f) -> list[str]:
     """What is wrong with a fake app (pack fake/app.yaml or --fake-app): a bad one must be a clear
     error, never a traceback halfway through a run."""
@@ -148,6 +161,10 @@ class Pack:
         for name, argv in (raw.get("hooks") or {}).items() if isinstance(raw.get("hooks"), dict) else []:
             if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
                 errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
+            else:
+                errors += _script_errors(root, f"{pf}: hook {name}", argv[0])
+        if check is not None and not any(e.startswith(f"{pf}: events.check") for e in errors):
+            errors += _script_errors(root, f"{pf}: events.check", check[0])
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver") or ""),
             _argvs(shaped("build", list, "a list of commands"), "build", pf, errors),

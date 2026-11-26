@@ -104,3 +104,16 @@ def test_nested_args_keys_and_hook_step_maps_follow_one_rule(pack_dir):
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "hk.yaml:1: after: hook args keys [True, False] are not text" in errs
     assert "hk.yaml:4: a hook is a name or {name: ..., args: {...}}, not {'name': 'note', 'arg': {'x': 1}}" in errs
+
+
+def test_hook_scripts_in_the_pack_must_be_there_and_executable(pack_dir):
+    (pack_dir / "hooks" / "plain.sh").write_text("#!/bin/sh\n")  # not executable
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  gone: [hooks/gone.sh]\n  plain: [hooks/plain.sh]\n"
+                                       "  py: [python3, hooks/any.py]\n  abs: [/usr/bin/true]\n")
+                 + "events:\n  check: [hooks/check.sh]\n")
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "pack.yaml: hook gone: hooks/gone.sh is not in the pack" in errs
+    assert "pack.yaml: hook plain: hooks/plain.sh is not executable (chmod +x hooks/plain.sh" in errs
+    assert "pack.yaml: events.check: hooks/check.sh is not in the pack" in errs
+    assert "hook py" not in errs and "hook abs" not in errs and "hook note" not in errs
