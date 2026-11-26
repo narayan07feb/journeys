@@ -168,7 +168,7 @@ class Runner:
         """A set's before: or after: hooks, recorded in the run. False when one failed."""
         ok = True
         for ref in refs:
-            entry = {"phase": phase, "hook": ref, "key": set_hook_key(self._target, phase, ref), "status": "passed",
+            entry = {"phase": phase, "hook": ref, "hook_key": set_hook_key(self._target, phase, ref), "status": "passed",
                      "message": ""}
             try:
                 self._hook(self._sub(ref))
@@ -176,7 +176,7 @@ class Runner:
                 entry.update(status="failed", message=str(e))  # _hook masks the script's output
                 try:  # so the work queue lists it until it passes again
                     entry["failure"] = self.store.add_failure({
-                        "run": self.run.id, "journey": entry["key"], "step": len(self.run.data.get("hooks", [])),
+                        "run": self.run.id, "journey": entry["hook_key"], "step": len(self.run.data.get("hooks", [])),
                         "step_text": f"set {phase}: hook {ref}", "file": str(self.pack.root / "sets.yaml"),
                         "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
                 except Exception as w:  # noqa: BLE001  a full disk must not skip the next hooks

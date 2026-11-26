@@ -477,8 +477,8 @@ def test_a_set_hook_failure_closes_only_on_the_same_call_and_leaves_when_the_hoo
 def test_a_broken_sets_yaml_keeps_every_set_hook_failure(pack_dir, monkeypatch, capsys):
     from journeys.results import set_hook_key
     from journeys.tracker import summary
-    assert set_hook_key("s", "before", {"name": "x", "args": {1: "a", "b": {2: "c", "d": [{3: 4, "e": 5}]}}}).startswith(
-        "set s before x #")  # mixed key types never stop a run
+    k = set_hook_key("s", "before", {"name": "x", "args": {1: "a", "b": {2: "c", "d": [{3: 4, "e": 5}]}}})
+    assert k.startswith("set s before x #") and not k.endswith("#?")  # mixed key types: a real hash, never a stop
     store = Store(pack_dir / "s")
     run = store.new_run(target="smoke")
     store.add_failure({"run": run.id, "journey": "set smoke before note", "step": 0, "message": "down"})
@@ -503,8 +503,16 @@ def test_a_run_where_the_same_call_also_failed_fixes_nothing(pack_dir):
     time.sleep(0.01)
     later = store.new_run(target="smoke")  # the same call twice: one passed, one failed
     later.data.update(status="failed", ended=later.data["started"] + 1, hooks=[
-        {"phase": "after", "hook": "x", "key": "set smoke after x", "status": "passed", "message": ""},
-        {"phase": "after", "hook": "x", "key": "set smoke after x", "status": "failed", "message": "down"},
-        {"phase": "after", "hook": "x", "status": "passed", "message": ""}])  # an older entry with no key
+        {"phase": "after", "hook": "x", "hook_key": "set smoke after x", "status": "passed", "message": ""},
+        {"phase": "after", "hook": "x", "hook_key": "set smoke after x", "status": "failed", "message": "down"},
+        {"phase": "after", "hook": "x", "status": "passed", "message": ""},  # an older entry with no key
+        {"phase": "after", "hook": "x", "hook_key": ["odd"], "status": "failed", "message": ""}])  # a hand edit
     later.save()
     assert summary(store, [])["queue"]["failures_open"] == 1
+
+
+def test_args_that_refer_to_themselves_still_give_a_key():
+    import yaml
+    from journeys.results import set_hook_key
+    ref = yaml.safe_load("&a {name: x, args: {y: *a}}")
+    assert set_hook_key("s", "after", ref) == "set s after x #?"

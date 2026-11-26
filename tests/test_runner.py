@@ -276,7 +276,7 @@ def test_a_failed_set_before_runs_no_journey_but_still_cleans_up(env, pack_dir):
     assert saved["error"] == "set before: hook log exited 4: flag still on"
     rec = store.failure(saved["hooks"][0]["failure"])
     key = set_hook_key("flagged", "before", {"name": "log", "args": {"set": "fail-on"}})
-    assert key.startswith("set flagged before log #") and saved["hooks"][0]["key"] == key
+    assert key.startswith("set flagged before log #") and saved["hooks"][0]["hook_key"] == key
     assert (rec["journey"], rec["file"], rec["line"], rec["step_text"]) == (
         key, str(pack_dir / "sets.yaml"), None, "set before: hook {'name': 'log', 'args': {'set': 'fail-on'}}")
     assert "failure" not in saved["hooks"][1]  # the after: passed: no record

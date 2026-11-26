@@ -352,17 +352,22 @@ def cmd_serve(args) -> int:
     from .live import serve
     pack = _load(args)
 
+    last = [0.0, None]
+
+    def now() -> Pack | None:  # one load per page request (drafts and hook keys come from the same one)
+        if time.monotonic() - last[0] > 0.5:
+            try:
+                last[1] = Pack.load(pack.root)
+            except PackError:
+                last[1] = None  # a broken pack.yaml: no drafts, and every failure is kept
+            last[0] = time.monotonic()
+        return last[1]
+
     def drafts() -> list[str]:
-        try:
-            return list(Pack.load(pack.root).drafts)
-        except PackError:
-            return []
+        return list(p.drafts) if (p := now()) else []
 
     def hook_keys() -> set[str] | None:
-        try:
-            return Pack.load(pack.root).set_hook_keys()
-        except PackError:
-            return None  # a broken pack.yaml: keep every failure
+        return p.set_hook_keys() if (p := now()) else None
     srv = serve(_store(args, pack), args.port, drafts, hook_keys)
     print(f"live page: http://127.0.0.1:{srv.server_address[1]}/  (Ctrl-C stops it)")
     try:

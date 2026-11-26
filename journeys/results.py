@@ -44,7 +44,7 @@ def set_secrets(values) -> None:
 
 # Fields Journeys itself fills with words it reads back (status, ids, names): a secret like "pass"
 # must not turn "passed" into "•••ed". Typed values never land in them.
-_PLAIN = {"status", "kind", "id", "name", "key", "actor", "action", "failure", "failures", "changes", "proposal", "run", "target", "driver",
+_PLAIN = {"status", "kind", "id", "name", "hook_key", "actor", "action", "failure", "failures", "changes", "proposal", "run", "target", "driver",
           "serial", "pack", "journey", "file", "line", "index", "started", "ended", "dka"}
 
 
@@ -112,7 +112,10 @@ def set_hook_key(target, phase, ref) -> str:
     clashes with a journey name."""
     name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else ref
     args = ref.get("args") if isinstance(ref, dict) else None
-    tag = f" #{hashlib.sha256(json.dumps(_text_keys(args), sort_keys=True, default=str).encode()).hexdigest()[:8]}" if args else ""
+    try:
+        tag = f" #{hashlib.sha256(json.dumps(_text_keys(args), sort_keys=True, default=str).encode()).hexdigest()[:8]}" if args else ""
+    except (RecursionError, TypeError, ValueError):  # args that refer to themselves: still a key, never a stop
+        tag = " #?"
     return f"set {target} {phase} {name}{tag}"
 
 
