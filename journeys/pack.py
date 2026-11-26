@@ -374,6 +374,12 @@ class Pack:
         if bad:
             self.errors.append(f"{at}: hook args keys {bad} are not text ({YAML_WORDS})")
 
+    def set_hook_keys(self) -> set[str]:
+        """Every set hook call sets.yaml has now, as its failures are filed (results.set_hook_key)."""
+        from .results import set_hook_key
+        return {set_hook_key(name, k, ref) for name, spec in self.sets.items() if isinstance(spec, dict)
+                for k in ("before", "after") for ref in spec.get(k) or []}
+
     def set_hooks(self, target: str | None) -> dict:
         """before: and after: of the set a run targets; none for `all`, one journey or a draft."""
         spec = self.sets.get(target) if target else None

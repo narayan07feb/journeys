@@ -9,7 +9,7 @@ import math
 import time
 from dataclasses import dataclass
 
-from .results import Store, set_hook_key
+from .results import Store
 
 # what counts as building a journey, and as deciding a proposal
 DECIDE = {"proposal.promote", "proposal.reject"}
@@ -89,8 +89,8 @@ def fixes(st: State) -> dict[str, dict]:
             if j.get("status") == "passed" and isinstance(j.get("name"), str):
                 passes.setdefault(j["name"], []).append(p)
         for h in r.get("hooks") if isinstance(r.get("hooks"), list) else []:  # a set hook that passes again
-            if isinstance(h, dict) and h.get("status") == "passed":
-                passes.setdefault(set_hook_key(r.get("target"), h.get("phase"), h.get("hook")), []).append(p)
+            if isinstance(h, dict) and h.get("status") == "passed" and isinstance(h.get("key"), str):
+                passes.setdefault(h["key"], []).append(p)  # the key the failure was filed under
     work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
         if a["action"] == "journey.promote" or (a["action"] == "proposal.promote" and a.get("failure")):
@@ -120,12 +120,19 @@ def _walk(dka: bool) -> str:
     return "tap-all --dka" if dka else "tap-all"
 
 
-def queue(st: State, drafts: list[str], fixed: dict) -> dict:
+def queue(st: State, drafts: list[str], fixed: dict, hook_keys: set[str] | None = None) -> dict:
     """Open work. A failure stays open until its journey passes again or its proposal is promoted:
-    a rejected proposal means "not this heal", so the failure still needs one by hand."""
+    a rejected proposal means "not this heal", so the failure still needs one by hand. `hook_keys`:
+    the set hooks sets.yaml has now; a set hook failure that is no longer there (set renamed, hook
+    removed) can never pass again, so it leaves the queue."""
     healed = {p.get("failure") for p in st.proposals if p.get("status") == "promoted"}
+
+    def gone(f) -> bool:
+        j = f.get("journey")
+        return hook_keys is not None and isinstance(j, str) and j.startswith("set ") and j not in hook_keys
     open_ = [{"id": f["id"], "journey": f.get("journey"), "message": _text(f.get("message")),
-              "time": _t(f.get("time")) or None} for f in st.failures if f["id"] not in fixed and f["id"] not in healed]
+              "time": _t(f.get("time")) or None} for f in st.failures
+             if f["id"] not in fixed and f["id"] not in healed and not gone(f)]
     return {
         "failures": open_[-50:], "failures_open": len(open_),  # the list is the newest 50; the count is all
         "proposals": [{"id": p["id"], "summary": _text(p.get("summary")), "time": _t(p.get("time")) or None,
@@ -218,8 +225,8 @@ def _finite(obj):
     return obj
 
 
-def summary(store: Store, drafts: list[str] | None = None) -> dict:
+def summary(store: Store, drafts: list[str] | None = None, hook_keys: set[str] | None = None) -> dict:
     st = State.read(store)
     fixed = fixes(st)
-    return _finite({"runs": runs(st), "queue": queue(st, drafts or [], fixed), "activity": activity(st),
+    return _finite({"runs": runs(st), "queue": queue(st, drafts or [], fixed, hook_keys), "activity": activity(st),
                     "usage": usage(st, fixed)})

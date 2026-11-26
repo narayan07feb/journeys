@@ -174,7 +174,7 @@ class Server:
             if not self.state:
                 raise
             return summary(self._store(), [])  # results stay readable while pack.yaml is broken
-        return summary(self._store(pack), list(pack.drafts))
+        return summary(self._store(pack), list(pack.drafts), pack.set_hook_keys())
 
     def proposals(self) -> list:
         return [p for p in self._store().proposals() if p["status"] == "proposed"]

@@ -4,6 +4,7 @@ import threading
 import urllib.request
 
 from journeys.cli import main
+from journeys.pack import Pack
 from journeys.results import Store, current_actor
 
 
@@ -399,6 +400,7 @@ def test_a_failed_set_hook_or_cleanup_is_open_work_until_it_passes_again(pack_di
     (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [flaky]}\n")
     (pack_dir / "journeys" / "cl.yaml").write_text("name: cl\nafter: [flaky]\nsteps:\n  - expect: SETTINGS-HOME\n")
     (pack_dir / "broken").write_text("")
+    monkeypatch.setenv("DEMO_SEARCH", "lak")  # a declared secret inside the hook's name: the key must still match
     monkeypatch.setenv("JOURNEYS_ACTOR", "ci")
     assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 1
     assert cli(pack_dir, "run", "cl", "--driver", "fake") == 1
@@ -408,7 +410,7 @@ def test_a_failed_set_hook_or_cleanup_is_open_work_until_it_passes_again(pack_di
     q = json.loads(capsys.readouterr().out)["queue"]
     assert sorted(x["journey"] for x in q["failures"]) == ["cl", "set smoke before flaky", "set smoke before flaky"]
     assert cli(pack_dir, "failures") == 0
-    assert "set smoke before flaky step 0 (set before: hook flaky): hook flaky exited 3: down" in capsys.readouterr().out
+    assert "set smoke before flaky step 0 (set before: hook f•••y): hook f•••y exited 3: down" in capsys.readouterr().out
     t = Server(str(pack_dir), str(pack_dir / "s")).tracker()
     assert t["queue"]["failures_open"] == 3
     assert cli(pack_dir, "tracker") == 0
@@ -421,3 +423,52 @@ def test_a_failed_set_hook_or_cleanup_is_open_work_until_it_passes_again(pack_di
     assert cli(pack_dir, "tracker", "--json") == 0
     t = json.loads(capsys.readouterr().out)
     assert t["queue"]["failures"] == [] and t["usage"]["actors"]["fixer-agent"]["solved"] == 2
+
+
+def test_a_set_hook_failure_closes_only_on_the_same_call_and_leaves_when_the_hook_is_gone(pack_dir, monkeypatch, capsys):
+    from journeys.live import serve
+    from journeys.mcp_server import Server
+    s = pack_dir / "hooks" / "sw.sh"  # fails while the file named by its "x" arg exists
+    s.write_text('#!/bin/sh\nx=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])[\'x\'])" "$1")\n'
+                 '[ -e "$JOURNEYS_PACK/down-$x" ] && { echo "$x down" >&2; exit 3; }\nexit 0\n')
+    s.chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  sw: [hooks/sw.sh]\n"))
+    sets = pack_dir / "sets.yaml"
+    sets.write_text("sets:\n  smoke: {tags: [smoke], after: [{name: sw, args: {x: a}}, {name: sw, args: {x: b}}],"
+                    " before: [{name: sw, args: {x: c}}, {name: sw, args: {x: d}}]}\n"
+                    "  other: {tags: [smoke], after: [{name: sw, args: {x: b}}], before: [{name: sw, args: {x: e}}]}\n")
+    for x in ("b", "d"):
+        (pack_dir / f"down-{x}").write_text("")
+
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 1  # before d fails, after b fails
+    capsys.readouterr()
+    assert cli(pack_dir, "tracker", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["queue"]["failures_open"] == 2
+    (pack_dir / "down-c").write_text("")
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 1  # c fails first: d never runs; a passes, b fails
+    assert cli(pack_dir, "run", "other", "--driver", "fake") == 1  # sw {x: b} fails in other: a new failure
+    (pack_dir / "down-b").unlink()
+    assert cli(pack_dir, "run", "other", "--driver", "fake") == 0  # b passes in other: smoke's b stays open
+    capsys.readouterr()
+    assert cli(pack_dir, "tracker", "--json") == 0
+    q = json.loads(capsys.readouterr().out)["queue"]["failures"]
+    names = sorted(x["journey"] for x in q)
+    smoke_b = [n for n in names if n.startswith("set smoke after sw")]
+    assert len(smoke_b) == 2 and len([n for n in names if n.startswith("set smoke before sw")]) == 2  # c and d
+    assert not any(n.startswith("set other") for n in names)  # other's b was fixed by other's pass
+    sets.write_text("sets:\n  smoke: {tags: [smoke]}\n")  # the hooks are gone: their failures can never close
+    from journeys.tracker import summary
+    assert summary(Store(pack_dir / "s"), [])["queue"]["failures_open"] == 4  # no pack to compare with: all kept
+    capsys.readouterr()
+    assert cli(pack_dir, "tracker", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["queue"]["failures"] == []
+    assert Server(str(pack_dir), str(pack_dir / "s")).tracker()["queue"]["failures"] == []
+    srv = serve(Store(pack_dir / "s"), 0, lambda: [], lambda: Pack.load(pack_dir).set_hook_keys())
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        t = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{srv.server_address[1]}/tracker.json").read())
+        assert t["queue"]["failures"] == []
+    finally:
+        srv.shutdown()
+        srv.server_close()

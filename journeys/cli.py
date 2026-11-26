@@ -329,7 +329,7 @@ def cmd_history(args) -> int:
 def cmd_tracker(args) -> int:
     from .tracker import _t, summary
     pack = _load(args)
-    t = summary(_store(args, pack), list(pack.drafts))
+    t = summary(_store(args, pack), list(pack.drafts), pack.set_hook_keys())
     if args.json:
         print(json.dumps(t, indent=1, default=str))
         return 0
@@ -357,7 +357,13 @@ def cmd_serve(args) -> int:
             return list(Pack.load(pack.root).drafts)
         except PackError:
             return []
-    srv = serve(_store(args, pack), args.port, drafts)
+
+    def hook_keys() -> set[str] | None:
+        try:
+            return Pack.load(pack.root).set_hook_keys()
+        except PackError:
+            return None  # a broken pack.yaml: keep every failure
+    srv = serve(_store(args, pack), args.port, drafts, hook_keys)
     print(f"live page: http://127.0.0.1:{srv.server_address[1]}/  (Ctrl-C stops it)")
     try:
         srv.serve_forever()

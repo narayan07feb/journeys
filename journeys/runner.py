@@ -54,6 +54,7 @@ class Runner:
         self.settle_tries, self.sleep, self.on_update = settle_tries, sleep, on_update
         self.heal = heal
         self._journey: Journey | None = None
+        self._target: str | None = None  # the set a run targets (run_all)
         self._step_now: Step | None = None
         self._out: JourneyOutcome | None = None
 
@@ -167,14 +168,15 @@ class Runner:
         """A set's before: or after: hooks, recorded in the run. False when one failed."""
         ok = True
         for ref in refs:
-            entry = {"phase": phase, "hook": ref, "status": "passed", "message": ""}
+            entry = {"phase": phase, "hook": ref, "key": set_hook_key(self._target, phase, ref), "status": "passed",
+                     "message": ""}
             try:
                 self._hook(self._sub(ref))
             except Exception as e:  # noqa: BLE001  every after: hook gets its turn
                 entry.update(status="failed", message=str(e))  # _hook masks the script's output
                 entry["failure"] = self.store.add_failure({  # so the work queue lists it until it passes again
-                    "run": self.run.id, "journey": set_hook_key(self._target, phase, ref), "step": len(
-                        self.run.data.get("hooks", [])), "step_text": f"set {phase}: hook {ref}", "file": "sets.yaml",
+                    "run": self.run.id, "journey": entry["key"], "step": len(self.run.data.get("hooks", [])),
+                    "step_text": f"set {phase}: hook {ref}", "file": str(self.pack.root / "sets.yaml"),
                     "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
                 ok = False
             self.run.data.setdefault("hooks", []).append(entry)

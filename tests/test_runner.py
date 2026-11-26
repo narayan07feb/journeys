@@ -6,6 +6,7 @@ import pytest
 from journeys.drivers.fake import FakeDriver
 from journeys.pack import Pack
 from journeys.results import Store
+from journeys.results import set_hook_key
 from journeys.runner import Runner
 
 import yaml
@@ -274,8 +275,10 @@ def test_a_failed_set_before_runs_no_journey_but_still_cleans_up(env, pack_dir):
     assert saved["status"] == "failed" and saved["journeys"] == []
     assert saved["error"] == "set before: hook log exited 4: flag still on"
     rec = store.failure(saved["hooks"][0]["failure"])
+    key = set_hook_key("flagged", "before", {"name": "log", "args": {"set": "fail-on"}})
+    assert key.startswith("set flagged before log #") and saved["hooks"][0]["key"] == key
     assert (rec["journey"], rec["file"], rec["line"], rec["step_text"]) == (
-        "set flagged before log", "sets.yaml", None, "set before: hook {'name': 'log', 'args': {'set': 'fail-on'}}")
+        key, str(pack_dir / "sets.yaml"), None, "set before: hook {'name': 'log', 'args': {'set': 'fail-on'}}")
     assert "failure" not in saved["hooks"][1]  # the after: passed: no record
 
 
@@ -287,7 +290,7 @@ def test_a_failed_set_after_fails_a_run_whose_journeys_passed(env, pack_dir):
     assert [o.status for o in r.run_all(pack.select("flagged"), "flagged")] == ["passed", "passed"]
     saved = store.run(run.id)
     assert saved["status"] == "failed" and saved["error"].startswith("set after: hook log exited 4")
-    assert store.failure(saved["hooks"][-1]["failure"])["journey"] == "set flagged after log"
+    assert store.failure(saved["hooks"][-1]["failure"])["journey"].startswith("set flagged after log #")
 
 
 def test_set_hooks_run_only_when_the_set_is_the_target(env, pack_dir):
