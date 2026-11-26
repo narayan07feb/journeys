@@ -57,15 +57,18 @@ def _script_errors(root: Path, at: str, first: str) -> list[str]:
     """A command the runner finds in the pack (hooks/x.sh, or a bare name that is a file there) must be
     there and executable; another bare name (python3) is a program on PATH and an absolute path is
     the machine's, so neither is checked."""
+    if not first.strip():
+        return [f"{at}: the command is empty"]
+    hint = " (no ~ or $NAME here: declare the path in env: and read it in the script)"
+    if first.startswith(("~", "$")) and not (root / first).exists():
+        return [f"{at}: {first} is not in the pack{hint}"]  # the runner expands neither, with or without a /
     f = root / first
     if Path(first).is_absolute() or ("/" not in first and not f.is_file()):
         return []
     if f.is_dir():
         return [f"{at}: {first} is a folder, not a script"]
     if not f.is_file():
-        hint = (" (no ~ or $NAME here: declare the path in env: and read it in the script)"
-                if first.startswith(("~", "$")) else "")
-        return [f"{at}: {first} is not in the pack{hint}"]
+        return [f"{at}: {first} is not in the pack"]
     if not os.access(f, os.X_OK):
         return [f"{at}: {first} is not executable (chmod +x {first}, or name its interpreter first, like [sh, {first}])"]
     return []
@@ -333,7 +336,7 @@ class Pack:
 
     def _check_script(self, what: str, argv, ats: list[str]) -> None:
         """A used script must run. Used only by drafts: the error names each draft, so it stops only those."""
-        if not (isinstance(argv, list) and argv and isinstance(argv[0], str)):
+        if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
             return  # a bad entry, already reported by load (unused: ats is empty, nothing to check)
         drafts = str(self.root / "drafts") + "/"
         real = [a for a in ats if not a.startswith(drafts)]

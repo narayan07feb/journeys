@@ -125,7 +125,7 @@ def test_hook_scripts_in_the_pack_must_be_there_and_executable(pack_dir):
     assert ("pack.yaml: hook plain: hooks/plain.sh is not executable (chmod +x hooks/plain.sh, or name its "
             "interpreter first, like [sh, hooks/plain.sh])") in errs
     assert "pack.yaml: events.check: hooks/check.sh is not in the pack" in errs
-    assert "hook py" not in errs and "hook abs" not in errs and "hook note" not in errs
+    assert "hook py" not in errs and "hook abs" not in errs
     assert "unused" not in errs  # declared, never called: it never stops a run
     _uses(pack_dir, ["plain"])
     assert "events.check" not in "\n".join(Pack.load(pack_dir).errors)  # no event: step, no check
@@ -159,6 +159,12 @@ def test_a_bad_hook_entry_is_an_error_not_a_crash(pack_dir):
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "hook empty is a command list like [hooks/empty.sh], not []" in errs
     assert "hook num is a command list like [hooks/num.sh], not [5]" in errs
+    f.write_text(f.read_text().replace("  empty: []\n", "  empty: ['']\n  bare_var: [$FLAGS_TOOL]\n  tail: [hooks/t.sh, 5]\n"))
+    _uses(pack_dir, ["empty", "bare_var", "tail"])
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "pack.yaml: hook empty: the command is empty" in errs
+    assert "pack.yaml: hook bare_var: $FLAGS_TOOL is not in the pack (no ~ or $NAME here" in errs
+    assert "hook tail is a command list" in errs and "hook tail: hooks/t.sh" not in errs  # one error, not two
 
 
 def test_each_use_counts_and_a_draft_only_use_stops_only_that_draft(pack_dir):
@@ -175,3 +181,10 @@ def test_each_use_counts_and_a_draft_only_use_stops_only_that_draft(pack_dir):
     assert f"{pack_dir / 'drafts' / 'u.yaml'}: hook d: hooks/d.sh is not in the pack" in errs
     assert not any("hook d" in e for e in pack.run_errors())  # an unfinished draft never stops a set
     assert any("hook d" in e for e in pack.run_errors("u"))   # but it stops that draft's own run
+    (pack_dir / "drafts" / "w.yaml").write_text("name: w\nafter: [d]\nsteps:\n  - event: opened\n")
+    f.write_text(f.read_text() + "events:\n  check: [hooks/check.sh]\n")
+    pack = Pack.load(pack_dir)
+    w = str(pack_dir / "drafts" / "w.yaml")
+    assert f"{w}: hook d: hooks/d.sh is not in the pack" in pack.errors  # a draft's after:
+    assert f"{w}: events.check: hooks/check.sh is not in the pack" in pack.errors  # a draft's event:
+    assert not any("events.check" in e or "hook d" in e for e in pack.run_errors())

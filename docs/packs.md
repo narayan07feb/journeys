@@ -90,7 +90,8 @@ steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name 
   something uses must be there and executable when it is a path in the pack (`hooks/x.sh`) or a
   bare name that is a file there (`run.sh`). `~` and `$NAME` are not expanded: declare the path in
   `env:` and read it in the script. A declared script nothing uses is not checked; one only a
-  draft uses stops only that draft.
+  draft uses stops only that draft. Only the first item is checked: with an interpreter first
+  (`[python3, hooks/x.py]`) the script itself is not, and a script run directly needs a `#!` line.
 - Declare the env var that holds a hook's key in `env:`: only declared values are hidden in logs
   and results. `init --server-hook NAME` adds a hook entry and a stub script that fails until it
   is written. The agent skill (`skills/journeys/references/backend-setup.md`) writes and tests
