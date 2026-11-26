@@ -110,7 +110,7 @@ def cmd_run(pack: Pack, case_id: str) -> int:
     try:
         run = store.new_run(pack=pack.name, target=target, driver=kind, serial=serial)
         emit(log=f"run {run.id} on {serial or 'fake'}")
-        outs = Runner(pack, driver, store, run, serial=serial, on_update=update).run_all(journeys)
+        outs = Runner(pack, driver, store, run, serial=serial, on_update=update).run_all(journeys, target)
     except BaseException as e:  # a stop before the runner took over
         if run is not None and run.data.get("status") == "running":
             run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
@@ -118,7 +118,10 @@ def cmd_run(pack: Pack, case_id: str) -> int:
         raise
     finally:
         _stop(driver)
-    ok = all(o.status == "passed" for o in outs)
+    for h in run.data.get("hooks", []):
+        if h["status"] == "failed":
+            emit(case=case_id, status="failed", message=f"set {h['phase']}: {h['message']}")
+    ok = run.data.get("status") == "passed" and all(o.status == "passed" for o in outs)
     if case_id.startswith("set:") or case_id == "all":  # the group's own icon
         emit(case=case_id, status="passed" if ok else "failed")
     return 0 if ok else 1

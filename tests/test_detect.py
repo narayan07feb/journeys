@@ -1,3 +1,7 @@
+import os
+import subprocess
+
+
 from journeys.cli import main
 from journeys.detect import pick, scan
 from journeys.pack import Pack
@@ -47,7 +51,7 @@ def test_init_asks_for_the_driver_and_never_takes_the_projects(tmp_path, capsys,
     assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 2  # no terminal: no answer, no pack
     err = capsys.readouterr().err
     assert "Which tool does your team use" in err and "flows/home.yml" in err and not dest.exists()
-    answers = iter(["espresso", "speedrun"])
+    answers = iter(["espresso", "speedrun", ""])  # then no server setup scripts
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     assert main(["--pack", str(dest), "init", "--project", str(proj)]) == 0
@@ -103,3 +107,29 @@ def test_an_app_module_with_a_benchmark_build_type_still_counts(tmp_path):
                                "bench/build.gradle.kts": 'plugins { id("com.android.test"); id("androidx.benchmark") }\n'
                                                          'applicationId = "com.example.bench"'})
     assert scan(proj, strict=True)[1] == "com.example.shop"
+
+
+def test_init_writes_server_setup_hooks_the_team_names(tmp_path, capsys, monkeypatch):
+    dest = tmp_path / "p"
+    assert main(["--pack", str(dest), "init", "--app", "com.a", "--driver", "maestro",
+                 "--server-hook", "set_flag", "--server-hook", "new_user"]) == 0
+    pack = Pack.load(dest)
+    assert pack.errors == [] and pack.hooks == {"set_flag": ["hooks/set_flag.sh"], "new_user": ["hooks/new_user.sh"]}
+    stub = dest / "hooks" / "set_flag.sh"
+    assert os.access(stub, os.X_OK) and "env:" in stub.read_text()
+    assert "hook set_flag: hooks/set_flag.sh is a stub" in capsys.readouterr().out
+    p = subprocess.run([str(stub), "{}"], capture_output=True, text=True)
+    assert p.returncode == 1 and "not written yet" in p.stderr  # a run fails loudly until it is written
+    assert main(["--pack", str(tmp_path / "q"), "init", "--app", "com.a", "--driver", "maestro",
+                 "--server-hook", "Set-Flag"]) == 2
+    assert not (tmp_path / "q").exists()
+    answers = iter(["Bad-Name", "reset_flag"])  # asked on a terminal, again until the names are good
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert main(["--pack", str(tmp_path / "r"), "init", "--app", "com.a", "--driver", "maestro"]) == 0
+    assert Pack.load(tmp_path / "r").hooks == {"reset_flag": ["hooks/reset_flag.sh"]}
+
+
+def test_init_without_a_terminal_asks_nothing_about_servers(tmp_path):
+    assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.a", "--driver", "maestro"]) == 0
+    assert Pack.load(tmp_path / "p").hooks == {} and not (tmp_path / "p" / "hooks").exists()

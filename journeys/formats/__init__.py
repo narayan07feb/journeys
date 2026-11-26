@@ -60,4 +60,7 @@ def journey_commands(pack: Pack, j: Journey, tool: str, notes: list[str]) -> lis
         else:
             here = None
             notes.append(f"{at}: {s.kind} steps run only in Journeys (pack hooks and event checks); left out")
+    if j.after:
+        notes.append(f"{j.file.name}:{j.line}: after: cleanup hooks run only in Journeys; left out "
+                     "(run them yourself after the test)")
     return cmds

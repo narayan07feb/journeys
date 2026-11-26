@@ -29,6 +29,7 @@ class Journey:
     launch: bool = True
     clear_state: bool = False
     line: int = 1
+    after: list = field(default_factory=list)  # hooks run when the journey ends, passed or failed
 
 
 def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
@@ -54,6 +55,10 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
         if not isinstance(tags, list):
             errors.append(f"{yamlio.where(path, item)}: tags is a list, like [smoke], not {tags!r}")
             tags = []
+        after = yamlio.strip_lines(item.get("after") or [])
+        if not isinstance(after, list):
+            errors.append(f"{yamlio.where(path, item)}: after is a list of hooks, like [reset_flag], not {after!r}")
+            after = []
         if not isinstance(item.get("steps") or [], list):
             errors.append(f"{yamlio.where(path, item)}: steps is a list of steps")
             continue
@@ -84,6 +89,6 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             out.append(Journey(
                 str(item["name"]), path, steps, [str(t) for t in tags],
                 bool(start.get("launch", True)), bool(start.get("clear_state", False)),
-                item.get(yamlio.LINE, 1),
+                item.get(yamlio.LINE, 1), after,
             ))
     return out, errors

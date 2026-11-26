@@ -118,3 +118,17 @@ def test_droid_lite_a_failing_stop_keeps_the_results(pack_dir, tmp_path, monkeyp
     monkeypatch.setenv("JOURNEYS_STATE", str(tmp_path / "s"))
     assert droidlite.cmd_run(Pack.load(pack_dir), "set:smoke") == 0
     assert '"case": "set:smoke", "status": "passed"' in capsys.readouterr().out
+
+
+def test_droid_lite_a_failed_set_hook_fails_the_set(pack_dir, tmp_path):
+    (pack_dir / "hooks" / "cleanup.sh").write_text("#!/bin/sh\necho still on >&2\nexit 5\n")
+    (pack_dir / "hooks" / "cleanup.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  cleanup: [hooks/cleanup.sh]\n"))
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], after: [cleanup]}\n")
+    p = run_cmd("run", pack_dir, tmp_path, env={"JOURNEYS_DRIVER": "fake"}, id="set:smoke")
+    final = [ln for ln in lines(p.stdout) if ln.get("case") == "set:smoke"]
+    assert final[0]["message"] == "set after: hook cleanup exited 5: still on"
+    assert final[-1]["status"] == "failed" and p.returncode == 1
+    assert {ln["case"]: ln["status"] for ln in lines(p.stdout) if ln.get("case") == "open-display"}[
+        "open-display"] == "passed"

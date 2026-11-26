@@ -253,7 +253,7 @@ server, Droid Lite plugin. iOS and web are out of scope.
 | M16 (built 22 Nov) | Appium driver (W3C WebDriver to the team's Appium server, host side): passes the same driver contract tests (pretend phone), tap-all and journeys; device check owed | contract tests + wire tests |
 | M17 (built 26 Nov) | Appium export: `journeys export appium` writes a WebdriverIO spec (whole journey at once, one-way); it shares the journey walk with the Maestro export; all three drivers kept (owner, 23 Nov) | specs run under node against a pretend WebdriverIO; check on a real Appium owed |
 | Parked | Espresso/Compose export as an androidTest: built only when a team asks for it (owner, 23 Nov) | per framework |
-| Next | Backend setup through the agent skill (owner, 23 Nov): the skill asks what a journey needs on the server, writes and tests the pack's hook script after the team's yes; `after:` cleanup hooks and a set's `before:` in the runner; `init` asks about server setup | fake-driver tests per phase |
+| M18 (built 26 Nov) | Backend setup through the agent skill (owner, 23 Nov): the skill (`references/backend-setup.md`) asks what a journey needs on the server, writes the setup and cleanup hook scripts and tests them after the team's yes; a journey's `after:` and a set's `before:`/`after:` in the runner (cleanup always runs); `init` asks about server setup (`--server-hook`) | fake-driver tests per exit path, mutation-checked |
 
 ## 6. Tests
 

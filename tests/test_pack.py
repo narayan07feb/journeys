@@ -52,3 +52,31 @@ def test_substitute():
     assert substitute("${output.y}", {}, {"X"}) == "${output.y}"  # not ours: left for the driver
     with pytest.raises(KeyError):
         substitute("${X}", {}, {"X"})
+
+
+def test_after_and_set_hooks_are_checked(pack_dir):
+    (pack_dir / "journeys" / "hk.yaml").write_text(
+        "- name: hk-a\n  after: [note, nope, {name: note, args: {v: '${SECRET}'}}, {name: note, oops: 1}]\n"
+        "  steps:\n    - expect: SETTINGS-HOME\n"
+        "- name: hk-b\n  after: note\n  steps:\n    - expect: SETTINGS-HOME\n")
+    (pack_dir / "sets.yaml").write_text(
+        "sets:\n  s1: {journeys: [hk-a], before: [gone], after: [note]}\n"
+        "  s2: {journeys: [hk-a], after: note}\n  s3: {journeys: [hk-a], setup: [note]}\n"
+        "  s4: {journeys: [hk-a], after: [off]}\n")
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "hk.yaml:1: after: hook nope is not in pack.yaml hooks" in errs
+    assert "hk.yaml:1: after: ${SECRET} is not declared in pack.yaml" in errs
+    assert "after: a hook is a name or {name: ..., args: {...}}, not {'name': 'note', 'oops': 1}" in errs
+    assert "hk.yaml:5: after is a list of hooks, like [reset_flag], not 'note'" in errs
+    assert "sets.yaml: set s1 before: hook gone is not in pack.yaml hooks" in errs
+    assert "set s1 after" not in errs
+    assert "set s4 after: a hook is a name or {name: ..., args: {...}}, not False (YAML reads a bare on" in errs
+    assert "set s2 is a map with journeys" in errs and "set s3 is a map with journeys" in errs
+
+
+def test_set_hooks_only_for_a_set(pack_dir):
+    (pack_dir / "sets.yaml").write_text("sets:\n  s1: {tags: [smoke], before: [note], after: [{name: note}]}\n")
+    p = Pack.load(pack_dir)
+    assert p.errors == []
+    assert p.set_hooks("s1") == {"before": ["note"], "after": [{"name": "note"}]}
+    assert p.set_hooks("all") == p.set_hooks("open-display") == p.set_hooks(None) == {}

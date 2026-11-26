@@ -87,10 +87,29 @@ def pick(found: list[Found]) -> tuple[str | None, str]:
     return None, "no UI test framework found in the project"
 
 
+HOOK_NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+STUB = """#!/bin/sh
+# {name}: sets something up on the team's server for a journey (written by `journeys init`).
+# Journeys runs it in the pack folder, with the step's args as one JSON text in $1 and
+# JOURNEYS_APP, JOURNEYS_SERIAL and JOURNEYS_PACK set. Read keys and tokens from env vars that
+# pack.yaml declares under env: (never write them here). Exit 0 when done; otherwise print the
+# reason on stderr and exit non-zero. The journeys agent skill can write this script with you.
+echo "hooks/{name}.sh is not written yet" >&2
+exit 1
+"""
+
+
 def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
-              driver: str | None = None) -> list[str]:
-    """Write a new, empty pack. Returns what it did, line by line."""
+              driver: str | None = None, hooks: list[str] = ()) -> list[str]:
+    """Write a new, empty pack. Returns what it did, line by line. `hooks`: names of server-setup
+    scripts the team named; each gets a hooks: entry and a stub script that fails until it is written."""
+    bad = [h for h in hooks if not HOOK_NAME.fullmatch(h)]
+    if bad:
+        raise ValueError(f"hook names are lowercase words with underscores, like set_flag, not {', '.join(bad)}")
+    hooks = list(dict.fromkeys(hooks))
     files = [dest / "pack.yaml", dest / "map" / "screens.yaml", dest / "map" / "edges.yaml", dest / "sets.yaml"]
+    files += [dest / "hooks" / f"{h}.sh" for h in hooks]
     there = [str(f) for f in files if f.exists()]
     if there:
         raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
@@ -106,15 +125,21 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
                                                               if project else ""))
     if not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", app):
         raise ValueError(f"{app!r} is not an Android package name (like com.example.app)")
-    for sub in ("map", "journeys", "drafts"):
+    for sub in ("map", "journeys", "drafts") + (("hooks",) if hooks else ()):
         (dest / sub).mkdir(parents=True, exist_ok=True)
     head = {"name": name, "app": app, "driver": driver}
     if project:
         head["project"] = os.path.relpath(project.resolve(), dest.resolve())
     texts = [f"# driver {driver}: {why}\n" + yaml.safe_dump(head, sort_keys=False)
-             + "devices:\n  allow_settings_changes: emulator\n", "screens:\n", "edges:\n", "sets:\n"]
+             + "devices:\n  allow_settings_changes: emulator\n"
+             + (yaml.safe_dump({"hooks": {h: [f"hooks/{h}.sh"] for h in hooks}}, sort_keys=False) if hooks else ""),
+             "screens:\n", "edges:\n", "sets:\n"] + [STUB.format(name=h) for h in hooks]
     for f, text in zip(files, texts):
         with open(f, "x") as out:  # never over a file that appeared meanwhile
             out.write(text)
+        if f.suffix == ".sh":
+            f.chmod(0o755)
     return [f"pack {name} for {app} in {dest}", f"driver {driver}: {why}",
+            *(f"hook {h}: hooks/{h}.sh is a stub that fails until it is written (the journeys skill can "
+              f"write it with you)" for h in hooks),
             "next: add screens to map/screens.yaml, then `journeys new <name>` for a first draft journey"]

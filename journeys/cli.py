@@ -250,7 +250,8 @@ def cmd_run(args) -> int:
         run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
                             serial=args.serial)
         print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
-        outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys)
+        outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(
+            journeys, None if args.draft else args.target)
     except BaseException as e:  # a stop before the runner took over (its own stops end the run itself)
         if run is not None and run.data.get("status") == "running":
             run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)
@@ -265,9 +266,11 @@ def cmd_run(args) -> int:
         if o.failure:
             line += f"  {o.failure}: {o.message}"
         print(line)
+    for h in run.data.get("hooks", []):
+        print(f"{h['status']:7} set {h['phase']}: hook {h['hook']}" + (f"  {h['message']}" if h["message"] else ""))
     passed = sum(o.status == "passed" for o in outs)
-    print(f"{passed}/{len(outs)} passed")
-    return 0 if passed == len(outs) else 1
+    print(f"{passed}/{len(journeys)} passed" + ("" if outs else " (no journey ran: a before: hook failed)"))
+    return 0 if run.data.get("status") == "passed" and passed == len(journeys) else 1
 
 
 def cmd_failures(args) -> int:
@@ -422,11 +425,30 @@ def cmd_init(args) -> int:
             from .detect import pick, scan
             hint = pick(scan(project, strict=not args.app)[0])[1] if project else "no --project given"
             args.driver = ask_driver(f"a hint only, never a choice: {hint}")
-        lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver)
+        hooks = args.server_hook if args.server_hook is not None else ask_server_hooks()
+        lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver, hooks)
     except (FileExistsError, FileNotFoundError, ValueError) as e:
         raise PackError(str(e)) from None
     print("\n".join(lines))
     return 0
+
+
+def ask_server_hooks() -> list[str]:
+    """Optional, so no terminal (an agent, CI) or no answer means no hook."""
+    from .detect import HOOK_NAME
+    if not sys.stdin.isatty():
+        return []
+    print("Does a journey need anything set on a server first (a feature flag, a test user, data)?\n"
+          "Name a script for each, like set_flag (space between names); press Enter for none.", file=sys.stderr)
+    while True:
+        try:
+            names = input("server setup scripts: ").split()
+        except (EOFError, KeyboardInterrupt):
+            return []
+        bad = [n for n in names if not HOOK_NAME.fullmatch(n)]
+        if not bad:
+            return names
+        print(f"{', '.join(bad)}: lowercase words with underscores, like set_flag", file=sys.stderr)
 
 
 def cmd_look(args) -> int:
@@ -624,6 +646,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--app", help="the app's package (default: applicationId from the project)")
     s.add_argument("--name", help="pack name (default: the folder name)")
     s.add_argument("--driver", choices=DRIVERS, help="the team's driver (asked when not given; never guessed)")
+    s.add_argument("--server-hook", action="append", metavar="NAME",
+                   help="a script that sets something on a server for a journey (a flag, a test user); "
+                        "repeat for more. Writes a hooks: entry and a stub hooks/NAME.sh (asked on a terminal)")
     s.set_defaults(fn=cmd_init)
     s = sub.add_parser("setup", help="install upstream Speedrun into third_party/")
     s.add_argument("--version", help="release tag, e.g. v0.4.14 (default: latest)")

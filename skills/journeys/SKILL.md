@@ -54,6 +54,11 @@ Read `references/format.md` before you write a step. It has the exact format and
 - A team that uses Appium with WebdriverIO: `journeys export appium <journey> -o <journey>.e2e.js`
   writes a spec for its own `wdio.conf`. Hooks and event checks are left out (NOTE lines), and a
   `${NAME}` in a selector is refused; typed `${NAME}` is read from the environment at run time.
+- Server setup (a flag, a test user, data on the team's server): read
+  `references/backend-setup.md` and follow it. Ask what the journey needs and which tool sets it,
+  declare the key's env var in `env:`, write the setup and cleanup hook scripts, put the cleanup
+  in the journey's `after:` (or a set's `before:`/`after:`), and test a hook only after the team
+  says yes (it changes a real server). The team reviews the scripts before you promote.
 - New pack for an app: `journeys --pack <new folder> init --project <app project> --driver <the
   user's answer>`; ask the user first (the project's test framework is a hint, never the answer).
 - The tracker (`journeys tracker`, the `serve` page, the MCP `tracker` tool) counts the journeys you

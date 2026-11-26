@@ -68,6 +68,23 @@ and replays the route to the screen it was on.
 Hooks and the event checker run in the pack folder with `JOURNEYS_APP`, `JOURNEYS_SERIAL` and
 `JOURNEYS_PACK` in their environment. Exit 0 means it worked.
 
+Hooks are how a journey sets up the team's server (a flag, a test user, data). Besides `hook:`
+steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name or
+`{name, args}`) for setup and cleanup:
+
+- A journey's `after:` runs when the journey ends, passed or failed, and after Ctrl-C or a lost
+  device. Every one runs, even when one fails. A failed one fails a journey that had passed (a
+  flag left on must not look green); on a journey that already failed, its error is added to the
+  message.
+- A set's `before:` runs once before its journeys, and its `after:` once at the end, always. They
+  run only when that set is the run target (`run nightly`). A failed `before:` runs no journey; the
+  set's `after:` still runs. A failed set hook fails the run (exit 1) and shows in its `error`.
+- Exports (`export maestro`, `export appium`) leave hooks out, with a note.
+- Declare the env var that holds a hook's key in `env:`: only declared values are hidden in logs
+  and results. `init --server-hook NAME` adds a hook entry and a stub script that fails until it
+  is written. The agent skill (`skills/journeys/references/backend-setup.md`) writes and tests
+  these scripts with the team.
+
 ## Screens
 
 ```yaml
@@ -121,6 +138,7 @@ A file holds one journey or a list of them.
 name: buy-one
 tags: [smoke]
 start: {launch: true, clear_state: true}   # default: launch, keep state
+after: [{name: delete_user, args: {country: test}}]   # cleanup: runs passed or failed
 steps:
   - hook: {name: new_user, args: {country: test}}
   - expect: HOME                  # this screen must show
@@ -137,6 +155,10 @@ steps:
 sets:
   smoke: {tags: [smoke]}
   nightly: {journeys: [buy-one, refund]}
+  flagged:
+    tags: [flag]
+    before: [{name: set_flag, args: {flag: new_checkout, on: true}}]
+    after: [{name: reset_flag, args: {flag: new_checkout}}]
 ```
 
 `run all` runs every journey.

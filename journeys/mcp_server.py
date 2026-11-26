@@ -136,8 +136,9 @@ class Server:
         status = run["status"]
         if status == "running" and not self._alive(store, run_id) and (store.root / "mcp-runs" / f"{run_id}.json").exists():
             status = "stopped (the run process ended without finishing)"
-        return {"run_id": run_id, "status": status, "journeys": [
+        out = {"run_id": run_id, "status": status, "journeys": [
             {k: j.get(k) for k in ("name", "status", "failure", "message", "changes")} for j in run["journeys"]]}
+        return {**out, **{k: run[k] for k in ("error", "hooks") if run.get(k)}}  # a set's before:/after: too
 
     def wait_run(self, run_id: str, timeout_s: int = 300) -> dict:
         end = time.monotonic() + max(1, min(int(timeout_s), 3600))

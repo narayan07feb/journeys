@@ -280,22 +280,47 @@ class Pack:
                         self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
+        for j in [*self.journeys.values(), *self.drafts.values()]:
+            for ref in j.after:
+                self._check_hook_ref(f"{j.file}:{j.line}: after", ref, declared)
         for name, spec in self.sets.items():
             if name == "all":
                 self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
             if name in self.journeys:
                 self.errors.append(f"sets.yaml: set {name} has the same name as a journey")
-            if not isinstance(spec, dict) or any(
+            if not isinstance(spec, dict) or set(spec) - {"journeys", "tags", "before", "after"} or any(
                     not isinstance(spec.get(k) or [], list) or not all(isinstance(x, str) for x in spec.get(k) or [])
-                    for k in ("journeys", "tags")):
-                self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags]")
+                    for k in ("journeys", "tags")) or any(
+                    not isinstance(spec.get(k) or [], list) for k in ("before", "after")):
+                self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags], "
+                                   "and before: / after: [hooks]")
                 self.sets[name] = {}
                 continue
+            for k in ("before", "after"):
+                for ref in spec.get(k) or []:
+                    self._check_hook_ref(f"sets.yaml: set {name} {k}", ref, declared)
             for jn in spec.get("journeys") or []:
                 if jn not in self.journeys:
                     self.errors.append(f"sets.yaml: set {name} names unknown journey {jn}")
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
+
+    def _check_hook_ref(self, at: str, ref, declared: set[str]) -> None:
+        """An after: or before: entry: a hook name, or {name: ..., args: {...}}, like a hook step."""
+        name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else None
+        if not isinstance(name, str) or (isinstance(ref, dict) and (
+                set(ref) - {"name", "args"} or not isinstance(ref.get("args") or {}, dict))):
+            hint = " (YAML reads a bare on, off, yes or no as true or false: quote the name)" if isinstance(ref, bool) else ""
+            self.errors.append(f"{at}: a hook is a name or {{name: ..., args: {{...}}}}, not {ref!r}{hint}")
+        elif name not in self.hooks:
+            self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+        for var in sorted(set(_names(ref)) - declared):
+            self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")
+
+    def set_hooks(self, target: str | None) -> dict:
+        """before: and after: of the set a run targets; none for `all`, one journey or a draft."""
+        spec = self.sets.get(target) if target else None
+        return {k: list(spec.get(k) or []) for k in ("before", "after")} if isinstance(spec, dict) else {}
 
     def owns(self, package: str) -> bool:
         """The pack's app on screen: its package, its app_packages, or Android's permission dialog."""

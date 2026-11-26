@@ -180,3 +180,125 @@ def test_json_and_repr_escaped_secrets_are_masked():
                 assert s not in mask(form) and json.dumps(s)[1:-1] not in mask(form), form
     finally:
         set_secrets([])
+
+
+def _log_hooks(pack_dir, journeys_yaml, sets_yaml=None):
+    """A `log` hook that writes its JSON argument to log.txt; it exits 4 when the argument has "fail"."""
+    script = pack_dir / "hooks" / "log.sh"
+    script.write_text('#!/bin/sh\necho "$1" >> "$JOURNEYS_PACK/log.txt"\n'
+                      'case "$1" in *fail*) echo "flag still on" >&2; exit 4;; esac\n')
+    os.chmod(script, 0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  log: [hooks/log.sh]\n")
+                 .replace("env: [DEMO_SEARCH]", "env: [DEMO_SEARCH, FLAG]"))
+    (pack_dir / "journeys" / "hk.yaml").write_text(journeys_yaml)
+    if sets_yaml:
+        (pack_dir / "sets.yaml").write_text(sets_yaml)
+    pack = Pack.load(pack_dir)
+    assert pack.errors == []
+    return pack, lambda: (pack_dir / "log.txt").read_text().splitlines() if (pack_dir / "log.txt").exists() else []
+
+
+GOOD = "    - expect: SETTINGS-HOME\n"
+BAD = "    - expect: SETTINGS-ABOUT\n"
+
+
+def test_after_hooks_run_when_a_journey_passes_and_a_failed_one_fails_it(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, (
+        "- name: hk-ok\n  after: [{name: log, args: {flag: '${FLAG}'}}]\n  steps:\n" + GOOD +
+        "- name: hk-dirty\n  after: [{name: log, args: {x: fail}}, {name: log, args: {x: second}}]\n  steps:\n" + GOOD))
+    r = Runner(pack, driver, store, run, variables={"FLAG": "dark"}, sleep=lambda s: None)
+    ok, dirty = r.run_all([pack.journeys["hk-ok"], pack.journeys["hk-dirty"]])
+    assert ok.status == "passed" and ok.steps[-1].text.startswith("after: hook") and ok.steps[-1].status == "passed"
+    assert log() == ['{"flag": "dark"}', '{"x": "fail"}', '{"x": "second"}']  # every cleanup ran, in order
+    assert dirty.status == "failed" and dirty.message == "after: hook log exited 4: flag still on"
+    assert [s.status for s in dirty.steps[-2:]] == ["failed", "passed"]
+    f = store.failure(dirty.failure)
+    assert f["journey"] == "hk-dirty" and f["step_text"] == "after" and "flag still on" in f["message"]
+    assert store.run(run.id)["status"] == "failed"
+
+
+def test_after_hooks_run_when_a_step_fails_and_keep_the_first_failure(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-bad\n  after: [{name: log, args: {x: fail}}]\n  steps:\n" + BAD)
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None, heal=False)
+    (out,) = r.run_all([pack.journeys["hk-bad"]])
+    assert out.status == "failed" and out.message.startswith("expected screen SETTINGS-ABOUT")
+    assert out.message.endswith("(after: hook log exited 4: flag still on)")
+    assert store.failure(out.failure)["step_text"] == "expect: SETTINGS-ABOUT"  # not the cleanup
+    assert log() == ['{"x": "fail"}']
+
+
+def test_after_hooks_run_on_a_stop(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-stop\n  after: [log]\n  steps:\n" + GOOD)
+
+    def stop(*a, **k):
+        raise KeyboardInterrupt
+    driver.do = stop
+    with pytest.raises(KeyboardInterrupt):
+        Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all([pack.journeys["hk-stop"]])
+    assert log() == ["{}"] and store.run(run.id)["status"] == "failed"
+
+
+SETS = ("sets:\n  flagged:\n    journeys: [hk-a, hk-b]\n"
+        "    before: [{name: log, args: {set: 'on'}}]\n    after: [{name: log, args: {set: 'off'}}]\n")
+
+
+def test_set_before_runs_once_and_after_runs_last(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, (
+        "- name: hk-a\n  after: [{name: log, args: {j: a}}]\n  steps:\n" + GOOD +
+        "- name: hk-b\n  steps:\n" + BAD), SETS)
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None, heal=False)
+    a, b = r.run_all(pack.select("flagged"), "flagged")
+    assert (a.status, b.status) == ("passed", "failed")
+    assert log() == ['{"set": "on"}', '{"j": "a"}', '{"set": "off"}']  # after runs although hk-b failed
+    saved = store.run(run.id)
+    assert [(h["phase"], h["status"]) for h in saved["hooks"]] == [("before", "passed"), ("after", "passed")]
+    assert saved["status"] == "failed" and "error" not in saved
+
+
+def test_a_failed_set_before_runs_no_journey_but_still_cleans_up(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD,
+                           SETS.replace("set: 'on'}}]", "set: fail-on}}, log]"))
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None)
+    assert r.run_all(pack.select("flagged"), "flagged") == []
+    assert log() == ['{"set": "fail-on"}', '{"set": "off"}']  # the before: after the failed one never ran
+    saved = store.run(run.id)
+    assert saved["status"] == "failed" and saved["journeys"] == []
+    assert saved["error"] == "set before: hook log exited 4: flag still on"
+
+
+def test_a_failed_set_after_fails_a_run_whose_journeys_passed(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD,
+                           SETS.replace("set: 'off'", "set: fail-off"))
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None)
+    assert [o.status for o in r.run_all(pack.select("flagged"), "flagged")] == ["passed", "passed"]
+    saved = store.run(run.id)
+    assert saved["status"] == "failed" and saved["error"].startswith("set after: hook log exited 4")
+
+
+def test_set_hooks_run_only_when_the_set_is_the_target(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD, SETS)
+    r = Runner(pack, driver, store, run, variables={}, sleep=lambda s: None)
+    r.run_all(pack.select("hk-a"), "hk-a")
+    r.run_all(pack.select("all"), "all")
+    r.run_all(pack.select("flagged"))
+    assert log() == [] and "hooks" not in store.run(run.id)
+
+
+def test_set_after_runs_on_a_stop(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD, SETS)
+
+    def stop(*a, **k):
+        raise KeyboardInterrupt
+    driver.do = stop
+    with pytest.raises(KeyboardInterrupt):
+        Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all(pack.select("flagged"), "flagged")
+    assert log() == ['{"set": "on"}', '{"set": "off"}'] and store.run(run.id)["status"] == "failed"
