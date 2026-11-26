@@ -1,6 +1,7 @@
 """Run history, failures and ids, kept as JSON files in a state folder outside the pack."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -43,7 +44,7 @@ def set_secrets(values) -> None:
 
 # Fields Journeys itself fills with words it reads back (status, ids, names): a secret like "pass"
 # must not turn "passed" into "•••ed". Typed values never land in them.
-_PLAIN = {"status", "kind", "id", "name", "actor", "action", "failure", "failures", "changes", "proposal", "run", "target", "driver",
+_PLAIN = {"status", "kind", "id", "name", "hook_key", "actor", "action", "failure", "failures", "changes", "proposal", "run", "target", "driver",
           "serial", "pack", "journey", "file", "line", "index", "started", "ended", "dka"}
 
 
@@ -96,6 +97,26 @@ class Run:
 
     def save(self) -> None:
         write_json(self.dir / "run.json", self.data)
+
+
+def _text_keys(v):
+    """Map keys as text, at any depth, so sorting them never fails on mixed types ({1: a, b: 2})."""
+    if isinstance(v, dict):
+        return {str(k): _text_keys(x) for k, x in v.items()}
+    return [_text_keys(x) for x in v] if isinstance(v, list) else v
+
+
+def set_hook_key(target, phase, ref) -> str:
+    """What a set hook's failure is filed under: a later run where the same call passes fixes it.
+    Its args are part of it (as a short hash, so no value shows), and it has spaces, so it never
+    clashes with a journey name."""
+    name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else ref
+    args = ref.get("args") if isinstance(ref, dict) else None
+    try:
+        tag = f" #{hashlib.sha256(json.dumps(_text_keys(args), sort_keys=True, default=str).encode()).hexdigest()[:8]}" if args else ""
+    except (RecursionError, TypeError, ValueError):  # args that refer to themselves: still a key, never a stop
+        tag = " #?"
+    return f"set {target} {phase} {name}{tag}"
 
 
 class Store:

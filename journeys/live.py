@@ -37,7 +37,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 <div class="wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead>
 <tbody id="acts"></tbody></table></div>
 <h2 id="usage">Agent usage</h2><p class="muted">Journeys built and issues solved, per person or agent.
-Fixed: journeys that passed again after failing (one pass is one issue, however many failure records).
+Fixed: journeys (and set hooks) that passed again after failing (one pass is one issue, however many failure records).
 Solved: fixed, plus failures healed by a promoted proposal. Decided: promotes and rejects. Changes:
 detours accepted. Who fixed a failure is a best guess. The per-day table shows the last 14 days.</p>
 <div class="wrap"><table><thead><tr><th>Who</th><th class="n">Drafts</th><th class="n">Journeys built</th>
@@ -87,7 +87,7 @@ _JSON = {"/live.json": ("live.json", {}), "/failures.json": ("failures.json", []
          "/proposals.json": ("proposals.json", [])}
 
 
-def make_handler(store: Store, drafts=lambda: []):
+def make_handler(store: Store, drafts=lambda: [], hook_keys=lambda: None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
             pass
@@ -113,7 +113,7 @@ def make_handler(store: Store, drafts=lambda: []):
             if path == "/tracker.json":
                 from .tracker import summary
                 try:
-                    body = json.dumps(summary(store, drafts()), default=str, allow_nan=False).encode()
+                    body = json.dumps(summary(store, drafts(), hook_keys()), default=str, allow_nan=False).encode()
                 except Exception as e:  # the page says what broke, the server keeps serving
                     return self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
                 return self._send(200, body, "application/json")
@@ -124,9 +124,10 @@ def make_handler(store: Store, drafts=lambda: []):
     return Handler
 
 
-def serve(store: Store, port: int = 8765, drafts=lambda: []) -> ThreadingHTTPServer:
-    """`drafts` names the pack's drafts for the work queue (read again on each request)."""
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, drafts))
+def serve(store: Store, port: int = 8765, drafts=lambda: [], hook_keys=lambda: None) -> ThreadingHTTPServer:
+    """`drafts` names the pack's drafts and `hook_keys` its set hooks, for the work queue (read again
+    on each request)."""
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, drafts, hook_keys))
 
 
 def watch(store: Store, interval: float = 0.5, stop_after: float | None = None) -> Iterator[dict]:

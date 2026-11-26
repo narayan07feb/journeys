@@ -6,6 +6,7 @@ import pytest
 from journeys.drivers.fake import FakeDriver
 from journeys.pack import Pack
 from journeys.results import Store
+from journeys.results import set_hook_key
 from journeys.runner import Runner
 
 import yaml
@@ -273,6 +274,12 @@ def test_a_failed_set_before_runs_no_journey_but_still_cleans_up(env, pack_dir):
     saved = store.run(run.id)
     assert saved["status"] == "failed" and saved["journeys"] == []
     assert saved["error"] == "set before: hook log exited 4: flag still on"
+    rec = store.failure(saved["hooks"][0]["failure"])
+    key = set_hook_key("flagged", "before", {"name": "log", "args": {"set": "fail-on"}})
+    assert key.startswith("set flagged before log #") and saved["hooks"][0]["hook_key"] == key
+    assert (rec["journey"], rec["file"], rec["line"], rec["step_text"]) == (
+        key, str(pack_dir / "sets.yaml"), None, "set before: hook {'name': 'log', 'args': {'set': 'fail-on'}}")
+    assert "failure" not in saved["hooks"][1]  # the after: passed: no record
 
 
 def test_a_failed_set_after_fails_a_run_whose_journeys_passed(env, pack_dir):
@@ -283,6 +290,7 @@ def test_a_failed_set_after_fails_a_run_whose_journeys_passed(env, pack_dir):
     assert [o.status for o in r.run_all(pack.select("flagged"), "flagged")] == ["passed", "passed"]
     saved = store.run(run.id)
     assert saved["status"] == "failed" and saved["error"].startswith("set after: hook log exited 4")
+    assert store.failure(saved["hooks"][-1]["failure"])["journey"].startswith("set flagged after log #")
 
 
 def test_set_hooks_run_only_when_the_set_is_the_target(env, pack_dir):
@@ -356,3 +364,17 @@ def test_a_journey_shows_passed_only_after_its_cleanup(env, pack_dir):
     ok = [s for n, s in seen if n == "hk-ok"]
     assert ok[-1] == "passed" and "passed" not in ok[:-1]
     assert "passed" not in [s for n, s in seen if n == "hk-dirty"]
+
+
+def test_a_failure_record_that_cannot_be_written_never_skips_the_next_hooks(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD,
+                           SETS.replace("after: [{name: log, args: {set: 'off'}}]",
+                                        "after: [{name: log, args: {x: fail}}, {name: log, args: {set: 'off'}}]"))
+
+    def full_disk(*a, **k):
+        raise OSError("no space left")
+    store.add_failure = full_disk
+    Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all(pack.select("flagged"), "flagged")
+    assert log()[-1] == '{"set": "off"}'  # the after: hook after the failed one still ran
+    assert "(failure record not written: no space left)" in store.run(run.id)["hooks"][1]["message"]

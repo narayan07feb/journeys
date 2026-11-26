@@ -80,7 +80,11 @@ steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name 
   message.
 - A set's `before:` runs once before its journeys, and its `after:` once at the end, always. They
   run only when that set is the run target (`run nightly`). A failed `before:` runs no journey; the
-  set's `after:` still runs. A failed set hook fails the run (exit 1) and shows in its `error`.
+  set's `after:` still runs. A failed set hook fails the run (exit 1),
+  shows in its `error`, and is a failure in the work queue (`set <set> <phase> <hook>`, plus
+  `#<hash>` of its args) until a later run of the set passes the same call. When the set is renamed
+  or the call removed from sets.yaml, its failure leaves the queue (while sets.yaml has an error,
+  every failure stays). Write secrets in args as `${NAME}`: the key hashes the args as written.
 - Exports (`export maestro`, `export appium`) leave a journey's hook steps and `after:` out, with a
   note. A set's `before:`/`after:` are never part of an export (it writes one journey).
 - New validate errors with these keys (a pack that had them ran without them before): `before:` on a

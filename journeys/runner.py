@@ -13,7 +13,7 @@ from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
 from .pack import Pack, substitute
-from .results import Run, Store, mask, set_secrets, write_json
+from .results import Run, Store, mask, set_hook_key, set_secrets, write_json
 
 
 class StepFailed(Exception):
@@ -54,12 +54,13 @@ class Runner:
         self.settle_tries, self.sleep, self.on_update = settle_tries, sleep, on_update
         self.heal = heal
         self._journey: Journey | None = None
+        self._target: str | None = None  # the set a run targets (run_all)
         self._step_now: Step | None = None
         self._out: JourneyOutcome | None = None
 
     def run_all(self, journeys: list[Journey], target: str | None = None) -> list[JourneyOutcome]:
         """`target`: the set being run; its before: hooks run once first, its after: hooks always last."""
-        hooks = self.pack.set_hooks(target)
+        hooks, self._target = self.pack.set_hooks(target), target
         outs: list[JourneyOutcome] = []
         try:
             try:
@@ -167,11 +168,19 @@ class Runner:
         """A set's before: or after: hooks, recorded in the run. False when one failed."""
         ok = True
         for ref in refs:
-            entry = {"phase": phase, "hook": ref, "status": "passed", "message": ""}
+            entry = {"phase": phase, "hook": ref, "hook_key": set_hook_key(self._target, phase, ref), "status": "passed",
+                     "message": ""}
             try:
                 self._hook(self._sub(ref))
             except Exception as e:  # noqa: BLE001  every after: hook gets its turn
                 entry.update(status="failed", message=str(e))  # _hook masks the script's output
+                try:  # so the work queue lists it until it passes again
+                    entry["failure"] = self.store.add_failure({
+                        "run": self.run.id, "journey": entry["hook_key"], "step": len(self.run.data.get("hooks", [])),
+                        "step_text": f"set {phase}: hook {ref}", "file": str(self.pack.root / "sets.yaml"),
+                        "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
+                except Exception as w:  # noqa: BLE001  a full disk must not skip the next hooks
+                    entry["message"] += f" (failure record not written: {w})"
                 ok = False
             self.run.data.setdefault("hooks", []).append(entry)
             self.run.save()

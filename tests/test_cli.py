@@ -314,3 +314,10 @@ def test_a_secret_a_hook_prints_is_never_stored_or_shown(pack_dir, tmp_path, cap
     assert "token •••" in out.out and "topsecret-value" not in out.out + out.err
     stored = [p for p in (tmp_path / "s").rglob("*") if p.is_file() and "topsecret-value" in p.read_text(errors="ignore")]
     assert stored == []
+
+
+def test_a_secret_under_an_args_key_named_key_is_still_masked(pack_dir, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEMO_SEARCH", "topsecret-value")
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [{name: note, args: {key: topsecret-value}}]}\n")
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--driver", "fake"]) == 0
+    assert not [p for p in (tmp_path / "s").rglob("*.json") if "topsecret-value" in p.read_text()]
