@@ -33,8 +33,8 @@ def new_draft(pack: Pack, name: str, start: str | None) -> str:
 
 
 def same_steps(a: Journey, b: Journey) -> bool:
-    return (a.launch, a.clear_state, [(s.kind, s.arg) for s in a.steps]) == \
-        (b.launch, b.clear_state, [(s.kind, s.arg) for s in b.steps])
+    return (a.launch, a.clear_state, [(s.kind, s.arg) for s in a.steps], a.after) == \
+        (b.launch, b.clear_state, [(s.kind, s.arg) for s in b.steps], b.after)
 
 
 def promote_journey(pack: Pack, name: str) -> str:

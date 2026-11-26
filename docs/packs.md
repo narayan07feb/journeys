@@ -30,7 +30,9 @@ accounts:                    # test accounts: values only from env vars, never i
   main: {user: APP_USER, password: APP_PASSWORD}     # ${APP_USER} or ${main.user}
 hooks:
   set_flag: [hooks/set_flag.sh]     # argv; the step's args come as one JSON text at the end
+  reset_flag: [hooks/reset_flag.sh]  # cleanup, for after:
   new_user: [python3, hooks/new_user.py]
+  delete_user: [python3, hooks/delete_user.py]
 events:
   check: [hooks/check_event.sh]     # prints {"fired": true} when the event was seen
 build:   [[./gradlew, assembleDebug]]
@@ -67,6 +69,33 @@ and replays the route to the screen it was on.
 
 Hooks and the event checker run in the pack folder with `JOURNEYS_APP`, `JOURNEYS_SERIAL` and
 `JOURNEYS_PACK` in their environment. Exit 0 means it worked.
+
+Hooks are how a journey sets up the team's server (a flag, a test user, data). Besides `hook:`
+steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name or
+`{name, args}`) for setup and cleanup:
+
+- A journey's `after:` runs when the journey ends, passed or failed, and after Ctrl-C or a lost
+  device. Every one runs, even when one fails (a second Ctrl-C during cleanup ends it). A failed one fails a journey that had passed (a
+  flag left on must not look green); on a journey that already failed, its error is added to the
+  message.
+- A set's `before:` runs once before its journeys, and its `after:` once at the end, always. They
+  run only when that set is the run target (`run nightly`). A failed `before:` runs no journey; the
+  set's `after:` still runs. A failed set hook fails the run (exit 1) and shows in its `error`.
+- Exports (`export maestro`, `export appium`) leave a journey's hook steps and `after:` out, with a
+  note. A set's `before:`/`after:` are never part of an export (it writes one journey).
+- New validate errors with these keys (a pack that had them ran without them before): `before:` on a
+  journey; a `before:`/`after:` that is not a list; a hook map with keys other than `name` and
+  `args` (so `arg:` is not dropped in silence); true, false or null keys anywhere in a hook's
+  `args` (YAML reads a bare `on`, `off`, `yes` or `no` that way). A hook or `events.check` script that
+  something uses must be there and executable when it is a path in the pack (`hooks/x.sh`) or a
+  bare name that is a file there (`run.sh`). `~` and `$NAME` are not expanded: declare the path in
+  `env:` and read it in the script. A declared script nothing uses is not checked; one only a
+  draft uses stops only that draft. Only the first item is checked: with an interpreter first
+  (`[python3, hooks/x.py]`) the script itself is not, and a script run directly needs a `#!` line.
+- Declare the env var that holds a hook's key in `env:`: only declared values are hidden in logs
+  and results. `init --server-hook NAME` adds a hook entry and a stub script that fails until it
+  is written. The agent skill (`skills/journeys/references/backend-setup.md`) writes and tests
+  these scripts with the team.
 
 ## Screens
 
@@ -121,6 +150,7 @@ A file holds one journey or a list of them.
 name: buy-one
 tags: [smoke]
 start: {launch: true, clear_state: true}   # default: launch, keep state
+after: [{name: delete_user, args: {country: test}}]   # cleanup: runs passed or failed
 steps:
   - hook: {name: new_user, args: {country: test}}
   - expect: HOME                  # this screen must show
@@ -137,6 +167,10 @@ steps:
 sets:
   smoke: {tags: [smoke]}
   nightly: {journeys: [buy-one, refund]}
+  flagged:
+    tags: [flag]
+    before: [{name: set_flag, args: {flag: new_checkout, enabled: true}}]
+    after: [{name: reset_flag, args: {flag: new_checkout}}]
 ```
 
 `run all` runs every journey.

@@ -10,7 +10,7 @@ from . import yamlio
 from .actions import QUOTE, ActionError, to_commands, to_selector
 from .appmap import KINDS, AppMap, Rule
 from .drivers import DRIVERS
-from .journey import Journey, load_journeys
+from .journey import YAML_WORDS, Journey, load_journeys
 
 # Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
 # that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
@@ -50,6 +50,27 @@ def _names(obj) -> list[str]:
         return [n for v in obj.values() for n in _names(v)]
     if isinstance(obj, list):
         return [n for v in obj for n in _names(v)]
+    return []
+
+
+def _script_errors(root: Path, at: str, first: str) -> list[str]:
+    """A command the runner finds in the pack (hooks/x.sh, or a bare name that is a file there) must be
+    there and executable; another bare name (python3) is a program on PATH and an absolute path is
+    the machine's, so neither is checked."""
+    if not first.strip():
+        return [f"{at}: the command is empty"]
+    hint = " (no ~ or $NAME here: declare the path in env: and read it in the script)"
+    if first.startswith(("~", "$")) and not (root / first).exists():
+        return [f"{at}: {first} is not in the pack{hint}"]  # the runner expands neither, with or without a /
+    f = root / first
+    if Path(first).is_absolute() or ("/" not in first and not f.is_file()):
+        return []
+    if f.is_dir():
+        return [f"{at}: {first} is a folder, not a script"]
+    if not f.is_file():
+        return [f"{at}: {first} is not in the pack"]
+    if not os.access(f, os.X_OK):
+        return [f"{at}: {first} is not executable (chmod +x {first}, or name its interpreter first, like [sh, {first}])"]
     return []
 
 
@@ -236,6 +257,8 @@ class Pack:
 
     def _check(self) -> None:
         declared = self.declared()
+        self._used: dict[str, list[str]] = {}  # hook -> where it is used (only used ones must be runnable)
+        events_at: list[str] = []
         for e in self.map.edges:
             for name in sorted(set(_names(e.do)) - declared):
                 self.errors.append(f"map/edges.yaml: edge {e.src} -> {e.dst} uses ${{{name}}}, which pack.yaml does "
@@ -275,11 +298,14 @@ class Pack:
                 except ActionError as e:
                     self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
-                    name = s.arg if isinstance(s.arg, str) else (s.arg or {}).get("name")
-                    if not isinstance(name, str) or name not in self.hooks:
-                        self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+                    self._check_hook_ref(at, s.arg, None)
+                if s.kind == "event":
+                    events_at.append(at)
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
+        for j in [*self.journeys.values(), *self.drafts.values()]:
+            for ref in j.after:
+                self._check_hook_ref(f"{j.file}:{j.line}: after", ref, declared)
         for name, spec in self.sets.items():
             if name == "all":
                 self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
@@ -287,15 +313,71 @@ class Pack:
                 self.errors.append(f"sets.yaml: set {name} has the same name as a journey")
             if not isinstance(spec, dict) or any(
                     not isinstance(spec.get(k) or [], list) or not all(isinstance(x, str) for x in spec.get(k) or [])
-                    for k in ("journeys", "tags")):
-                self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags]")
+                    for k in ("journeys", "tags")) or any(
+                    not isinstance([] if spec.get(k) is None else spec[k], list) for k in ("before", "after")):
+                hint = f" ({YAML_WORDS})" if isinstance(spec, dict) and any(
+                    isinstance(spec.get(k), bool) for k in ("before", "after")) else ""
+                self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags], "
+                                   f"and before: / after: [hooks]{hint}")
                 self.sets[name] = {}
                 continue
+            for k in ("before", "after"):
+                for ref in spec.get(k) or []:
+                    self._check_hook_ref(f"sets.yaml: set {name} {k}", ref, declared)
             for jn in spec.get("journeys") or []:
                 if jn not in self.journeys:
                     self.errors.append(f"sets.yaml: set {name} names unknown journey {jn}")
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
+        for name, ats in sorted(self._used.items()):  # a declared script nothing calls never stops a run
+            self._check_script(f"hook {name}", self.hooks[name], ats)
+        if self.events:
+            self._check_script("events.check", self.events, events_at)
+
+    def _check_script(self, what: str, argv, ats: list[str]) -> None:
+        """A used script must run. Used only by drafts: the error names each draft, so it stops only those."""
+        if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
+            return  # a bad entry, already reported by load (unused: ats is empty, nothing to check)
+        drafts = str(self.root / "drafts") + "/"
+        real = [a for a in ats if not a.startswith(drafts)]
+        for at in ["pack.yaml"] if real else sorted({a.split(":")[0] for a in ats}):
+            self.errors += _script_errors(self.root, f"{at}: {what}", argv[0])
+
+    def _check_hook_ref(self, at: str, ref, declared: set[str] | None) -> None:
+        """An after: or before: entry: a hook name, or {name: ..., args: {...}}, like a hook step."""
+        name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else None
+        if not isinstance(name, str) or (isinstance(ref, dict) and (
+                set(ref) - {"name", "args"} or not isinstance(ref.get("args") or {}, dict))):
+            hint = f" ({YAML_WORDS})" if isinstance(ref, bool) else ""
+            self.errors.append(f"{at}: a hook is a name or {{name: ..., args: {{...}}}}, not {ref!r}{hint}")
+        elif name not in self.hooks:
+            self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+        else:
+            self._used.setdefault(name, []).append(at)
+        self._check_hook_args(at, ref)
+        for var in sorted(set(_names(ref)) - declared) if declared is not None else []:  # a step checks its own
+            self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")
+
+    def _check_hook_args(self, at: str, ref) -> None:
+        """The args go to the script as JSON: `{on: true}` would arrive as {"true": true}, at any depth."""
+        bad = []
+
+        def walk(v):
+            if isinstance(v, dict):
+                bad.extend(k for k in v if k is None or isinstance(k, bool))
+                for x in v.values():
+                    walk(x)
+            elif isinstance(v, list):
+                for x in v:
+                    walk(x)
+        walk(ref.get("args") if isinstance(ref, dict) else None)
+        if bad:
+            self.errors.append(f"{at}: hook args keys {bad} are not text ({YAML_WORDS})")
+
+    def set_hooks(self, target: str | None) -> dict:
+        """before: and after: of the set a run targets; none for `all`, one journey or a draft."""
+        spec = self.sets.get(target) if target else None
+        return {k: list(spec.get(k) or []) for k in ("before", "after")} if isinstance(spec, dict) else {}
 
     def owns(self, package: str) -> bool:
         """The pack's app on screen: its package, its app_packages, or Android's permission dialog."""

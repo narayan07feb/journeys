@@ -268,3 +268,49 @@ def test_a_failing_stop_does_not_hide_the_results_and_doctor_flags_a_bad_env_dri
     monkeypatch.setenv("JOURNEYS_DRIVER", "bogus")
     assert main(["--pack", str(pack_dir), "doctor"]) == 1
     assert "driver bogus is not one of" in capsys.readouterr().out
+
+
+def test_a_failed_set_cleanup_fails_the_run_command(pack_dir, tmp_path, capsys):
+    (pack_dir / "hooks" / "cleanup.sh").write_text("#!/bin/sh\necho still on >&2\nexit 5\n")
+    (pack_dir / "hooks" / "cleanup.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  cleanup: [hooks/cleanup.sh]\n"))
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [note], after: [cleanup]}\n")
+    base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
+    assert main(base + ["run", "smoke", "--driver", "fake"]) == 1  # both journeys pass; the cleanup did not
+    out = capsys.readouterr().out
+    assert "2/2 passed" in out and "passed  set before: hook note" in out
+    assert "failed  set after: hook cleanup  hook cleanup exited 5: still on" in out
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [cleanup]}\n")
+    assert main(base + ["run", "smoke", "--driver", "fake"]) == 1
+    assert "0/2 passed (no journey ran: a before: hook failed)" in capsys.readouterr().out
+
+
+def test_a_draft_named_like_a_set_never_runs(pack_dir, tmp_path, capsys):
+    """So `run --draft` never runs a set's before:/after: hooks: the draft cannot have a set's name."""
+    (pack_dir / "drafts").mkdir()
+    (pack_dir / "drafts" / "smoke.yaml").write_text("name: smoke\nsteps:\n  - expect: SETTINGS-HOME\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [note]}\n")
+    assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--draft",
+                 "--driver", "fake"]) == 2
+    assert "journey name 'smoke'" in capsys.readouterr().err
+
+
+def test_a_secret_a_hook_prints_is_never_stored_or_shown(pack_dir, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("DEMO_SEARCH", "topsecret-value")  # declared in pack.yaml env:
+    (pack_dir / "hooks" / "leak.sh").write_text('#!/bin/sh\necho "token $DEMO_SEARCH" >&2\nexit 3\n')
+    (pack_dir / "hooks" / "leak.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  leak: [hooks/leak.sh]\n"))
+    (pack_dir / "journeys" / "lk.yaml").write_text(
+        "- name: lk-ok\n  tags: [lk]\n  after: [leak]\n  steps:\n    - expect: SETTINGS-HOME\n"
+        "- name: lk-bad\n  tags: [lk]\n  after: [leak]\n  steps:\n    - expect: SETTINGS-ABOUT\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  lk: {tags: [lk], after: [leak]}\n  lb: {tags: [lk], before: [leak]}\n")
+    base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
+    assert main(base + ["run", "lk", "--driver", "fake", "--no-heal"]) == 1
+    assert main(base + ["run", "lb", "--driver", "fake"]) == 1
+    assert main(base + ["failures"]) == 0
+    out = capsys.readouterr()
+    assert "token •••" in out.out and "topsecret-value" not in out.out + out.err
+    stored = [p for p in (tmp_path / "s").rglob("*") if p.is_file() and "topsecret-value" in p.read_text(errors="ignore")]
+    assert stored == []

@@ -154,3 +154,17 @@ def test_the_no_driver_message_names_the_driver_tools(pack_dir, tmp_path):
     with pytest.raises(ValueError) as e:
         srv.start_run("smoke", serial="emulator-5554")
     assert "(maestro, speedrun, appium)" in str(e.value)
+
+
+def test_run_status_shows_a_failed_set_hook(pack_dir, tmp_path):
+    from journeys.mcp_server import Server
+    (pack_dir / "hooks" / "cleanup.sh").write_text("#!/bin/sh\necho still on >&2\nexit 5\n")
+    (pack_dir / "hooks" / "cleanup.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  cleanup: [hooks/cleanup.sh]\n"))
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [note], after: [cleanup]}\n")
+    srv = Server(str(pack_dir), str(tmp_path / "s"))
+    st = srv.wait_run(srv.start_run("smoke", driver="fake")["run_id"], timeout_s=60)
+    assert st["status"] == "failed" and [j["status"] for j in st["journeys"]] == ["passed", "passed"]
+    assert st["error"] == "set after: hook cleanup exited 5: still on"
+    assert [(h["phase"], h["status"]) for h in st["hooks"]] == [("before", "passed"), ("after", "failed")]

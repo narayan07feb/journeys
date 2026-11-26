@@ -324,3 +324,8 @@ def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
     capsys.readouterr()
     assert main(["--pack", str(pack_dir), "export", "appium", "open-display", "-o", str(out)]) == 2  # never over it
     assert "NOTE" not in capsys.readouterr().err  # nothing was written, so no notes about it
+
+
+def test_after_cleanup_hooks_are_left_out_with_a_note(pack_dir):
+    pack, j = journey(pack_dir, "after: [note]\nsteps:\n  - expect: SETTINGS-HOME\n")
+    assert any("after: cleanup hooks run only in Journeys" in n for n in export(pack, j)[1])

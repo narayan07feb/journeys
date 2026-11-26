@@ -57,12 +57,20 @@ class Runner:
         self._step_now: Step | None = None
         self._out: JourneyOutcome | None = None
 
-    def run_all(self, journeys: list[Journey]) -> list[JourneyOutcome]:
+    def run_all(self, journeys: list[Journey], target: str | None = None) -> list[JourneyOutcome]:
+        """`target`: the set being run; its before: hooks run once first, its after: hooks always last."""
+        hooks = self.pack.set_hooks(target)
+        outs: list[JourneyOutcome] = []
         try:
-            outs = [self.journey(j) for j in journeys]
+            try:
+                if self._set_hooks("before", hooks.get("before", []), stop_at_failure=True):
+                    outs = [self.journey(j) for j in journeys]
+            finally:  # also after a failed before:, a failed journey, Ctrl-C or a lost link
+                self._set_hooks("after", hooks.get("after", []))
         except BaseException as e:  # a lost link or Ctrl-C: the run ends as failed, never stays "running"
             if self._out is not None and self._out.status == "running":  # live.json and Droid Lite too
-                self._out.status, self._out.message = "failed", self._mask(str(e)) or type(e).__name__
+                stop = self._mask(str(e)) or type(e).__name__  # keep a cleanup error noted before the stop
+                self._out.status, self._out.message = "failed", f"{stop} ({self._out.message})" if self._out.message else stop
                 try:
                     self._publish(self._out)
                 except Exception:  # the stop itself must still be recorded below
@@ -73,7 +81,10 @@ class Runner:
             self.run.data.update(status="failed", ended=time.time(), error=self._mask(str(e)) or type(e).__name__)
             self.run.save()
             raise
-        failed = any(o.status == "failed" for o in outs)
+        bad = [h for h in self.run.data.get("hooks", []) if h["status"] == "failed"]
+        failed = bool(bad) or any(o.status == "failed" for o in outs)
+        if bad:
+            self.run.data["error"] = "; ".join(f"set {h['phase']}: {h['message']}" for h in bad)
         self.run.data.update(status="failed" if failed else "passed", ended=time.time())
         self.run.save()
         return outs
@@ -85,7 +96,17 @@ class Runner:
         steps = j.steps
         if j.launch:
             steps = [Step("do", [{"launch": {"clear_state": True}} if j.clear_state else "launch"], j.line)] + steps
-        self._total = len(steps)
+        self._total = len(steps) + len(j.after)
+        passed = False
+        try:
+            passed = self._steps(j, out, steps)
+        finally:  # cleanup runs whatever happened, so a server flag never stays set
+            self._after(j, out, passed)
+        self._publish(out)
+        return out
+
+    def _steps(self, j: Journey, out: JourneyOutcome, steps: list[Step]) -> bool:
+        """True when every step passed; the journey stays "running" until its after: hooks are done."""
         for i, step in enumerate(steps):
             t0 = time.monotonic()
             self._step_now = step
@@ -110,9 +131,53 @@ class Runner:
                 break
             self._publish(out)
         else:
-            out.status = "passed"
-        self._publish(out)
-        return out
+            return True
+        return False
+
+    def _after(self, j: Journey, out: JourneyOutcome, passed: bool) -> None:
+        """Run every after: hook, even when one fails; a failed one fails a journey that passed."""
+        errors = []
+        for ref in j.after:
+            t0 = time.monotonic()
+            text = f"after: hook {ref}"
+            try:
+                self._hook(self._sub(ref))
+                out.steps.append(StepOutcome(len(out.steps), text, "passed", _ms(t0)))
+            except Exception as e:  # noqa: BLE001  every cleanup gets its turn
+                msg = str(e)  # _hook masks the script's output
+                errors.append(msg)
+                out.steps.append(StepOutcome(len(out.steps), text, "failed", _ms(t0), msg))
+            self._publish(out)  # a slow cleanup shows on the live page too
+        if not errors:
+            if passed:
+                out.status = "passed"
+            return
+        note = "after: " + "; ".join(errors)
+        if passed:
+            out.status, out.message = "failed", note
+            out.failure = self.store.add_failure({
+                "run": self.run.id, "journey": j.name, "step": len(out.steps) - 1, "step_text": "after",
+                "file": str(j.file), "line": j.line, "message": note, "screen": None, "listing": "",
+                "screenshot": None,
+            })
+        else:  # the first failure stays the journey's failure; the cleanup error is added to it
+            out.message = f"{out.message} ({note})" if out.message else note
+
+    def _set_hooks(self, phase: str, refs: list, stop_at_failure: bool = False) -> bool:
+        """A set's before: or after: hooks, recorded in the run. False when one failed."""
+        ok = True
+        for ref in refs:
+            entry = {"phase": phase, "hook": ref, "status": "passed", "message": ""}
+            try:
+                self._hook(self._sub(ref))
+            except Exception as e:  # noqa: BLE001  every after: hook gets its turn
+                entry.update(status="failed", message=str(e))  # _hook masks the script's output
+                ok = False
+            self.run.data.setdefault("hooks", []).append(entry)
+            self.run.save()
+            if not ok and stop_at_failure:
+                break
+        return ok
 
     # steps
     def _step(self, step: Step) -> str | None:
@@ -244,7 +309,7 @@ class Runner:
         name, args = (arg, {}) if isinstance(arg, str) else (arg.get("name"), arg.get("args") or {})
         p = self._script(self.pack.hooks[name], args)
         if p.returncode != 0:
-            raise StepFailed(f"hook {name} exited {p.returncode}: {(p.stderr or p.stdout).strip()[-300:]}")
+            raise StepFailed(f"hook {name} exited {p.returncode}: {self._mask((p.stderr or p.stdout).strip())[-300:]}")
 
     def _event(self, arg) -> None:
         p = self._script(self.pack.events, arg)

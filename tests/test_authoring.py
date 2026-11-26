@@ -155,6 +155,15 @@ def test_journeys_differing_only_in_start_are_not_duplicates(pack_dir):
     promote_journey(Pack.load(pack_dir), "fresh")
 
 
+def test_journeys_differing_only_in_after_are_not_duplicates(pack_dir):
+    from journeys.authoring import promote_journey
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "clean.yaml").write_text((pack_dir / "journeys" / "display.yaml").read_text()
+                                  .replace("open-display", "clean").replace("tags:", "after: [note]\ntags:"))
+    promote_journey(Pack.load(pack_dir), "clean")
+
+
 def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_dir, tmp_path, capsys):
     from journeys.detect import init_pack
     from journeys.heal import apply
@@ -347,7 +356,7 @@ def test_odd_pack_yaml_shapes_are_errors_not_crashes(pack_dir, capsys):
     (d / "h.yaml").write_text("name: h\nsteps:\n  - hook: {name: [x]}\n")
     assert cli(pack_dir, "validate") == 1
     out = capsys.readouterr().out
-    assert "screens is a map" in out and "`all` is every journey" in out and "hook ['x']" in out
+    assert "screens is a map" in out and "`all` is every journey" in out and "a hook is a name or {name: ..., args: {...}}, not {'name': ['x']}" in out
 
 
 def test_draft_hint_list_drafts_and_odd_selectors(pack_dir, capsys):

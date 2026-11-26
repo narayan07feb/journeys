@@ -7,6 +7,8 @@ from pathlib import Path
 from . import yamlio
 from .actions import BARE, FOREIGN
 
+YAML_WORDS = "YAML reads a bare on, off, yes or no as true or false: quote it"
+
 KINDS = ("expect", "goto", "see", "not_see", "do", "input", "hook", "event")
 
 
@@ -29,6 +31,7 @@ class Journey:
     launch: bool = True
     clear_state: bool = False
     line: int = 1
+    after: list = field(default_factory=list)  # hooks run when the journey ends, passed or failed
 
 
 def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
@@ -54,6 +57,16 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
         if not isinstance(tags, list):
             errors.append(f"{yamlio.where(path, item)}: tags is a list, like [smoke], not {tags!r}")
             tags = []
+        if "before" in item:  # setup is a hook: step at the start, or a set's before:
+            errors.append(f"{yamlio.where(path, item)}: a journey has no before:; start its steps with a "
+                          "hook: step, or put the hook in a set's before: (sets.yaml)")
+        after = yamlio.strip_lines(item.get("after"))
+        if after is None:
+            after = []
+        elif not isinstance(after, list):
+            hint = f" ({YAML_WORDS})" if isinstance(after, bool) else ""
+            errors.append(f"{yamlio.where(path, item)}: after is a list of hooks, like [reset_flag], not {after!r}{hint}")
+            after = []
         if not isinstance(item.get("steps") or [], list):
             errors.append(f"{yamlio.where(path, item)}: steps is a list of steps")
             continue
@@ -84,6 +97,6 @@ def load_journeys(path: Path) -> tuple[list[Journey], list[str]]:
             out.append(Journey(
                 str(item["name"]), path, steps, [str(t) for t in tags],
                 bool(start.get("launch", True)), bool(start.get("clear_state", False)),
-                item.get(yamlio.LINE, 1),
+                item.get(yamlio.LINE, 1), after,
             ))
     return out, errors

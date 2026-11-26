@@ -17,6 +17,14 @@ A heal, for an agent: read `failure(id)`. Its `options` list each tap on the fai
 where it led; `proposal` names the fix it suggests. Promote it when it is the step the journey
 means; else reject it with the reason and edit the pack by hand.
 
+A run of a set with `before:`/`after:` hooks records each hook's result in the run (`hooks`); a
+failed one fails the run and shows in `run_status` as its `error`. In Droid Lite the set's case shows
+the failed hook, and after a failed `before:` each journey shows "not run".
+
+Server setup: an agent that adds a journey needing a flag or a test user follows
+`skills/journeys/references/backend-setup.md`. It writes and tests the hook scripts with the team,
+and tests a hook only after the team says yes.
+
 ## Tracker: what agents did
 
 Every draft, import, promote-journey, proposal decision and MCP tool call is logged in the state

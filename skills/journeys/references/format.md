@@ -28,6 +28,8 @@ accounts:
   main: {user: SHOP_USER, password: SHOP_PASSWORD}   # ${SHOP_USER} or ${main.user}; values from env only
 hooks:
   new_user: [python3, hooks/new_user.py]   # argv; the step's args are added as one JSON text
+  set_flag: [hooks/set_flag.sh]            # a script named first must be executable (chmod +x)
+  reset_flag: [hooks/reset_flag.sh]        # cleanup, for after:
 events:
   check: [hooks/check_event.sh]            # prints {"fired": true} when the event was seen
 tap_all:
@@ -97,6 +99,7 @@ Selector (SEL), for actions and for `see`/`not_see` steps:
 name: buy-one                  # required; lowercase words with dashes; unique in the pack
 tags: [smoke]                  # optional; sets can pick by tag
 start: {launch: true, clear_state: false}   # optional; this is the default
+after: [{name: reset_flag, args: {flag: x}}]  # optional; hooks run when the journey ends, passed or failed
 steps:                         # required; each step is ONE of:
   - expect: HOME               # this screen must show (retries while the app settles)
   - goto: CART                 # walk the map's edges to this screen, then check it
@@ -116,6 +119,8 @@ steps:                         # required; each step is ONE of:
 - After `do`, `input` or `hook` the screen is unknown again until the next `expect`/`goto`.
 - `${NAME}` works in any step text for names declared in `env:` or `accounts:`; an undeclared
   name is a validate error.
+- `after:` hooks (a name or `{name, args}`) all run, even when one fails, also after a stop. A
+  failed one fails a journey that passed. Server setup: `backend-setup.md`.
 
 ## Sets (sets.yaml)
 
@@ -123,6 +128,10 @@ steps:                         # required; each step is ONE of:
 sets:
   smoke: {tags: [smoke]}
   nightly: {journeys: [buy-one, refund]}
+  flagged:                     # before: once first; after: once at the end, always
+    tags: [flag]               # (only when this set is the run target)
+    before: [{name: set_flag, args: {flag: x, enabled: true}}]
+    after: [{name: reset_flag, args: {flag: x}}]
 ```
 
 `journeys run smoke`, `journeys run all`. Drafts are never in a set or in `all`.
