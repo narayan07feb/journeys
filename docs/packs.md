@@ -249,6 +249,11 @@ stdout; `-o` never writes over a file. Each line about a part that could not be 
 
 What both exports do:
 
+- Maestro only: each text and id selector starts with `(?-ims)`. Maestro matches selectors without
+  case, with `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so
+  the flow matches what the journey matches. Import drops it again. `press: search` is refused
+  (Maestro has no Search key).
+
 - The whole journey runs at once, as one test. There are no detours, no explore and no proposals:
   those need Journeys.
 - `goto` follows the map's path from the last `expect` or `goto` screen. With no such screen, or

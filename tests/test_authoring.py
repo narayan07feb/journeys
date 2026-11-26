@@ -52,10 +52,10 @@ def test_export_to_maestro_and_import_back(pack_dir, tmp_path, capsys):
     assert flow[0] == {"appId": "com.android.settings"}
     cmds = flow[1]
     assert cmds[0] == "launchApp"
-    assert {"assertVisible": {"text": ".*(?:^Network & internet).*"}} in cmds  # expect SETTINGS-HOME
-    assert {"tapOn": "Display.*"} in cmds                            # goto via the map's edges
+    assert {"assertVisible": {"text": "(?-ims).*(?:^Network & internet).*"}} in cmds  # expect SETTINGS-HOME
+    assert {"tapOn": "(?-ims)Display.*"} in cmds                            # goto via the map's edges
     assert "back" not in cmds  # the last goto follows a `do`: the screen is unknown, so it is left out
-    assert {"scrollUntilVisible": {"element": {"text": "Dark theme.*"}, "direction": "DOWN"}} in cmds
+    assert {"scrollUntilVisible": {"element": {"text": "(?-ims)Dark theme.*"}, "direction": "DOWN"}} in cmds
     assert cli(pack_dir, "export", "maestro", "android-version") == 0
     assert "hook steps run only in Journeys" in capsys.readouterr().err
 
@@ -320,10 +320,14 @@ def test_names_variables_empty_do_and_import_header(pack_dir, tmp_path, capsys):
         {"do": [{"tap": {"id": "com.android.settings:id/search_action_bar"}}, "stop"]}]
     assert any("header onFlowStart" in n for n in notes) and any("header env" in n for n in notes)
     assert any("command 4" in n and "clearState" not in n.split(":", 1)[1].split("only")[1] for n in notes)
+    from journeys.actions import ActionError
     from journeys.formats.maestro import export
     (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: search}]\n")
-    _, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
-    assert any("search/tab" in n for n in notes)
+    with pytest.raises(ActionError, match="Maestro has no Search key"):  # cli-2.12.1 KeyCode has no Search
+        export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
+    (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: tab}]\n")
+    flow, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
+    assert "pressKey: Tab" in flow and not notes  # Tab is a Maestro key
 
 
 def test_edge_variables_get_their_value(pack_dir, monkeypatch):
@@ -674,3 +678,13 @@ def test_import_warns_that_typed_text_may_be_a_secret(tmp_path):
     f.write_text("appId: com.x.y\n---\n- launchApp\n- inputText: hunter2\n")
     draft, notes = import_flow(f)
     assert any("move it to env:" in n for n in notes) and not any("hunter2" in n for n in notes)
+
+
+def test_an_exported_flow_imports_back_without_the_case_flag(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    pack = Pack.load(pack_dir)
+    flow, _ = export(pack, pack.journeys["open-display"])
+    assert "(?-ims)" in flow
+    (tmp_path / "f.yaml").write_text(flow)
+    draft, _ = import_flow(tmp_path / "f.yaml", pack.app)
+    assert "(?-ims)" not in str(draft) and "Dark theme.*" in str(draft)

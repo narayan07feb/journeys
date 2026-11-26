@@ -57,6 +57,14 @@ def test_tap_by_text_id_and_regex_then_back(drv):
     assert drv.do(["back", {"tapOn": "Help.*"}]).ok and "Help" in texts(drv)
 
 
+def test_text_and_ids_match_with_case_on_every_driver(drv):
+    """Maestro alone matches without case by default (cli-2.12.1 Orchestra REGEX_OPTIONS); the driver turns it off."""
+    assert not drv.do([{"tapOn": "NEXT"}]).ok and "Welcome" in texts(drv)
+    assert not drv.do([{"tapOn": {"id": "NEXT"}}]).ok
+    assert not drv.do([{"assertVisible": "welcome"}]).ok
+    assert drv.do([{"assertNotVisible": "WELCOME"}]).ok
+
+
 def test_a_missing_element_fails_the_command(drv):
     res = drv.do([{"tapOn": "Nope"}])
     assert not res.ok and "Nope" in res.message
@@ -170,7 +178,7 @@ def test_maestro_driver_writes_maestro_selectors(tmp_path):
     d._run = run
     d.start("com.example.app", "R")
     d.do(["launchApp", {"scrollUntilVisible": {"element": "Next", "direction": "DOWN"}}])
-    assert "element:\n      text: Next" in flows[-1]
+    assert "element:\n      text: (?-ims)Next" in flows[-1]
 
 def test_unreadable_maestro_hierarchy_is_a_driver_error(tmp_path):
     import subprocess

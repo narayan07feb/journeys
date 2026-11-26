@@ -26,7 +26,7 @@ def test_it_never_starts_on_a_device_the_pack_does_not_allow_to_change():
     d = driver(phone)  # allow_changes defaults to emulator; the pretend phone is a real device
     real = d._http
     d._http = lambda *a: calls.append(a) or real(*a)
-    with pytest.raises(DriverError, match="helper apps"):
+    with pytest.raises(DriverError, match="installs its helper apps, sets the hidden API policy .* mock location .* unlocks"):
         d.start("com.example.app", "192.168.0.5:5555")
     assert calls == []  # not even a session request
 

@@ -137,8 +137,10 @@ class AppiumDriver(AdbDriver):
     def start(self, app_id: str, serial: str | None = None) -> None:
         self.app, self.serial = app_id, serial
         if not changes_allowed(self.allow_changes, self, serial):
-            raise DriverError("Appium sets up its helper apps on the device at session start; pack.yaml "
-                              "devices.allow_settings_changes does not allow that on this device")
+            raise DriverError("an Appium session changes the device: it installs its helper apps, sets the "
+                              "hidden API policy (Android 9+), on a phone allows mock location for its settings "
+                              "app (left on) and unlocks it; pack.yaml devices.allow_settings_changes does not "
+                              "allow that on this device")
         caps = {"platformName": "Android", "appium:automationName": "UiAutomator2", "appium:noReset": True,
                 "appium:appPackage": app_id, "appium:autoLaunch": False,
                 # a hook step may run for 300 s with no Appium call: the session must outlive it

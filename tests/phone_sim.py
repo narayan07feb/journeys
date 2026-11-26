@@ -122,9 +122,30 @@ class Phone:
             return subprocess.CompletedProcess(args, 0, json.dumps({"attributes": {}, "children": kids}), "")
         if args[0] == "test":
             flow = Path(args[1]).read_text().split("---\n", 1)[1]
-            res = self.app.do(yaml.safe_load(flow))
+            res = self.app.do([_as_maestro_matches(c) for c in yaml.safe_load(flow)])
             return subprocess.CompletedProcess(args, 0 if res.ok else 1, "", "" if res.ok else res.message)
         raise AssertionError(args)
+
+
+def _as_maestro_matches(cmd):
+    """Maestro matches text and ids with IGNORE_CASE, DOT_MATCHES_ALL and MULTILINE (Orchestra.kt, cli-2.12.1)
+    unless the pattern turns them off with a leading (?-ims), as java.util.regex allows. Python's re has
+    no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims)."""
+    def one(v):
+        return v[len("(?-ims)"):] if v.startswith("(?-ims)") else "(?ims)" + v
+
+    def sel(a):
+        if isinstance(a, str):
+            return one(a)
+        return {k: one(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in a.items()}
+    if not isinstance(cmd, dict) or len(cmd) != 1:
+        return cmd
+    (name, arg), = cmd.items()
+    if name in ("tapOn", "assertVisible", "assertNotVisible"):
+        return {name: sel(arg)}
+    if name == "scrollUntilVisible" and isinstance(arg, dict):
+        return {name: {**arg, "element": sel(arg["element"])}}
+    return cmd
 
 
 def _appium(self, method: str, path: str, body: dict | None = None) -> dict:

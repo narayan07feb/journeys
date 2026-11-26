@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
-from ..drivers.maestro import to_maestro
+from ..drivers.maestro import SAME, to_maestro
 from ..journey import Journey
 from ..pack import Pack
 from . import journey_commands
@@ -21,8 +21,6 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     """A Maestro flow for the journey, and what could not be exported."""
     notes: list[str] = []
     cmds = [to_maestro(c) for c in journey_commands(pack, j, "Maestro", notes)]
-    if any(isinstance(c, dict) and c.get("pressKey") in ("Search", "Tab") for c in cmds):
-        notes.append("press search/tab: check that your Maestro version has this key")
     if "${" in yaml.safe_dump(cmds):
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")
@@ -43,7 +41,13 @@ def _plain(value, what: str) -> str:
     return str(value)
 
 
+def _unsame(v):
+    """A flow Journeys wrote carries SAME in front of its selectors: drop it again."""
+    return v[len(SAME):] if isinstance(v, str) and v.startswith(SAME) else v
+
+
 def _neutral_sel(arg):
+    arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
