@@ -110,7 +110,7 @@ def test_hook_scripts_in_the_pack_must_be_there_and_executable(pack_dir):
     (pack_dir / "hooks" / "plain.sh").write_text("#!/bin/sh\n")  # not executable
     f = pack_dir / "pack.yaml"
     f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  gone: [hooks/gone.sh]\n  plain: [hooks/plain.sh]\n"
-                                       "  py: [python3, hooks/any.py]\n  abs: [/usr/bin/true]\n")
+                                       "  py: [python3, hooks/any.py]\n  abs: [/opt/team-tools/not-on-this-mac.sh]\n")
                  + "events:\n  check: [hooks/check.sh]\n")
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "pack.yaml: hook gone: hooks/gone.sh is not in the pack" in errs
