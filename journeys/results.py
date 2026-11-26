@@ -98,6 +98,13 @@ class Run:
         write_json(self.dir / "run.json", self.data)
 
 
+def set_hook_key(target, phase, ref) -> str:
+    """What a set hook's failure is filed under: a later run where that hook passes fixes it.
+    It has spaces, so it never clashes with a journey name."""
+    name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else ref
+    return f"set {target} {phase} {name}"
+
+
 class Store:
     def __init__(self, root: Path):
         self.root = Path(root)

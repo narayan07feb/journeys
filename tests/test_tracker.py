@@ -388,3 +388,36 @@ def test_round_5_minors(pack_dir, tmp_path):
     (pack_dir / "pack.yaml").write_text("name: [\n")
     out = Server(str(pack_dir), str(tmp_path / "s"))._call("tracker", {})
     assert not out.get("isError")
+
+
+def test_a_failed_set_hook_or_cleanup_is_open_work_until_it_passes_again(pack_dir, monkeypatch, capsys):
+    from journeys.mcp_server import Server
+    (pack_dir / "hooks" / "flaky.sh").write_text('#!/bin/sh\n[ -e "$JOURNEYS_PACK/broken" ] && { echo down >&2; exit 3; }\nexit 0\n')
+    (pack_dir / "hooks" / "flaky.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  flaky: [hooks/flaky.sh]\n"))
+    (pack_dir / "sets.yaml").write_text("sets:\n  smoke: {tags: [smoke], before: [flaky]}\n")
+    (pack_dir / "journeys" / "cl.yaml").write_text("name: cl\nafter: [flaky]\nsteps:\n  - expect: SETTINGS-HOME\n")
+    (pack_dir / "broken").write_text("")
+    monkeypatch.setenv("JOURNEYS_ACTOR", "ci")
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 1
+    assert cli(pack_dir, "run", "cl", "--driver", "fake") == 1
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 1  # fails again: the first one stays open
+    capsys.readouterr()
+    assert cli(pack_dir, "tracker", "--json") == 0
+    q = json.loads(capsys.readouterr().out)["queue"]
+    assert sorted(x["journey"] for x in q["failures"]) == ["cl", "set smoke before flaky", "set smoke before flaky"]
+    assert cli(pack_dir, "failures") == 0
+    assert "set smoke before flaky step 0 (set before: hook flaky): hook flaky exited 3: down" in capsys.readouterr().out
+    t = Server(str(pack_dir), str(pack_dir / "s")).tracker()
+    assert t["queue"]["failures_open"] == 3
+    assert cli(pack_dir, "tracker") == 0
+    assert "work queue: 3 open failures" in capsys.readouterr().out
+    (pack_dir / "broken").unlink()
+    monkeypatch.setenv("JOURNEYS_ACTOR", "fixer-agent")
+    assert cli(pack_dir, "run", "smoke", "--driver", "fake") == 0  # the hook passes again: fixed
+    assert cli(pack_dir, "run", "cl", "--driver", "fake") == 0
+    capsys.readouterr()
+    assert cli(pack_dir, "tracker", "--json") == 0
+    t = json.loads(capsys.readouterr().out)
+    assert t["queue"]["failures"] == [] and t["usage"]["actors"]["fixer-agent"]["solved"] == 2

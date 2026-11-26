@@ -38,7 +38,9 @@ whose shell sets `AI_AGENT` or `CLAUDECODE`; else `person`.
 Agent usage counts drafts (written or imported), journeys built (drafts promoted) and issues
 solved, each issue once: a journey that passed again after failing (one pass is one issue, however
 many failure records the nightly runs left; only a run that started after the failure counts; a
-tap-all crash is fixed by a later clean tap-all that walked every screen with the same `--dka`),
+tap-all crash is fixed by a later clean tap-all that walked every screen with the same `--dka`; a
+failed set `before:`/`after:` hook is a failure named `set <set> <phase> <hook>`, fixed by a later
+run of that set where the hook passes),
 plus failures healed by a promoted proposal and not already counted that way. A promoted detour
 proposal (no failure) counts as a change, not an issue, and is never credited with a fix. A flaky
 journey that passes once between failures counts as fixed by that pass; its next failure opens a new

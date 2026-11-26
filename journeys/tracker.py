@@ -9,7 +9,7 @@ import math
 import time
 from dataclasses import dataclass
 
-from .results import Store
+from .results import Store, set_hook_key
 
 # what counts as building a journey, and as deciding a proposal
 DECIDE = {"proposal.promote", "proposal.reject"}
@@ -88,6 +88,9 @@ def fixes(st: State) -> dict[str, dict]:
         for j in _journeys(r):
             if j.get("status") == "passed" and isinstance(j.get("name"), str):
                 passes.setdefault(j["name"], []).append(p)
+        for h in r.get("hooks") if isinstance(r.get("hooks"), list) else []:  # a set hook that passes again
+            if isinstance(h, dict) and h.get("status") == "passed":
+                passes.setdefault(set_hook_key(r.get("target"), h.get("phase"), h.get("hook")), []).append(p)
     work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
         if a["action"] == "journey.promote" or (a["action"] == "proposal.promote" and a.get("failure")):

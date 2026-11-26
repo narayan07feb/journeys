@@ -13,7 +13,7 @@ from .drivers.base import Driver, DriverError
 from .heal import explore, heading, screen_name
 from .journey import Journey, Step
 from .pack import Pack, substitute
-from .results import Run, Store, mask, set_secrets, write_json
+from .results import Run, Store, mask, set_hook_key, set_secrets, write_json
 
 
 class StepFailed(Exception):
@@ -59,7 +59,7 @@ class Runner:
 
     def run_all(self, journeys: list[Journey], target: str | None = None) -> list[JourneyOutcome]:
         """`target`: the set being run; its before: hooks run once first, its after: hooks always last."""
-        hooks = self.pack.set_hooks(target)
+        hooks, self._target = self.pack.set_hooks(target), target
         outs: list[JourneyOutcome] = []
         try:
             try:
@@ -172,6 +172,10 @@ class Runner:
                 self._hook(self._sub(ref))
             except Exception as e:  # noqa: BLE001  every after: hook gets its turn
                 entry.update(status="failed", message=str(e))  # _hook masks the script's output
+                entry["failure"] = self.store.add_failure({  # so the work queue lists it until it passes again
+                    "run": self.run.id, "journey": set_hook_key(self._target, phase, ref), "step": len(
+                        self.run.data.get("hooks", [])), "step_text": f"set {phase}: hook {ref}", "file": "sets.yaml",
+                    "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
                 ok = False
             self.run.data.setdefault("hooks", []).append(entry)
             self.run.save()
