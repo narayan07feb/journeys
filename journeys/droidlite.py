@@ -121,6 +121,9 @@ def cmd_run(pack: Pack, case_id: str) -> int:
     for h in run.data.get("hooks", []):
         if h["status"] == "failed":
             emit(case=case_id, status="failed", message=f"set {h['phase']}: {h['message']}")
+    for j in journeys[len(outs):]:  # a failed before: runs none of them
+        emit(case=j.name, label=j.name, status="failed", message="not run: a set before: hook failed",
+             file=str(j.file), line=j.line)
     ok = run.data.get("status") == "passed" and all(o.status == "passed" for o in outs)
     if case_id.startswith("set:") or case_id == "all":  # the group's own icon
         emit(case=case_id, status="passed" if ok else "failed")

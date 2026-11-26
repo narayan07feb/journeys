@@ -155,6 +155,15 @@ def test_journeys_differing_only_in_start_are_not_duplicates(pack_dir):
     promote_journey(Pack.load(pack_dir), "fresh")
 
 
+def test_journeys_differing_only_in_after_are_not_duplicates(pack_dir):
+    from journeys.authoring import promote_journey
+    d = pack_dir / "drafts"
+    d.mkdir()
+    (d / "clean.yaml").write_text((pack_dir / "journeys" / "display.yaml").read_text()
+                                  .replace("open-display", "clean").replace("tags:", "after: [note]\ntags:"))
+    promote_journey(Pack.load(pack_dir), "clean")
+
+
 def test_init_packs_take_proposals_and_import_lists_what_it_cannot_carry(pack_dir, tmp_path, capsys):
     from journeys.detect import init_pack
     from journeys.heal import apply

@@ -69,7 +69,8 @@ class Runner:
                 self._set_hooks("after", hooks.get("after", []))
         except BaseException as e:  # a lost link or Ctrl-C: the run ends as failed, never stays "running"
             if self._out is not None and self._out.status == "running":  # live.json and Droid Lite too
-                self._out.status, self._out.message = "failed", self._mask(str(e)) or type(e).__name__
+                stop = self._mask(str(e)) or type(e).__name__  # keep a cleanup error noted before the stop
+                self._out.status, self._out.message = "failed", f"{stop} ({self._out.message})" if self._out.message else stop
                 try:
                     self._publish(self._out)
                 except Exception:  # the stop itself must still be recorded below

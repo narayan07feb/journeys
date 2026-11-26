@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -211,9 +212,11 @@ def test_after_hooks_run_when_a_journey_passes_and_a_failed_one_fails_it(env, pa
     r = Runner(pack, driver, store, run, variables={"FLAG": "dark"}, sleep=lambda s: None)
     ok, dirty = r.run_all([pack.journeys["hk-ok"], pack.journeys["hk-dirty"]])
     assert ok.status == "passed" and ok.steps[-1].text.startswith("after: hook") and ok.steps[-1].status == "passed"
+    assert len(ok.steps) == 3  # launch, expect, after: the live page counts all three
     assert log() == ['{"flag": "dark"}', '{"x": "fail"}', '{"x": "second"}']  # every cleanup ran, in order
     assert dirty.status == "failed" and dirty.message == "after: hook log exited 4: flag still on"
     assert [s.status for s in dirty.steps[-2:]] == ["failed", "passed"]
+    assert json.loads((store.root / "live.json").read_text())["step"] == "4 of 4"
     f = store.failure(dirty.failure)
     assert f["journey"] == "hk-dirty" and f["step_text"] == "after" and "flag still on" in f["message"]
     assert store.run(run.id)["status"] == "failed"
@@ -302,3 +305,16 @@ def test_set_after_runs_on_a_stop(env, pack_dir):
     with pytest.raises(KeyboardInterrupt):
         Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all(pack.select("flagged"), "flagged")
     assert log() == ['{"set": "on"}', '{"set": "off"}'] and store.run(run.id)["status"] == "failed"
+
+
+def test_a_stop_keeps_a_failed_cleanup_in_the_message(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-stop\n  after: [{name: log, args: {x: fail}}]\n  steps:\n" + GOOD)
+
+    def stop(*a, **k):
+        raise KeyboardInterrupt("stopped")
+    driver.do = stop
+    with pytest.raises(KeyboardInterrupt):
+        Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all([pack.journeys["hk-stop"]])
+    (j,) = store.run(run.id)["journeys"]
+    assert j["status"] == "failed" and j["message"] == "stopped (after: hook log exited 4: flag still on)"

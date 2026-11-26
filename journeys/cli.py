@@ -250,8 +250,7 @@ def cmd_run(args) -> int:
         run = store.new_run(args.run_id, pack=pack.name, target=args.target, driver=args.driver,
                             serial=args.serial)
         print(f"run {run.id}: {len(journeys)} journeys, results in {run.dir}")
-        outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(
-            journeys, None if args.draft else args.target)
+        outs = Runner(pack, driver, store, run, serial=args.serial, heal=not args.no_heal).run_all(journeys, args.target)
     except BaseException as e:  # a stop before the runner took over (its own stops end the run itself)
         if run is not None and run.data.get("status") == "running":
             run.data.update(status="failed", ended=time.time(), error=str(e) or type(e).__name__)

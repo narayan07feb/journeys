@@ -112,7 +112,7 @@ def test_an_app_module_with_a_benchmark_build_type_still_counts(tmp_path):
 def test_init_writes_server_setup_hooks_the_team_names(tmp_path, capsys, monkeypatch):
     dest = tmp_path / "p"
     assert main(["--pack", str(dest), "init", "--app", "com.a", "--driver", "maestro",
-                 "--server-hook", "set_flag", "--server-hook", "new_user"]) == 0
+                 "--server-hook", "set_flag", "--server-hook", "new_user", "--server-hook", "set_flag"]) == 0
     pack = Pack.load(dest)
     assert pack.errors == [] and pack.hooks == {"set_flag": ["hooks/set_flag.sh"], "new_user": ["hooks/new_user.sh"]}
     stub = dest / "hooks" / "set_flag.sh"

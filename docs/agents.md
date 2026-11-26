@@ -18,7 +18,8 @@ where it led; `proposal` names the fix it suggests. Promote it when it is the st
 means; else reject it with the reason and edit the pack by hand.
 
 A run of a set with `before:`/`after:` hooks records each hook's result in the run (`hooks`); a
-failed one fails the run and shows in `run_status` as its `error`.
+failed one fails the run and shows in `run_status` as its `error`. In Droid Lite the set's case shows
+the failed hook, and after a failed `before:` each journey shows "not run".
 
 Server setup: an agent that adds a journey needing a flag or a test user follows
 `skills/journeys/references/backend-setup.md`. It writes and tests the hook scripts with the team,
