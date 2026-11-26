@@ -292,9 +292,10 @@ class AppiumDriver(AdbDriver):
                     if old.error not in ("unknown command", "unknown method"):
                         raise
                     self._mobile("hideKeyboard")
-            except AppiumError as e:  # Appium says no keyboard is up: nothing to hide
-                if e.fatal or "keyboard" not in e.detail.lower():  # the server's words, not the route's
-                    raise  # a dead session or any other error still fails
+            except AppiumError as e:  # an older Appium says no keyboard is up: nothing to hide
+                d = e.detail.lower()  # the server's words, not the route's
+                if e.fatal or "keyboard" not in d or "cannot be hidden" in d:  # appium-adb: still shown
+                    raise  # a dead session, a keyboard that stays up, or any other error still fails
         elif name == "scroll":
             self._swipe(up=True)
         elif name == "scrollUntilVisible":

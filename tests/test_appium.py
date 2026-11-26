@@ -295,6 +295,9 @@ def test_round_2_an_expired_session_is_never_hidden():
         d.do([{"inputText": "x"}])
     d._http = lambda m, p, b=None: http(m, p, b, "500 Soft keyboard not present")
     assert d.do(["hideKeyboard"]).ok
+    d._http = lambda m, p, b=None: http(m, p, b, "500 The software keyboard cannot be hidden")  # appium-adb 17
+    with pytest.raises(AppiumError, match="cannot be hidden"):
+        d.do(["hideKeyboard"])  # a keyboard that stays up is a failure, never "nothing to hide"
 
 
 def test_round_2_not_see_waits_for_the_element_to_go():

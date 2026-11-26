@@ -285,7 +285,7 @@ Appium (a WebdriverIO mocha spec):
   number of steps (mocha's default 60 s is too short for most journeys).
 - Keys and `erase` use `mobile: pressKey`; `launch` with `clear_state` uses `mobile: clearApp`;
   `hide_keyboard` uses the old route, else `mobile: hideKeyboard`, and no keyboard up is nothing to
-  hide. An expired session (WebdriverIO's `invalid session id`) fails the step at once; a page source that cannot be read is read again until
+  hide; a keyboard that "cannot be hidden" fails the step. An expired session (WebdriverIO's `invalid session id`) fails the step at once; a page source that cannot be read is read again until
   the wait ends.
 - Typed `${NAME}` is read from the environment when the spec runs (an account field from its env
   var), so the value is never in the file. A `${NAME}` in a selector is refused: write the value, or

@@ -181,6 +181,8 @@ def test_hide_keyboard_falls_back_to_the_mobile_command_and_no_keyboard_is_nothi
     for app in (APP, {**APP, "old_routes": False}):
         calls, verdict = run(tmp_path, spec, app=app)
         assert verdict == "PASS" and [c for c in calls if c[0] == "hideKeyboard"] == [["hideKeyboard"]], app
+    calls, verdict = run(tmp_path, spec, app={**APP, "stuck_keyboard": True})
+    assert verdict.startswith("FAIL") and "cannot be hidden" in verdict  # a keyboard that stays up fails
 
 
 @needs_node
