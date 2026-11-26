@@ -106,17 +106,29 @@ def test_nested_args_keys_and_hook_step_maps_follow_one_rule(pack_dir):
     assert "hk.yaml:4: a hook is a name or {name: ..., args: {...}}, not {'name': 'note', 'arg': {'x': 1}}" in errs
 
 
+def _uses(pack_dir, names, event=False):
+    """A journey that calls each hook (a declared script nothing calls is never checked)."""
+    steps = "".join(f"    - hook: {n}\n" for n in names) + ("    - event: opened\n" if event else "")
+    (pack_dir / "journeys" / "uses.yaml").write_text(f"name: uses\nsteps:\n{steps}")
+
+
 def test_hook_scripts_in_the_pack_must_be_there_and_executable(pack_dir):
     (pack_dir / "hooks" / "plain.sh").write_text("#!/bin/sh\n")  # not executable
     f = pack_dir / "pack.yaml"
     f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  gone: [hooks/gone.sh]\n  plain: [hooks/plain.sh]\n"
-                                       "  py: [python3, hooks/any.py]\n  abs: [/opt/team-tools/not-on-this-mac.sh]\n")
+                                       "  py: [python3, hooks/any.py]\n  abs: [/opt/team-tools/not-on-this-mac.sh]\n"
+                                       "  unused: [hooks/never-written.sh]\n")
                  + "events:\n  check: [hooks/check.sh]\n")
+    _uses(pack_dir, ["gone", "plain", "py", "abs"], event=True)
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "pack.yaml: hook gone: hooks/gone.sh is not in the pack" in errs
-    assert "pack.yaml: hook plain: hooks/plain.sh is not executable (chmod +x hooks/plain.sh" in errs
+    assert ("pack.yaml: hook plain: hooks/plain.sh is not executable (chmod +x hooks/plain.sh, or name its "
+            "interpreter first, like [sh, hooks/plain.sh])") in errs
     assert "pack.yaml: events.check: hooks/check.sh is not in the pack" in errs
     assert "hook py" not in errs and "hook abs" not in errs and "hook note" not in errs
+    assert "unused" not in errs  # declared, never called: it never stops a run
+    _uses(pack_dir, ["plain"])
+    assert "events.check" not in "\n".join(Pack.load(pack_dir).errors)  # no event: step, no check
 
 
 def test_hook_script_paths_like_the_runner_finds_them(pack_dir):
@@ -125,12 +137,16 @@ def test_hook_script_paths_like_the_runner_finds_them(pack_dir):
     (h / "ok.sh").chmod(0o755)
     (pack_dir / "run.sh").write_text("#!/bin/sh\n")  # bare name, a file in the pack: the runner runs it
     (h / "dir").mkdir()
+    (pack_dir / "node").mkdir()  # a bare name that is a folder: the runner runs the program on PATH
     f = pack_dir / "pack.yaml"
     f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  ok: [./hooks/ok.sh]\n  bare: [run.sh]\n"
-                                       "  folder: [hooks/dir]\n  home: [~/tools/x.sh]\n")
+                                       "  folder: [hooks/dir]\n  home: [~/tools/x.sh]\n  var: [$FLAGS_TOOL/x.sh]\n"
+                                       "  prog: [node, hooks/x.js]\n")
                  + "events:\n  check: [hooks/ok.sh]\n")
+    _uses(pack_dir, ["ok", "bare", "folder", "home", "var", "prog"], event=True)
     errs = "\n".join(Pack.load(pack_dir).errors)
-    assert "hook ok" not in errs and "events.check" not in errs  # there and executable: fine
+    assert "hook ok" not in errs and "events.check" not in errs and "hook prog" not in errs
     assert "hook bare: run.sh is not executable" in errs
     assert "hook folder: hooks/dir is a folder, not a script" in errs
     assert "hook home: ~/tools/x.sh is not in the pack (no ~ or $NAME here" in errs
+    assert "hook var: $FLAGS_TOOL/x.sh is not in the pack (no ~ or $NAME here" in errs

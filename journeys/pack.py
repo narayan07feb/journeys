@@ -58,7 +58,7 @@ def _script_errors(root: Path, at: str, first: str) -> list[str]:
     there and executable; another bare name (python3) is a program on PATH and an absolute path is
     the machine's, so neither is checked."""
     f = root / first
-    if Path(first).is_absolute() or ("/" not in first and not f.exists()):
+    if Path(first).is_absolute() or ("/" not in first and not f.is_file()):
         return []
     if f.is_dir():
         return [f"{at}: {first} is a folder, not a script"]
@@ -160,17 +160,12 @@ class Pack:
                 del accounts[acc]
         events = shaped("events", dict, "a map with check: [command]")
         check = events.get("check")
-        check_ok = isinstance(check, list) and check and all(isinstance(a, str) for a in check)
-        if check is not None and not check_ok:
+        if check is not None and not (isinstance(check, list) and check and all(isinstance(a, str) for a in check)):
             errors.append(f"{pf}: events.check is a command list like [hooks/check.sh], not {check!r}")
             events = {}
         for name, argv in (raw.get("hooks") or {}).items() if isinstance(raw.get("hooks"), dict) else []:
             if not (isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv)):
                 errors.append(f"{pf}: hook {name} is a command list like [hooks/{name}.sh], not {argv!r}")
-            else:
-                errors += _script_errors(root, f"{pf}: hook {name}", argv[0])
-        if check_ok:
-            errors += _script_errors(root, f"{pf}: events.check", check[0])
         p = cls(
             root, str(raw["name"]), str(raw["app"]), str(raw.get("driver") or ""),
             _argvs(shaped("build", list, "a list of commands"), "build", pf, errors),
@@ -259,6 +254,8 @@ class Pack:
 
     def _check(self) -> None:
         declared = self.declared()
+        self._used: set[str] = set()  # hooks a step, after: or before: names (only those must be runnable)
+        events_used = False
         for e in self.map.edges:
             for name in sorted(set(_names(e.do)) - declared):
                 self.errors.append(f"map/edges.yaml: edge {e.src} -> {e.dst} uses ${{{name}}}, which pack.yaml does "
@@ -299,6 +296,7 @@ class Pack:
                     self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
                     self._check_hook_ref(at, s.arg, None)
+                events_used = events_used or s.kind == "event"
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
         for j in [*self.journeys.values(), *self.drafts.values()]:
@@ -327,6 +325,11 @@ class Pack:
                     self.errors.append(f"sets.yaml: set {name} names unknown journey {jn}")
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
+        pf = "pack.yaml"  # a declared script nothing calls never stops a run
+        for name in sorted(self._used):
+            self.errors += _script_errors(self.root, f"{pf}: hook {name}", self.hooks[name][0])
+        if events_used and self.events:
+            self.errors += _script_errors(self.root, f"{pf}: events.check", self.events[0])
 
     def _check_hook_ref(self, at: str, ref, declared: set[str] | None) -> None:
         """An after: or before: entry: a hook name, or {name: ..., args: {...}}, like a hook step."""
@@ -337,6 +340,8 @@ class Pack:
             self.errors.append(f"{at}: a hook is a name or {{name: ..., args: {{...}}}}, not {ref!r}{hint}")
         elif name not in self.hooks:
             self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
+        else:
+            self._used.add(name)
         self._check_hook_args(at, ref)
         for var in sorted(set(_names(ref)) - declared) if declared is not None else []:  # a step checks its own
             self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")

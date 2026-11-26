@@ -53,7 +53,8 @@ script). Never guess the tool and never name one in a public example.
    `start: {launch: false}`, put the setup `hook:` first, then `do: [launch]` (or
    `do: [{launch: {clear_state: true}}]`), as in the example below. A setup the app reads later
    (a test user to log in with) can be any step before it is needed. When many journeys share the
-   state, use the set's `before:` instead (it runs before any journey launches the app). Put the
+   state, use the set's `before:` instead (it runs before any journey launches the app, but only
+   when the set is the run target, not for one journey or a draft). Put the
    cleanup in the journey's `after:` (or the set's `after:`).
    Run `journeys --pack P validate` until it prints `OK`.
 7. **Test once, only after the team says yes.** It changes a real server. A draft run changes it
