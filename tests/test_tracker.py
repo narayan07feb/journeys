@@ -472,3 +472,39 @@ def test_a_set_hook_failure_closes_only_on_the_same_call_and_leaves_when_the_hoo
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_a_broken_sets_yaml_keeps_every_set_hook_failure(pack_dir, monkeypatch, capsys):
+    from journeys.results import set_hook_key
+    from journeys.tracker import summary
+    assert set_hook_key("s", "before", {"name": "x", "args": {1: "a", "b": {2: "c", "d": [{3: 4, "e": 5}]}}}).startswith(
+        "set s before x #")  # mixed key types never stop a run
+    store = Store(pack_dir / "s")
+    run = store.new_run(target="smoke")
+    store.add_failure({"run": run.id, "journey": "set smoke before note", "step": 0, "message": "down"})
+    sets = pack_dir / "sets.yaml"
+    for broken in ("sets:\n  smoke: {tags: [smoke], before: [note]\n",       # mid-edit: unclosed brace
+                   "sets:\n  smoke: {tags: [smoke], before: [note], journeys: [1]}\n"):  # a bad set
+        sets.write_text(broken)
+        assert Pack.load(pack_dir).set_hook_keys() is None
+        assert summary(store, [], Pack.load(pack_dir).set_hook_keys())["queue"]["failures_open"] == 1
+    sets.write_text("sets:\n  smoke: {tags: [smoke]}\n")
+    assert summary(store, [], Pack.load(pack_dir).set_hook_keys())["queue"]["failures_open"] == 0
+
+
+def test_a_run_where_the_same_call_also_failed_fixes_nothing(pack_dir):
+    from journeys.tracker import summary
+    store = Store(pack_dir / "s")
+    first = store.new_run(target="smoke")
+    store.add_failure({"run": first.id, "journey": "set smoke after x", "step": 0, "message": "down"})
+    first.data.update(status="failed", ended=first.data["started"] + 1)
+    first.save()
+    import time
+    time.sleep(0.01)
+    later = store.new_run(target="smoke")  # the same call twice: one passed, one failed
+    later.data.update(status="failed", ended=later.data["started"] + 1, hooks=[
+        {"phase": "after", "hook": "x", "key": "set smoke after x", "status": "passed", "message": ""},
+        {"phase": "after", "hook": "x", "key": "set smoke after x", "status": "failed", "message": "down"},
+        {"phase": "after", "hook": "x", "status": "passed", "message": ""}])  # an older entry with no key
+    later.save()
+    assert summary(store, [])["queue"]["failures_open"] == 1

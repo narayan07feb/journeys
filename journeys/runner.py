@@ -174,10 +174,13 @@ class Runner:
                 self._hook(self._sub(ref))
             except Exception as e:  # noqa: BLE001  every after: hook gets its turn
                 entry.update(status="failed", message=str(e))  # _hook masks the script's output
-                entry["failure"] = self.store.add_failure({  # so the work queue lists it until it passes again
-                    "run": self.run.id, "journey": entry["key"], "step": len(self.run.data.get("hooks", [])),
-                    "step_text": f"set {phase}: hook {ref}", "file": str(self.pack.root / "sets.yaml"),
-                    "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
+                try:  # so the work queue lists it until it passes again
+                    entry["failure"] = self.store.add_failure({
+                        "run": self.run.id, "journey": entry["key"], "step": len(self.run.data.get("hooks", [])),
+                        "step_text": f"set {phase}: hook {ref}", "file": str(self.pack.root / "sets.yaml"),
+                        "line": None, "message": entry["message"], "screen": None, "listing": "", "screenshot": None})
+                except Exception as w:  # noqa: BLE001  a full disk must not skip the next hooks
+                    entry["message"] += f" (failure record not written: {w})"
                 ok = False
             self.run.data.setdefault("hooks", []).append(entry)
             self.run.save()

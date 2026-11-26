@@ -99,13 +99,20 @@ class Run:
         write_json(self.dir / "run.json", self.data)
 
 
+def _text_keys(v):
+    """Map keys as text, at any depth, so sorting them never fails on mixed types ({1: a, b: 2})."""
+    if isinstance(v, dict):
+        return {str(k): _text_keys(x) for k, x in v.items()}
+    return [_text_keys(x) for x in v] if isinstance(v, list) else v
+
+
 def set_hook_key(target, phase, ref) -> str:
     """What a set hook's failure is filed under: a later run where the same call passes fixes it.
     Its args are part of it (as a short hash, so no value shows), and it has spaces, so it never
     clashes with a journey name."""
     name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else ref
     args = ref.get("args") if isinstance(ref, dict) else None
-    tag = f" #{hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode()).hexdigest()[:8]}" if args else ""
+    tag = f" #{hashlib.sha256(json.dumps(_text_keys(args), sort_keys=True, default=str).encode()).hexdigest()[:8]}" if args else ""
     return f"set {target} {phase} {name}{tag}"
 
 

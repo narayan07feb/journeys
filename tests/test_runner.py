@@ -364,3 +364,17 @@ def test_a_journey_shows_passed_only_after_its_cleanup(env, pack_dir):
     ok = [s for n, s in seen if n == "hk-ok"]
     assert ok[-1] == "passed" and "passed" not in ok[:-1]
     assert "passed" not in [s for n, s in seen if n == "hk-dirty"]
+
+
+def test_a_failure_record_that_cannot_be_written_never_skips_the_next_hooks(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-a\n  steps:\n" + GOOD + "- name: hk-b\n  steps:\n" + GOOD,
+                           SETS.replace("after: [{name: log, args: {set: 'off'}}]",
+                                        "after: [{name: log, args: {x: fail}}, {name: log, args: {set: 'off'}}]"))
+
+    def full_disk(*a, **k):
+        raise OSError("no space left")
+    store.add_failure = full_disk
+    Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all(pack.select("flagged"), "flagged")
+    assert log()[-1] == '{"set": "off"}'  # the after: hook after the failed one still ran
+    assert "(failure record not written: no space left)" in store.run(run.id)["hooks"][1]["message"]

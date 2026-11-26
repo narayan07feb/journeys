@@ -88,9 +88,11 @@ def fixes(st: State) -> dict[str, dict]:
         for j in _journeys(r):
             if j.get("status") == "passed" and isinstance(j.get("name"), str):
                 passes.setdefault(j["name"], []).append(p)
-        for h in r.get("hooks") if isinstance(r.get("hooks"), list) else []:  # a set hook that passes again
-            if isinstance(h, dict) and h.get("status") == "passed" and isinstance(h.get("key"), str):
-                passes.setdefault(h["key"], []).append(p)  # the key the failure was filed under
+        hooks = [h for h in r.get("hooks") if isinstance(h, dict)] if isinstance(r.get("hooks"), list) else []
+        failed = {h.get("key") for h in hooks if h.get("status") != "passed"}  # the same call twice: both must pass
+        for h in hooks:  # a set hook that passes again, under the key its failure was filed under
+            if isinstance(h.get("key"), str) and h["key"] not in failed:
+                passes.setdefault(h["key"], []).append(p)
     work: dict[str, list[dict]] = {}  # failure id or journey name -> promotes, by time (a reject fixes nothing)
     for a in st.activity:
         if a["action"] == "journey.promote" or (a["action"] == "proposal.promote" and a.get("failure")):
