@@ -133,3 +133,12 @@ def test_init_writes_server_setup_hooks_the_team_names(tmp_path, capsys, monkeyp
 def test_init_without_a_terminal_asks_nothing_about_servers(tmp_path):
     assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.a", "--driver", "maestro"]) == 0
     assert Pack.load(tmp_path / "p").hooks == {} and not (tmp_path / "p" / "hooks").exists()
+
+
+def test_init_asks_about_servers_only_when_it_can_write_the_pack(tmp_path, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("asked")))
+    (tmp_path / "p" / "map").mkdir(parents=True)
+    (tmp_path / "p" / "map" / "screens.yaml").write_text("screens:\n")
+    assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.a", "--driver", "maestro"]) == 2
+    assert main(["--pack", str(tmp_path / "q"), "init", "--app", "not a package", "--driver", "maestro"]) == 2

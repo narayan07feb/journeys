@@ -318,3 +318,12 @@ def test_a_stop_keeps_a_failed_cleanup_in_the_message(env, pack_dir):
         Runner(pack, driver, store, run, variables={}, sleep=lambda s: None).run_all([pack.journeys["hk-stop"]])
     (j,) = store.run(run.id)["journeys"]
     assert j["status"] == "failed" and j["message"] == "stopped (after: hook log exited 4: flag still on)"
+
+
+def test_each_cleanup_shows_on_the_live_page(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, log = _log_hooks(pack_dir, "- name: hk-two\n  after: [log, log]\n  steps:\n" + GOOD)
+    seen = []
+    Runner(pack, driver, store, run, variables={}, sleep=lambda s: None,
+           on_update=lambda o: seen.append(len(o.steps))).run_all([pack.journeys["hk-two"]])
+    assert 3 in seen and 4 in seen  # after the first and the second after: hook

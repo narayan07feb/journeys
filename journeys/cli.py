@@ -424,7 +424,7 @@ def cmd_init(args) -> int:
             from .detect import pick, scan
             hint = pick(scan(project, strict=not args.app)[0])[1] if project else "no --project given"
             args.driver = ask_driver(f"a hint only, never a choice: {hint}")
-        hooks = args.server_hook if args.server_hook is not None else ask_server_hooks()
+        hooks = args.server_hook if args.server_hook is not None else ask_server_hooks  # asked last
         lines = init_pack(dest, project, args.name or dest.name, args.app, args.driver, hooks)
     except (FileExistsError, FileNotFoundError, ValueError) as e:
         raise PackError(str(e)) from None

@@ -35,7 +35,8 @@ script). Never guess the tool and never name one in a public example.
 3. **Find where the key lives.** Ask which env var holds the token or key (for example
    `FLAGS_TOKEN`). Add that name to `pack.yaml` `env:`. This is required, not optional: Journeys
    hides only declared values in its logs and results, and a hook's stderr goes into the results.
-   Never write a key, token or password into the pack.
+   Never write a key, token or password into the pack, not even in a hook's `args:` (results show
+   args as written): pass `${FLAGS_TOKEN}` there, or let the script read the env var itself.
 4. **Write the setup script** into `hooks/<name>.sh` (or `.py`) and add it to `pack.yaml hooks:`.
    Make it executable (`chmod +x hooks/<name>.sh`), or name the interpreter first in the argv
    (`[python3, hooks/<name>.py]`). Read its input from the JSON argument. Print a short reason to
@@ -49,7 +50,7 @@ script). Never guess the tool and never name one in a public example.
 7. **Test once, only after the team says yes.** It changes a real server. Ask first, and say which
    server and what will change. Run it the way the runner does: from the pack folder, with the JSON
    argument last:
-   `cd P && JOURNEYS_PACK=$PWD JOURNEYS_APP=<app> hooks/set_flag.sh '{"flag": "new_checkout", "on": true}'`
+   `cd P && JOURNEYS_PACK=$PWD JOURNEYS_APP=<app> hooks/set_flag.sh '{"flag": "new_checkout", "enabled": true}'`
    Then run the cleanup the same way. Report both exit codes and outputs (with secrets hidden).
 8. **Hand it over for review.** The team reads the scripts before you promote the journey. Say
    which files you added and what each one changes on the server.

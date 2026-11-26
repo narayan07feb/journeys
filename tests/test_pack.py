@@ -58,11 +58,12 @@ def test_after_and_set_hooks_are_checked(pack_dir):
     (pack_dir / "journeys" / "hk.yaml").write_text(
         "- name: hk-a\n  after: [note, nope, {name: note, args: {v: '${SECRET}'}}, {name: note, oops: 1}]\n"
         "  steps:\n    - expect: SETTINGS-HOME\n"
-        "- name: hk-b\n  after: note\n  steps:\n    - expect: SETTINGS-HOME\n")
+        "- name: hk-b\n  after: note\n  steps:\n    - expect: SETTINGS-HOME\n"
+        "- name: hk-c\n  after: no\n  steps:\n    - expect: SETTINGS-HOME\n")
     (pack_dir / "sets.yaml").write_text(
         "sets:\n  s1: {journeys: [hk-a], before: [gone], after: [note]}\n"
         "  s2: {journeys: [hk-a], after: note}\n  s3: {journeys: [hk-a], setup: [note]}\n"
-        "  s4: {journeys: [hk-a], after: [off]}\n")
+        "  s4: {journeys: [hk-a], after: [off]}\n  s5: {journeys: [hk-a], after: off, description: x}\n")
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "hk.yaml:1: after: hook nope is not in pack.yaml hooks" in errs
     assert "hk.yaml:1: after: ${SECRET} is not declared in pack.yaml" in errs
@@ -71,7 +72,9 @@ def test_after_and_set_hooks_are_checked(pack_dir):
     assert "sets.yaml: set s1 before: hook gone is not in pack.yaml hooks" in errs
     assert "set s1 after" not in errs
     assert "set s4 after: a hook is a name or {name: ..., args: {...}}, not False (YAML reads a bare on" in errs
-    assert "set s2 is a map with journeys" in errs and "set s3 is a map with journeys" in errs
+    assert "set s2 is a map with journeys" in errs and "set s5 is a map with journeys: [names] and/or tags: [tags], and before: / after: [hooks] (YAML reads" in errs
+    assert "set s3" not in errs  # other keys (a description, say) stay allowed, as before
+    assert "hk.yaml:9: after is a list of hooks, like [reset_flag], not False (YAML reads a bare" in errs
 
 
 def test_set_hooks_only_for_a_set(pack_dir):
@@ -85,7 +88,7 @@ def test_set_hooks_only_for_a_set(pack_dir):
 def test_hook_args_keys_are_text_and_a_journey_has_no_before(pack_dir):
     (pack_dir / "journeys" / "hk.yaml").write_text(
         "- name: hk-a\n  before: [note]\n  after: [{name: note, args: {on: true}}]\n"
-        "  steps:\n    - hook: {name: note, args: {yes: 1, ok: 2}}\n")
+        "  steps:\n    - hook: {name: note, args: {yes: 1, ok: 2, 3: x}}\n")
     (pack_dir / "sets.yaml").write_text("sets:\n  s1: {journeys: [hk-a], before: [{name: note, args: {off: x}}]}\n")
     errs = "\n".join(Pack.load(pack_dir).errors)
     assert "hk.yaml:1: a journey has no before:; start its steps with a hook: step" in errs

@@ -144,6 +144,7 @@ class Runner:
                 msg = self._mask(str(e))
                 errors.append(msg)
                 out.steps.append(StepOutcome(len(out.steps), text, "failed", _ms(t0), msg))
+            self._publish(out)  # a slow cleanup shows on the live page too
         if not errors:
             return
         note = "after: " + "; ".join(errors)

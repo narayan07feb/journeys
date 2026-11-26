@@ -8,6 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -87,6 +88,12 @@ def pick(found: list[Found]) -> tuple[str | None, str]:
     return None, "no UI test framework found in the project"
 
 
+def _refuse_existing(files: list[Path]) -> None:
+    there = [str(f) for f in files if f.exists()]
+    if there:
+        raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
+
+
 HOOK_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
 STUB = """#!/bin/sh
@@ -101,18 +108,12 @@ exit 1
 
 
 def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
-              driver: str | None = None, hooks: list[str] = ()) -> list[str]:
+              driver: str | None = None, hooks: list[str] | Callable[[], list[str]] = ()) -> list[str]:
     """Write a new, empty pack. Returns what it did, line by line. `hooks`: names of server-setup
-    scripts the team named; each gets a hooks: entry and a stub script that fails until it is written."""
-    bad = [h for h in hooks if not HOOK_NAME.fullmatch(h)]
-    if bad:
-        raise ValueError(f"hook names are lowercase words with underscores, like set_flag, not {', '.join(bad)}")
-    hooks = list(dict.fromkeys(hooks))
+    scripts the team named (or a question that returns them, asked once every other check passed);
+    each gets a hooks: entry and a stub script that fails until it is written."""
     files = [dest / "pack.yaml", dest / "map" / "screens.yaml", dest / "map" / "edges.yaml", dest / "sets.yaml"]
-    files += [dest / "hooks" / f"{h}.sh" for h in hooks]
-    there = [str(f) for f in files if f.exists()]
-    if there:
-        raise FileExistsError(f"{', '.join(there)} already exist(s): init writes a new pack only")
+    _refuse_existing(files)
     found, app_id = scan(project, strict=not app) if project else ([], None)
     if driver not in DRIVERS:  # the team's answer only: the project's tests are a hint, never the choice
         raise ValueError(f"which tool does your team use to drive the device? ask the team, then pass --driver "
@@ -125,6 +126,12 @@ def init_pack(dest: Path, project: Path | None, name: str, app: str | None,
                                                               if project else ""))
     if not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+", app):
         raise ValueError(f"{app!r} is not an Android package name (like com.example.app)")
+    hooks = list(dict.fromkeys(hooks() if callable(hooks) else hooks))
+    bad = [h for h in hooks if not HOOK_NAME.fullmatch(h)]
+    if bad:
+        raise ValueError(f"hook names are lowercase words with underscores, like set_flag, not {', '.join(bad)}")
+    files += [dest / "hooks" / f"{h}.sh" for h in hooks]
+    _refuse_existing(files)
     for sub in ("map", "journeys", "drafts") + (("hooks",) if hooks else ()):
         (dest / sub).mkdir(parents=True, exist_ok=True)
     head = {"name": name, "app": app, "driver": driver}

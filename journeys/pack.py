@@ -10,7 +10,7 @@ from . import yamlio
 from .actions import QUOTE, ActionError, to_commands, to_selector
 from .appmap import KINDS, AppMap, Rule
 from .drivers import DRIVERS
-from .journey import Journey, load_journeys
+from .journey import YAML_WORDS, Journey, load_journeys
 
 # Never tapped by tap-all or explore, in any pack: words for actions that are hard to undo or
 # that can cut the device off (Wi-Fi off strands a Wi-Fi adb link).
@@ -29,7 +29,6 @@ DEFAULT_DENY = [Rule(text=t.replace("_", _S)) for t in (
     r"stop|unregist|deauthori|dial|sos|refund|abort|kill|delink)/",
 )]
 
-YAML_WORDS = "YAML reads a bare on, off, yes or no as true or false: quote it"
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 _JOURNEY_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 _PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z_][\w]*)+")
@@ -290,12 +289,14 @@ class Pack:
                 self.errors.append("sets.yaml: `all` is every journey already; name the set something else")
             if name in self.journeys:
                 self.errors.append(f"sets.yaml: set {name} has the same name as a journey")
-            if not isinstance(spec, dict) or set(spec) - {"journeys", "tags", "before", "after"} or any(
+            if not isinstance(spec, dict) or any(
                     not isinstance(spec.get(k) or [], list) or not all(isinstance(x, str) for x in spec.get(k) or [])
                     for k in ("journeys", "tags")) or any(
-                    not isinstance(spec.get(k) or [], list) for k in ("before", "after")):
+                    not isinstance([] if spec.get(k) is None else spec[k], list) for k in ("before", "after")):
+                hint = f" ({YAML_WORDS})" if isinstance(spec, dict) and any(
+                    isinstance(spec.get(k), bool) for k in ("before", "after")) else ""
                 self.errors.append(f"sets.yaml: set {name} is a map with journeys: [names] and/or tags: [tags], "
-                                   "and before: / after: [hooks]")
+                                   f"and before: / after: [hooks]{hint}")
                 self.sets[name] = {}
                 continue
             for k in ("before", "after"):
@@ -323,7 +324,7 @@ class Pack:
     def _check_hook_args(self, at: str, ref) -> None:
         """The args go to the script as JSON: `{on: true}` would arrive as {"true": true}."""
         args = ref.get("args") if isinstance(ref, dict) else None
-        bad = [k for k in args if not isinstance(k, str)] if isinstance(args, dict) else []
+        bad = [k for k in args if k is None or isinstance(k, bool)] if isinstance(args, dict) else []
         if bad:
             self.errors.append(f"{at}: hook args keys {bad} are not text ({YAML_WORDS})")
 

@@ -294,3 +294,23 @@ def test_a_draft_named_like_a_set_never_runs(pack_dir, tmp_path, capsys):
     assert main(["--pack", str(pack_dir), "--state", str(tmp_path / "s"), "run", "smoke", "--draft",
                  "--driver", "fake"]) == 2
     assert "journey name 'smoke'" in capsys.readouterr().err
+
+
+def test_a_secret_a_hook_prints_is_never_stored_or_shown(pack_dir, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("DEMO_SEARCH", "topsecret-value")  # declared in pack.yaml env:
+    (pack_dir / "hooks" / "leak.sh").write_text('#!/bin/sh\necho "token $DEMO_SEARCH" >&2\nexit 3\n')
+    (pack_dir / "hooks" / "leak.sh").chmod(0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  leak: [hooks/leak.sh]\n"))
+    (pack_dir / "journeys" / "lk.yaml").write_text(
+        "- name: lk-ok\n  tags: [lk]\n  after: [leak]\n  steps:\n    - expect: SETTINGS-HOME\n"
+        "- name: lk-bad\n  tags: [lk]\n  after: [leak]\n  steps:\n    - expect: SETTINGS-ABOUT\n")
+    (pack_dir / "sets.yaml").write_text("sets:\n  lk: {tags: [lk], after: [leak]}\n  lb: {tags: [lk], before: [leak]}\n")
+    base = ["--pack", str(pack_dir), "--state", str(tmp_path / "s")]
+    assert main(base + ["run", "lk", "--driver", "fake", "--no-heal"]) == 1
+    assert main(base + ["run", "lb", "--driver", "fake"]) == 1
+    assert main(base + ["failures"]) == 0
+    out = capsys.readouterr()
+    assert "token •••" in out.out and "topsecret-value" not in out.out + out.err
+    stored = [p for p in (tmp_path / "s").rglob("*") if p.is_file() and "topsecret-value" in p.read_text(errors="ignore")]
+    assert stored == []
