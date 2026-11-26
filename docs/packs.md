@@ -86,9 +86,11 @@ steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name 
 - New validate errors with these keys (a pack that had them ran without them before): `before:` on a
   journey; a `before:`/`after:` that is not a list; a hook map with keys other than `name` and
   `args` (so `arg:` is not dropped in silence); true, false or null keys anywhere in a hook's
-  `args` (YAML reads a bare `on`, `off`, `yes` or `no` that way). A hook or `events.check` script that a step, `after:` or
-  `before:` uses, and that the runner finds in the pack, must be there and executable (a declared
-  script nothing uses is not checked and never stops a run).
+  `args` (YAML reads a bare `on`, `off`, `yes` or `no` that way). A hook or `events.check` script that
+  something uses must be there and executable when it is a path in the pack (`hooks/x.sh`) or a
+  bare name that is a file there (`run.sh`). `~` and `$NAME` are not expanded: declare the path in
+  `env:` and read it in the script. A declared script nothing uses is not checked; one only a
+  draft uses stops only that draft.
 - Declare the env var that holds a hook's key in `env:`: only declared values are hidden in logs
   and results. `init --server-hook NAME` adds a hook entry and a stub script that fails until it
   is written. The agent skill (`skills/journeys/references/backend-setup.md`) writes and tests

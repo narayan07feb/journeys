@@ -254,8 +254,8 @@ class Pack:
 
     def _check(self) -> None:
         declared = self.declared()
-        self._used: set[str] = set()  # hooks a step, after: or before: names (only those must be runnable)
-        events_used = False
+        self._used: dict[str, list[str]] = {}  # hook -> where it is used (only used ones must be runnable)
+        events_at: list[str] = []
         for e in self.map.edges:
             for name in sorted(set(_names(e.do)) - declared):
                 self.errors.append(f"map/edges.yaml: edge {e.src} -> {e.dst} uses ${{{name}}}, which pack.yaml does "
@@ -296,7 +296,8 @@ class Pack:
                     self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
                     self._check_hook_ref(at, s.arg, None)
-                events_used = events_used or s.kind == "event"
+                if s.kind == "event":
+                    events_at.append(at)
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
         for j in [*self.journeys.values(), *self.drafts.values()]:
@@ -325,11 +326,19 @@ class Pack:
                     self.errors.append(f"sets.yaml: set {name} names unknown journey {jn}")
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
-        pf = "pack.yaml"  # a declared script nothing calls never stops a run
-        for name in sorted(self._used):
-            self.errors += _script_errors(self.root, f"{pf}: hook {name}", self.hooks[name][0])
-        if events_used and self.events:
-            self.errors += _script_errors(self.root, f"{pf}: events.check", self.events[0])
+        for name, ats in sorted(self._used.items()):  # a declared script nothing calls never stops a run
+            self._check_script(f"hook {name}", self.hooks[name], ats)
+        if self.events:
+            self._check_script("events.check", self.events, events_at)
+
+    def _check_script(self, what: str, argv, ats: list[str]) -> None:
+        """A used script must run. Used only by drafts: the error names each draft, so it stops only those."""
+        if not (isinstance(argv, list) and argv and isinstance(argv[0], str)):
+            return  # a bad entry, already reported by load (unused: ats is empty, nothing to check)
+        drafts = str(self.root / "drafts") + "/"
+        real = [a for a in ats if not a.startswith(drafts)]
+        for at in ["pack.yaml"] if real else sorted({a.split(":")[0] for a in ats}):
+            self.errors += _script_errors(self.root, f"{at}: {what}", argv[0])
 
     def _check_hook_ref(self, at: str, ref, declared: set[str] | None) -> None:
         """An after: or before: entry: a hook name, or {name: ..., args: {...}}, like a hook step."""
@@ -341,7 +350,7 @@ class Pack:
         elif name not in self.hooks:
             self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
         else:
-            self._used.add(name)
+            self._used.setdefault(name, []).append(at)
         self._check_hook_args(at, ref)
         for var in sorted(set(_names(ref)) - declared) if declared is not None else []:  # a step checks its own
             self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")

@@ -150,3 +150,28 @@ def test_hook_script_paths_like_the_runner_finds_them(pack_dir):
     assert "hook folder: hooks/dir is a folder, not a script" in errs
     assert "hook home: ~/tools/x.sh is not in the pack (no ~ or $NAME here" in errs
     assert "hook var: $FLAGS_TOOL/x.sh is not in the pack (no ~ or $NAME here" in errs
+
+
+def test_a_bad_hook_entry_is_an_error_not_a_crash(pack_dir):
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  empty: []\n  num: [5]\n"))
+    _uses(pack_dir, ["empty", "num"])
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "hook empty is a command list like [hooks/empty.sh], not []" in errs
+    assert "hook num is a command list like [hooks/num.sh], not [5]" in errs
+
+
+def test_each_use_counts_and_a_draft_only_use_stops_only_that_draft(pack_dir):
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  s: [hooks/s.sh]\n  a: [hooks/a.sh]\n  d: [hooks/d.sh]\n"))
+    (pack_dir / "sets.yaml").write_text((pack_dir / "sets.yaml").read_text() + "  flagged: {tags: [smoke], before: [s]}\n")
+    (pack_dir / "journeys" / "uses.yaml").write_text("name: uses\nafter: [a]\nsteps:\n  - expect: SETTINGS-HOME\n")
+    (pack_dir / "drafts").mkdir()
+    (pack_dir / "drafts" / "u.yaml").write_text("name: u\nsteps:\n  - hook: d\n")
+    pack = Pack.load(pack_dir)
+    errs = "\n".join(pack.errors)
+    assert "pack.yaml: hook s: hooks/s.sh is not in the pack" in errs  # a set's before:
+    assert "pack.yaml: hook a: hooks/a.sh is not in the pack" in errs  # a journey's after:
+    assert f"{pack_dir / 'drafts' / 'u.yaml'}: hook d: hooks/d.sh is not in the pack" in errs
+    assert not any("hook d" in e for e in pack.run_errors())  # an unfinished draft never stops a set
+    assert any("hook d" in e for e in pack.run_errors("u"))   # but it stops that draft's own run
