@@ -12,6 +12,9 @@ const app = JSON.parse(fs.readFileSync(appFile, "utf8"));
 const W = 1080, H = 2400;
 let clock = 0, screen = null, scrolled = 0, focus = null, keyboard = false, running = false;
 const log = (...call) => console.log(JSON.stringify(call));
+// An error as WebdriverIO throws it: the W3C code in its name, the server's words in its message.
+const wderr = (name, message) => Object.assign(new Error(message), { name });
+const REF = "element-6066-11e4-a52e-4f735466cecf";
 Date.now = () => clock;
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -64,9 +67,16 @@ function keys(name, args, want) {
 const MOBILE = {
   "mobile: clearApp": (a) => { keys("mobile: clearApp", a, ["appId"]); log("mobile: clearApp", a.appId); },
   "mobile: pressKey": (a) => { keys("mobile: pressKey", a, ["keycode"]); log("key", a.keycode); },
+  "mobile: hideKeyboard": (a) => { keys("mobile: hideKeyboard", a, []); hide(); },
 };
 const field = strict("element", { addValue: async (t) => { log("type", t); } });
-globalThis.$ = async (ref) => { if (ref !== "FOCUSED") throw new Error("$ wants the active element"); return field; };
+globalThis.$ = async (ref) => { if (!ref || ref[REF] !== "focused") throw new Error("$ wants the active element"); return field; };
+// app.json old_routes: false = a server without the /appium/device/hide_keyboard route
+function hide() {
+  if (!keyboard) throw wderr("unknown error", "Soft keyboard not present, cannot hide keyboard");
+  log("hideKeyboard");
+  keyboard = false;
+}
 globalThis.driver = strict("driver", {
   terminateApp: async (id) => { log("terminate", id); running = false; },
   activateApp: async (id) => { log("activate", id); running = true; screen = app.start; scrolled = 0; },
@@ -85,13 +95,21 @@ globalThis.driver = strict("driver", {
     scrolled = up ? scrolled + 1 : Math.max(0, scrolled - 1);
   },
   back: async () => log("back"),
-  isKeyboardShown: async () => keyboard,
-  hideKeyboard: async () => { log("hideKeyboard"); keyboard = false; },
+  hideKeyboard: async () => {
+    if (app.old_routes === false) throw wderr("unknown command", "The requested resource could not be found");
+    hide();
+  },
   getWindowRect: async () => ({ x: 0, y: 0, width: W, height: H }),
-  getActiveElement: async () => { if (!focus) throw new Error("no such element"); return "FOCUSED"; },
+  getActiveElement: async () => {
+    if (!focus) throw wderr("no such element", "An element could not be located on the page");
+    return { [REF]: "focused" };
+  },
   getPageSource: async () => {  // app.json reads: ["ok", "fail", "dead", ...] for the reads while the app runs
     const r = running && app.reads ? app.reads.shift() ?? "ok" : "ok";
-    if (r === "dead") { app.reads.unshift("dead"); throw new Error("invalid session id: the session is gone"); }
+    if (r === "dead") {
+      app.reads.unshift("dead");
+      throw wderr("invalid session id", "A session is either terminated or not started");
+    }
     if (r === "fail") throw new Error("cannot read the screen");
     return source();
   },

@@ -11,7 +11,7 @@ from journeys.actions import ActionError, to_command
 from journeys.cli import main
 from journeys.drivers.appium import AppiumDriver
 from journeys.drivers.base import find
-from journeys.formats.appium import export
+from journeys.formats.appium import _text, export
 from journeys.pack import Pack
 
 SIM = Path(__file__).with_name("wdio_sim.js")
@@ -155,9 +155,10 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
 
 @needs_node
 def test_a_pattern_javascript_cannot_read_stops_the_spec_at_load(pack_dir, tmp_path):
-    calls, verdict = run(tmp_path, spec_of(pack_dir, "steps:\n  - see: /(?P<n>Net).*/\n"))
-    assert verdict.startswith('FAIL the pattern "(?P<n>Net).*" works in Journeys but not in JavaScript')
-    assert calls == [["end", 0]]  # before it touched the device
+    for pattern in ("(?P<n>Net).*", "(?i)net.*"):
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n"))
+        assert verdict.startswith(f'FAIL the pattern "{pattern}" works in Journeys but not in JavaScript')
+        assert calls == [["end", 0]]  # before it touched the device
 
 
 @needs_node
@@ -165,7 +166,7 @@ def test_an_expired_session_fails_at_once_and_a_bad_read_is_read_again(pack_dir,
     spec = spec_of(pack_dir, "steps:\n  - see: Network & internet\n")
     for reads in (["dead"], ["ok", "dead"]):  # in launch, then in a check
         calls, verdict = run(tmp_path, spec, app={**APP, "reads": reads})
-        assert verdict.startswith("FAIL invalid session id") and calls[-1] == ["end", 0], reads  # no waiting
+        assert verdict == "FAIL A session is either terminated or not started" and calls[-1] == ["end", 0], reads
     calls, verdict = run(tmp_path, spec, app={**APP, "reads": ["fail", "ok", "fail", "fail", "ok"]})
     assert verdict == "PASS" and calls[-1] == ["end", 1300]  # launch read again once, the check twice
     calls, verdict = run(tmp_path, spec, app={**APP, "reads": ["ok"] + ["fail"] * 50})
@@ -173,14 +174,23 @@ def test_an_expired_session_fails_at_once_and_a_bad_read_is_read_again(pack_dir,
 
 
 @needs_node
+def test_hide_keyboard_falls_back_to_the_mobile_command_and_no_keyboard_is_nothing_to_hide(pack_dir, tmp_path):
+    spec = spec_of(pack_dir, "steps:\n  - do: [{tap: Search settings}, {tap: {id: search_src_text}}, hide_keyboard,"
+                             " hide_keyboard]\n")
+    for app in (APP, {**APP, "old_routes": False}):
+        calls, verdict = run(tmp_path, spec, app=app)
+        assert verdict == "PASS" and [c for c in calls if c[0] == "hideKeyboard"] == [["hideKeyboard"]], app
+
+
+@needs_node
 def test_typing_reads_variables_from_the_environment(pack_dir, tmp_path):
     spec = spec_of(pack_dir, """steps:
-  - do: [{tap: Search settings}, {tap: {id: search_src_text}}]
+  - do: [{tap: Search settings}, {tap: {id: search_src_text}}, {type: "${DEMO_SEARCH}"}]
   - input: "find ${DEMO_SEARCH}!"
 """)
     assert 'env("DEMO_SEARCH")' in spec and "wifi" not in spec  # the value is never in the file
     calls, verdict = run(tmp_path, spec, env={"DEMO_SEARCH": "wifi"})
-    assert verdict == "PASS" and ["type", "find wifi!"] in calls
+    assert verdict == "PASS" and [c for c in calls if c[0] == "type"] == [["type", "wifi"], ["type", "find wifi!"]]
     env = {k: v for k, v in os.environ.items() if k != "DEMO_SEARCH"}
     out = subprocess.run([NODE, str(SIM), str(tmp_path / "spec.js"), str(tmp_path / "app.json")],
                          capture_output=True, text=True, timeout=60, env=env)
@@ -229,6 +239,17 @@ def test_names_in_the_header_cannot_break_out_of_the_comment(pack_dir, tmp_path)
 def test_a_goto_with_no_known_start_is_left_out_with_a_note(pack_dir):
     pack, j = journey(pack_dir, "steps:\n  - do: [back]\n  - goto: SETTINGS-DISPLAY\n")
     assert any("goto SETTINGS-DISPLAY: start screen unknown" in n for n in export(pack, j)[1])
+
+
+def test_an_erase_gets_time_for_each_character(pack_dir):
+    spec = spec_of(pack_dir, "steps:\n  - do: [{erase: 1000}]\n")
+    assert "this.timeout(" + str(60_000 + 10_000 * 2 + 200 * 1000) + ");" in spec
+
+
+def test_an_undeclared_variable_in_typed_text_is_refused(pack_dir):
+    pack = Pack.load(pack_dir)
+    with pytest.raises(ActionError, match=r"\$\{NOPE\} is not declared"):
+        _text(pack, "a ${NOPE}")
 
 
 def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var(pack_dir):

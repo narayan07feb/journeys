@@ -23,7 +23,10 @@ WAIT_MS = 5_000  # as the Appium driver: an element gets 5 s to come or go
 
 _HELPERS = """\
 const WAIT = %(wait)d;
-const FATAL = /invalid session id|no such window/i;  // the session is gone: no point looking again
+// WebdriverIO puts the W3C code in the error's name (or error) and the server's words in its message.
+const code = (e) => e.error ?? e.name;
+// The session is gone, so nothing later can work: as the Journeys driver's AppiumError.fatal.
+const fatal = (e) => ["invalid session id", "no such window"].includes(code(e)) || /invalid session/i.test(e.message);
 
 function env(name) {
   const value = process.env[name];
@@ -90,7 +93,7 @@ async function look(sel, wait) {
     try {
       el = hit(sel, await screen());
     } catch (e) {
-      if (FATAL.test(e.message)) throw e;
+      if (fatal(e)) throw e;
       err = e;
     }
     if (el || Date.now() >= end) {
@@ -155,7 +158,7 @@ async function launch(clear) {
     try {
       if ((await driver.getPageSource()).includes(`package="${APP}"`)) return;
     } catch (e) {
-      if (FATAL.test(e.message)) throw e;  // else the screen is still being drawn: look again
+      if (fatal(e)) throw e;  // else the screen is still being drawn: look again
     }
   }
 }
@@ -170,8 +173,22 @@ async function idle() {
   }
 }
 
-async function key(code) {
-  await driver.execute("mobile: pressKey", { keycode: code });
+async function key(keycode) {
+  await driver.execute("mobile: pressKey", { keycode });
+}
+
+// As the Journeys driver: the old route, else the mobile: command; "no keyboard" is nothing to hide.
+async function hideKeyboard() {
+  try {
+    try {
+      await driver.hideKeyboard();
+    } catch (e) {
+      if (!["unknown command", "unknown method"].includes(code(e))) throw e;
+      await driver.execute("mobile: hideKeyboard", {});
+    }
+  } catch (e) {
+    if (fatal(e) || !/keyboard/i.test(e.message)) throw e;
+  }
 }
 
 async function type(text) {
@@ -239,6 +256,13 @@ def _env_name(pack: Pack, name: str) -> str:
     raise ActionError(f"${{{name}}} is not declared in pack.yaml (env: or accounts:)")
 
 
+def _count(arg) -> int:
+    try:
+        return int(arg if arg is not None else 50)  # as the driver: erase with no number takes 50
+    except (TypeError, ValueError):
+        raise ActionError(f"erase takes a number of characters, not {arg!r}") from None
+
+
 def _js(pack: Pack, cmd, sels: list[str]) -> str:
     name, arg = command_name(cmd)
     if name == "launchApp":
@@ -248,7 +272,7 @@ def _js(pack: Pack, cmd, sels: list[str]) -> str:
     if name == "back":
         return "await driver.back();"
     if name == "hideKeyboard":
-        return "if (await driver.isKeyboardShown()) await driver.hideKeyboard();"
+        return "await hideKeyboard();"
     if name == "waitForAnimationToEnd":
         return "await idle();"
     if name == "scroll":
@@ -266,7 +290,7 @@ def _js(pack: Pack, cmd, sels: list[str]) -> str:
     if name == "inputText":
         return f"await type({_text(pack, str(arg))});"
     if name == "eraseText":
-        return f"for (let i = 0; i < {int(arg if arg is not None else 50)}; i++) await key({KEYCODES['backspace']});"
+        return f"for (let i = 0; i < {_count(arg)}; i++) await key({KEYCODES['backspace']});"
     if name == "pressKey":
         return f"await key({KEYCODES[str(arg).lower()]});  // {arg}"
     raise ActionError(f"{name} has no WebdriverIO form")
@@ -281,7 +305,9 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     sels: list[str] = []
     body = "\n".join(f"    {_js(pack, c, sels)}" for c in cmds)
     scrolls = sum(command_name(c)[0] == "scrollUntilVisible" for c in cmds)
-    timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls  # mocha's own 60 s is too short for a journey
+    erased = sum(_count(command_name(c)[1]) for c in cmds if command_name(c)[0] == "eraseText")
+    # mocha's own 60 s is too short for a journey; erase is one call per character
+    timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls + 200 * erased
     notes.append("patterns run as JavaScript regexes (Journeys reads them as Python's); one JavaScript "
                  "cannot read stops the spec when it loads")
     head = (f"// Exported from Journeys: journey {json.dumps(j.name)}, pack {json.dumps(pack.name)}.\n"
