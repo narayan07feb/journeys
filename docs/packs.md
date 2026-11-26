@@ -75,13 +75,18 @@ steps, a journey's `after:` and a set's `before:` / `after:` name hooks (a name 
 `{name, args}`) for setup and cleanup:
 
 - A journey's `after:` runs when the journey ends, passed or failed, and after Ctrl-C or a lost
-  device. Every one runs, even when one fails. A failed one fails a journey that had passed (a
+  device. Every one runs, even when one fails (a second Ctrl-C during cleanup ends it). A failed one fails a journey that had passed (a
   flag left on must not look green); on a journey that already failed, its error is added to the
   message.
 - A set's `before:` runs once before its journeys, and its `after:` once at the end, always. They
   run only when that set is the run target (`run nightly`). A failed `before:` runs no journey; the
   set's `after:` still runs. A failed set hook fails the run (exit 1) and shows in its `error`.
-- Exports (`export maestro`, `export appium`) leave hooks out, with a note.
+- Exports (`export maestro`, `export appium`) leave a journey's hook steps and `after:` out, with a
+  note. A set's `before:`/`after:` are never part of an export (it writes one journey).
+- New validate errors with these keys (a pack that had them ran without them before): `before:` on a
+  journey; a `before:`/`after:` that is not a list; a hook map with keys other than `name` and
+  `args` (so `arg:` is not dropped in silence); true, false or null keys anywhere in a hook's
+  `args` (YAML reads a bare `on`, `off`, `yes` or `no` that way).
 - Declare the env var that holds a hook's key in `env:`: only declared values are hidden in logs
   and results. `init --server-hook NAME` adds a hook entry and a stub script that fails until it
   is written. The agent skill (`skills/journeys/references/backend-setup.md`) writes and tests

@@ -97,14 +97,16 @@ class Runner:
         if j.launch:
             steps = [Step("do", [{"launch": {"clear_state": True}} if j.clear_state else "launch"], j.line)] + steps
         self._total = len(steps) + len(j.after)
+        passed = False
         try:
-            self._steps(j, out, steps)
+            passed = self._steps(j, out, steps)
         finally:  # cleanup runs whatever happened, so a server flag never stays set
-            self._after(j, out)
+            self._after(j, out, passed)
         self._publish(out)
         return out
 
-    def _steps(self, j: Journey, out: JourneyOutcome, steps: list[Step]) -> None:
+    def _steps(self, j: Journey, out: JourneyOutcome, steps: list[Step]) -> bool:
+        """True when every step passed; the journey stays "running" until its after: hooks are done."""
         for i, step in enumerate(steps):
             t0 = time.monotonic()
             self._step_now = step
@@ -129,9 +131,10 @@ class Runner:
                 break
             self._publish(out)
         else:
-            out.status = "passed"
+            return True
+        return False
 
-    def _after(self, j: Journey, out: JourneyOutcome) -> None:
+    def _after(self, j: Journey, out: JourneyOutcome, passed: bool) -> None:
         """Run every after: hook, even when one fails; a failed one fails a journey that passed."""
         errors = []
         for ref in j.after:
@@ -141,14 +144,16 @@ class Runner:
                 self._hook(self._sub(ref))
                 out.steps.append(StepOutcome(len(out.steps), text, "passed", _ms(t0)))
             except Exception as e:  # noqa: BLE001  every cleanup gets its turn
-                msg = self._mask(str(e))
+                msg = str(e)  # _hook masks the script's output
                 errors.append(msg)
                 out.steps.append(StepOutcome(len(out.steps), text, "failed", _ms(t0), msg))
             self._publish(out)  # a slow cleanup shows on the live page too
         if not errors:
+            if passed:
+                out.status = "passed"
             return
         note = "after: " + "; ".join(errors)
-        if out.status == "passed":
+        if passed:
             out.status, out.message = "failed", note
             out.failure = self.store.add_failure({
                 "run": self.run.id, "journey": j.name, "step": len(out.steps) - 1, "step_text": "after",
@@ -166,7 +171,7 @@ class Runner:
             try:
                 self._hook(self._sub(ref))
             except Exception as e:  # noqa: BLE001  every after: hook gets its turn
-                entry.update(status="failed", message=self._mask(str(e)))
+                entry.update(status="failed", message=str(e))  # _hook masks the script's output
                 ok = False
             self.run.data.setdefault("hooks", []).append(entry)
             self.run.save()
@@ -304,7 +309,7 @@ class Runner:
         name, args = (arg, {}) if isinstance(arg, str) else (arg.get("name"), arg.get("args") or {})
         p = self._script(self.pack.hooks[name], args)
         if p.returncode != 0:
-            raise StepFailed(f"hook {name} exited {p.returncode}: {(p.stderr or p.stdout).strip()[-300:]}")
+            raise StepFailed(f"hook {name} exited {p.returncode}: {self._mask((p.stderr or p.stdout).strip())[-300:]}")
 
     def _event(self, arg) -> None:
         p = self._script(self.pack.events, arg)

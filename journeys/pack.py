@@ -275,10 +275,7 @@ class Pack:
                 except ActionError as e:
                     self.errors.append(f"{at}: {e}")
                 if s.kind == "hook":
-                    name = s.arg if isinstance(s.arg, str) else (s.arg or {}).get("name")
-                    if not isinstance(name, str) or name not in self.hooks:
-                        self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
-                    self._check_hook_args(at, s.arg)
+                    self._check_hook_ref(at, s.arg, None)
                 if s.kind == "event" and not self.events:
                     self.errors.append(f"{at}: event step needs events.check in pack.yaml")
         for j in [*self.journeys.values(), *self.drafts.values()]:
@@ -308,7 +305,7 @@ class Pack:
             if not self.select(name):
                 self.errors.append(f"sets.yaml: set {name} selects no journey")
 
-    def _check_hook_ref(self, at: str, ref, declared: set[str]) -> None:
+    def _check_hook_ref(self, at: str, ref, declared: set[str] | None) -> None:
         """An after: or before: entry: a hook name, or {name: ..., args: {...}}, like a hook step."""
         name = ref if isinstance(ref, str) else ref.get("name") if isinstance(ref, dict) else None
         if not isinstance(name, str) or (isinstance(ref, dict) and (
@@ -318,13 +315,22 @@ class Pack:
         elif name not in self.hooks:
             self.errors.append(f"{at}: hook {name} is not in pack.yaml hooks")
         self._check_hook_args(at, ref)
-        for var in sorted(set(_names(ref)) - declared):
+        for var in sorted(set(_names(ref)) - declared) if declared is not None else []:  # a step checks its own
             self.errors.append(f"{at}: ${{{var}}} is not declared in pack.yaml (env: or accounts:)")
 
     def _check_hook_args(self, at: str, ref) -> None:
-        """The args go to the script as JSON: `{on: true}` would arrive as {"true": true}."""
-        args = ref.get("args") if isinstance(ref, dict) else None
-        bad = [k for k in args if k is None or isinstance(k, bool)] if isinstance(args, dict) else []
+        """The args go to the script as JSON: `{on: true}` would arrive as {"true": true}, at any depth."""
+        bad = []
+
+        def walk(v):
+            if isinstance(v, dict):
+                bad.extend(k for k in v if k is None or isinstance(k, bool))
+                for x in v.values():
+                    walk(x)
+            elif isinstance(v, list):
+                for x in v:
+                    walk(x)
+        walk(ref.get("args") if isinstance(ref, dict) else None)
         if bad:
             self.errors.append(f"{at}: hook args keys {bad} are not text ({YAML_WORDS})")
 

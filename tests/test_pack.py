@@ -95,3 +95,12 @@ def test_hook_args_keys_are_text_and_a_journey_has_no_before(pack_dir):
     assert "hk.yaml:1: after: hook args keys [True] are not text (YAML reads a bare on" in errs
     assert "hk.yaml:5: hook args keys [True] are not text" in errs
     assert "sets.yaml: set s1 before: hook args keys [False] are not text" in errs
+
+
+def test_nested_args_keys_and_hook_step_maps_follow_one_rule(pack_dir):
+    (pack_dir / "journeys" / "hk.yaml").write_text(
+        "- name: hk-a\n  after: [{name: note, args: {opts: {on: true}, list: [{no: 1}]}}]\n"
+        "  steps:\n    - hook: {name: note, arg: {x: 1}}\n")
+    errs = "\n".join(Pack.load(pack_dir).errors)
+    assert "hk.yaml:1: after: hook args keys [True, False] are not text" in errs
+    assert "hk.yaml:4: a hook is a name or {name: ..., args: {...}}, not {'name': 'note', 'arg': {'x': 1}}" in errs

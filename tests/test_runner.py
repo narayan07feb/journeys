@@ -327,3 +327,32 @@ def test_each_cleanup_shows_on_the_live_page(env, pack_dir):
     Runner(pack, driver, store, run, variables={}, sleep=lambda s: None,
            on_update=lambda o: seen.append(len(o.steps))).run_all([pack.journeys["hk-two"]])
     assert 3 in seen and 4 in seen  # after the first and the second after: hook
+
+
+def test_a_secret_across_the_300_character_cut_is_never_half_kept(env, pack_dir, monkeypatch):
+    _, _, driver, store, run, _ = env
+    token = "T0K3N-" + "q" * 34  # 40 characters
+    monkeypatch.setenv("FLAG", token)  # the hook prints it; the runner knows it as a declared value
+    script = pack_dir / "hooks" / "long.sh"
+    script.write_text(f'#!/bin/sh\nprintf "%s" "{"a" * 10}${{FLAG}}{"b" * 280}" >&2\nexit 2\n')
+    os.chmod(script, 0o755)
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("hooks:\n", "hooks:\n  long: [hooks/long.sh]\n"))
+    pack, _ = _log_hooks(pack_dir, "- name: hk-long\n  after: [long]\n  steps:\n" + GOOD)
+    (out,) = Runner(pack, driver, store, run, variables={"FLAG": token}, sleep=lambda s: None).run_all(
+        [pack.journeys["hk-long"]])
+    assert out.status == "failed" and "q" * 10 not in out.message and "•••" in out.message
+
+
+def test_a_journey_shows_passed_only_after_its_cleanup(env, pack_dir):
+    _, _, driver, store, run, _ = env
+    pack, _ = _log_hooks(pack_dir, (
+        "- name: hk-ok\n  after: [log, log]\n  steps:\n" + GOOD +
+        "- name: hk-dirty\n  after: [log, {name: log, args: {x: fail}}]\n  steps:\n" + GOOD))
+    seen = []
+    Runner(pack, driver, store, run, variables={}, sleep=lambda s: None,
+           on_update=lambda o: seen.append((o.name, o.status))).run_all(
+        [pack.journeys["hk-ok"], pack.journeys["hk-dirty"]])
+    ok = [s for n, s in seen if n == "hk-ok"]
+    assert ok[-1] == "passed" and "passed" not in ok[:-1]
+    assert "passed" not in [s for n, s in seen if n == "hk-dirty"]

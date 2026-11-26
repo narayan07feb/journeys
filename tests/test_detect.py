@@ -142,3 +142,11 @@ def test_init_asks_about_servers_only_when_it_can_write_the_pack(tmp_path, monke
     (tmp_path / "p" / "map" / "screens.yaml").write_text("screens:\n")
     assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.a", "--driver", "maestro"]) == 2
     assert main(["--pack", str(tmp_path / "q"), "init", "--app", "not a package", "--driver", "maestro"]) == 2
+
+
+def test_init_never_half_writes_a_pack_over_an_existing_hook_script(tmp_path):
+    (tmp_path / "p" / "hooks").mkdir(parents=True)
+    (tmp_path / "p" / "hooks" / "set_flag.sh").write_text("#!/bin/sh\n")
+    assert main(["--pack", str(tmp_path / "p"), "init", "--app", "com.a", "--driver", "maestro",
+                 "--server-hook", "set_flag"]) == 2
+    assert not (tmp_path / "p" / "pack.yaml").exists() and not (tmp_path / "p" / "map").exists()

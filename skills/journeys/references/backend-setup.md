@@ -19,7 +19,7 @@ script). Never guess the tool and never name one in a public example.
 - Three places call hooks:
   1. A step: `- hook: {name: set_flag, args: {flag: new_checkout, enabled: true}}`.
   2. A journey's `after:`: hooks that run when the journey ends, **passed or failed** (also after
-     Ctrl-C or a lost device). Every one runs, even when one fails. A failed one fails a journey
+     Ctrl-C or a lost device). Every one runs, even when one fails (a second Ctrl-C during cleanup ends it). A failed one fails a journey
      that had passed.
   3. A set's `before:` (once, before its journeys) and `after:` (once, at the end, always). They
      run only when that set is the run target (`run nightly`), not for `run all` or one journey.
