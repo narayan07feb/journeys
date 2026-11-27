@@ -369,3 +369,22 @@ def test_the_specs_id_match_is_the_drivers_on_node():
                          input=json.dumps(pairs), text=True, capture_output=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == [id_matches(w, h) for w, h in pairs]
+
+
+
+@needs_node
+def test_the_spec_checks_packages_nested_names_and_empty_names(pack_dir, tmp_path):
+    """Fixed outcomes, not read from the driver: a wrong package and an empty name find nothing; a nested name
+    is found by its whole id and not by its plain decoy."""
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">'
+           '<android.widget.FrameLayout bounds="[0,0][1080,2400]">'
+           '<android.widget.Button text="" clickable="true" resource-id="com.x:id/open" bounds="[0,100][1080,200]"/>'
+           '<android.widget.Button text="" clickable="true" resource-id="com.x:id/inbox/open" bounds="[0,300][1080,400]"/>'
+           '<android.widget.Button text="Grp" resource-id="com.x:id/group/" bounds="[0,500][1080,600]"/>'
+           '</android.widget.FrameLayout></hierarchy>')
+    app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
+    for sel, want in [({"id": "com.x:id/inbox/open"}, [540, 350]), ({"id": "com.x:id/open"}, [540, 150]),
+                      ({"id": "wrong.pkg:id/open"}, None), ({"id": "com.x:id/group/"}, None), ("Grp", [540, 550])]:
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
+        got = [c[2:] for c in calls if c[0] == "tap"]
+        assert (got == [want] if want else verdict.startswith("FAIL not on the screen")), (sel, got, verdict)

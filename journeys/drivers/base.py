@@ -144,6 +144,12 @@ def id_tail(rid: str) -> str:
     return rid.rsplit("/", 1)[-1]
 
 
+def id_key(rid: str) -> str:
+    """An id for screen identity: its name (a package change is the same screen), or "" when the name is
+    empty or ends in "/" (no id)."""
+    return id_name(rid) if id_tail(rid) else ""
+
+
 def id_matches(want: str, have: str) -> bool:
     """Ids match by name ("pkg:id/name" or "name"); a package on both sides must agree too. The
     drivers report the whole resource-id; an app can report a bare name (a Compose test tag)."""

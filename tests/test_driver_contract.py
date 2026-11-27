@@ -250,6 +250,20 @@ def test_a_map_rule_with_a_package_checks_the_package_on_every_driver(kind, tmp_
         [False, True, True, True]
 
 
+NESTED = {"app": "com.example.app", "start": "HOME", "screens": {
+    "HOME": {"elements": [{"kind": "Button", "text": "", "id": "com.example.app:id/open", "to": "DECOY"},
+                          {"kind": "Button", "text": "", "id": "com.example.app:id/inbox/open", "to": "INBOX"}]},
+    "DECOY": {"elements": [{"kind": "Text", "text": "Plain open"}]},
+    "INBOX": {"elements": [{"kind": "Text", "text": "Inbox"}]}}}
+
+
+@pytest.mark.parametrize("kind", [k for k in DRIVERS if k != "maestro"])  # Maestro refuses a / in a name
+def test_a_nested_name_is_picked_by_its_whole_id(kind, tmp_path):
+    d = hooked(kind, Phone(NESTED), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": "com.example.app:id/inbox/open"}}]).ok and texts(d) == ["Inbox"]
+
+
 def test_id_rules():
     from journeys.appmap import Rule
     from journeys.drivers.base import Element, id_matches

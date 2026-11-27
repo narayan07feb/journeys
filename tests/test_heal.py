@@ -252,7 +252,9 @@ def test_round_2_deny_and_identity_keep_their_meaning():
     assert denied(nested.elements[0], [Rule.parse({"id": "delete_account"})])  # as when drivers cut the id
     base = _screen(("Button", "Manage", "safe.pkg:id/action"))
     after = _screen(("Button", "Manage", "danger.pkg:id/action"))
-    assert new_denied(base, after, [Rule.parse({"id": "danger.pkg:id/action"})])  # a package change, newly denied
+    danger = [Rule.parse({"id": "danger.pkg:id/action"})]
+    assert not denied(base.elements[0], danger) and denied(after.elements[0], danger)  # the package counts
+    assert new_denied(base, after, danger)  # a package change, newly denied
     a = _screen(("Button", "Open", "com.x:id/inbox/open"))
     b = _screen(("Button", "Open", "com.x:id/archive/open"))
     assert fingerprint(a) != fingerprint(b) and _actions(a) != _actions(b)  # the path in the name stays identity
@@ -265,3 +267,10 @@ def test_round_2_deny_and_identity_keep_their_meaning():
 def test_an_id_whose_name_ends_in_a_slash_matches_nothing():
     from journeys.drivers.base import id_matches
     assert not id_matches("com.x:id/group/", "com.x:id/group/") and not id_matches("group/", "group/")
+
+
+def test_a_name_that_ends_in_a_slash_is_no_id_for_screen_identity():
+    from journeys.explore import _actions
+    from journeys.heal import fingerprint
+    a, b = _screen(("Button", "Open", "com.x:id/group/")), _screen(("Button", "Open", ""))
+    assert fingerprint(a) == fingerprint(b) and _actions(a) == _actions(b)

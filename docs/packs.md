@@ -149,12 +149,14 @@ An id matches by its name: `{id: login}` matches `login`, `com.example:id/login`
 screen shows one, so it skips `com.other:id/login`. The drivers show each element's whole resource-id
 in `look` (Speedrun: as `speedrun look` prints it), and map rules check a package the same way.
 Selectors Journeys writes (proposals, `tap-all`) use the name, so they stay right in a build whose
-package differs; use the index when two packages share a name. They use no id when Maestro would read
+package differs; use the index when two packages share a name (an index counts matches in the order the
+driver lists them; a driver that lists them in another order picks another view). They use no id when Maestro would read
 it as other views too (a name with a `/`, or another id that ends in `/name`): the text, then. An id
 whose name is empty or ends in `/` (`group/`, `pkg:id/group/`) is no id, and it matches nothing.
 A name that holds a `/` (`pkg:id/inbox/open`) matches only that whole name, on every driver but
-Maestro: `{id: open}` no longer picks it on Appium; write `{id: inbox/open}` there. Maestro still
-matches `{id: open}` on it (it reads the part after the last `/`).
+Maestro: `{id: open}` no longer picks it on Appium; write the whole id, `{id: pkg:id/inbox/open}`
+(`{id: inbox/open}` reads as `open`, so it can pick `pkg:id/open`). Maestro still matches
+`{id: open}` on it (it reads the part after the last `/`), and refuses `{id: pkg:id/inbox/open}`.
 
 `goto` takes the shortest path of edges.
 

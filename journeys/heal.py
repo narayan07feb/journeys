@@ -17,7 +17,7 @@ from pathlib import Path
 from . import yamlio
 from .actions import ActionError, dump, escape, from_command, from_commands, to_commands
 from .appmap import KINDS, AppMap
-from .drivers.base import Driver, DriverError, Screen, find, id_matches, id_name, id_tail
+from .drivers.base import Driver, DriverError, Screen, find, id_key, id_matches, id_name, id_tail
 from .pack import Pack
 from .results import Store
 
@@ -25,7 +25,7 @@ TAPPABLE = set(KINDS)  # every kind a driver reports can be tapped
 
 
 def fingerprint(screen: Screen) -> frozenset:
-    return frozenset((e.kind, e.text, id_name(e.id)) for e in screen.elements)  # a package change is the same screen
+    return frozenset((e.kind, e.text, id_key(e.id)) for e in screen.elements)  # a package change is the same screen
 
 
 def same_screen(a: Screen, b: Screen) -> bool:
@@ -88,7 +88,7 @@ def denied(el, deny: list) -> bool:
     name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", id_tail(el.id))  # delete_account, btnDeleteAccount
     el = replace(el, text=_ZW.sub("", el.text))  # "Log\u200bout" reads as "Logout"
     tail = replace(el, id=id_tail(el.id))  # {id: delete_account} also denies pkg:id/settings/delete_account
-    return any(r.matches(el) or r.matches(tail) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
+    return any(r.matches(el) or (r.id is not None and ":id/" not in r.id and r.matches(tail)) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
                for r in deny)
 
 
