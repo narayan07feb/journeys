@@ -230,8 +230,9 @@ def check(rx: str, engine: str) -> list[str]:
     return sorted(notes)
 
 
-def _selector_values(cmd) -> list[tuple[str, str]]:
-    """The (key, pattern) pairs of a shared command's selector: text and id."""
+def _selector_texts(cmd) -> list[str]:
+    """The text patterns of a shared command's selector (an id goes as plain text: both exports match it by
+    its name)."""
     if not isinstance(cmd, dict) or len(cmd) != 1:
         return []
     (name, arg), = cmd.items()
@@ -240,26 +241,22 @@ def _selector_values(cmd) -> list[tuple[str, str]]:
     elif name not in ("tapOn", "assertVisible", "assertNotVisible"):
         return []
     if isinstance(arg, str):
-        return [("text", arg)]
-    return [(k, v) for k, v in (arg or {}).items() if k in ("text", "id") and isinstance(v, str)]
+        return [arg]
+    return [arg["text"]] if isinstance(arg, dict) and isinstance(arg.get("text"), str) else []
 
 
-def notes_for(cmds: list, engine: str, keys=("text", "id")) -> list[str]:
+def notes_for(cmds: list, engine: str) -> list[str]:
     """One export note per difference that shows on some text, naming the first pattern that has it.
     Raises ActionError (from check) for a pattern outside the subset: the export's refusal. A text that is
     not a pattern (Python cannot read it) is matched as exact text and passes."""
     seen: dict[str, list[str]] = {}
     for c in cmds:
-        for k, v in _selector_values(c):
-            if k not in keys:
-                continue
+        for v in _selector_texts(c):
             try:
                 re.compile(v)
             except (re.error, OverflowError, RecursionError):
                 continue
             for note in check(v, engine):
-                if k == "id" and note.startswith(". "):
-                    continue  # a dot in an id is the package's, and an id never holds a line break
                 ps = seen.setdefault(note, [])
                 if v not in ps:
                     ps.append(v)

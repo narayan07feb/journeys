@@ -253,6 +253,11 @@ The Maestro export (and the maestro driver) also:
   `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so the flow
   matches what the journey matches. Import drops it again, and a flow written without it gets a
   note: Maestro matched its texts and ids without case, the draft matches them with case.
+- sends an id as its name alone, in plain text (`a.b` goes as `a\.b`). Maestro reads an id as a
+  pattern and matches it against the whole resource-id and against the part after its last `/`, so
+  `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the other drivers (the
+  package is dropped). An id whose name is empty or holds a `/` is refused. Import reads the escaped
+  name back as plain text.
 - refuses `press: search` (Maestro has no Search key).
 - checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 
@@ -361,8 +366,8 @@ export as they search. A `^` or `$` inside a group that also has a `|` or a quan
 or `(^Save)?Cancel`, stays, and is refused. YAML reads `"\uD83D\uDE00"` as two halves of one character:
 selectors and map rules join them into the character when the pack loads. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
 plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
-journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. A dot in an id (`com.example:id/title`) gets no
-note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters
+journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. An id is never a pattern: both exports
+match it as plain text by its name. The maestro driver runs noted patterns without a note. Write the letters
 you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets

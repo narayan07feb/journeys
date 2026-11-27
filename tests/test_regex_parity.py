@@ -332,8 +332,7 @@ def test_export_notes_name_each_difference_once():
         "\\d knows only ASCII digits in Java (Python: every language): /\\d+ items/ and 1 more pattern(s)",
         ". does not match \\r, \\x85, \\u2028 or \\u2029 in Java (Python: it does): /a.b/",
         "\\w knows only ASCII letters and digits in Java (Python: every language): /x\\wy/"]
-    assert notes_for([{"tapOn": {"id": "com.x:id/c.d"}}], JAVA) == []  # a dot in an id is the package's
-    assert notes_for([{"tapOn": {"id": "x\\d"}}], JS, keys=("text",)) == []  # the Appium export leaves ids out
+    assert notes_for([{"tapOn": {"id": "x\\d"}}], JS) == []  # an id is plain text in both exports
 
 
 def test_the_notes_name_what_differs():
@@ -401,13 +400,13 @@ def test_both_exports_carry_the_notes_and_refusals(pack_dir):
             fmt.export(pack, pack.journeys["n"])
 
 
-def test_an_id_is_a_pattern_in_maestro_and_a_plain_name_in_the_appium_export(pack_dir):
+def test_an_id_is_a_plain_name_in_both_exports(pack_dir):
     from journeys.formats import appium, maestro
     from journeys.pack import Pack
     (pack_dir / "journeys" / "i.yaml").write_text("name: i\nsteps:\n  - see: {id: 'a\\Z'}\n")
     pack = Pack.load(pack_dir)
-    with pytest.raises(ActionError, match="the escape .Z"):
-        maestro.export(pack, pack.journeys["i"])
+    flow, notes = maestro.export(pack, pack.journeys["i"])
+    assert "id: (?-ims)a\\\\Z" in flow and notes == []  # a\Z escaped: Java reads it as the text a\Z
     spec, notes = appium.export(pack, pack.journeys["i"])
     assert '"id": "a\\\\Z"' in spec and not [n for n in notes if "JavaScript" in n]
 
@@ -441,12 +440,10 @@ def test_ids_and_map_labels_reach_the_exports_cleanly(pack_dir):
     j.write_text("name: w\nsteps:\n  - see: {id: 'a{4294967295}'}\n")  # too big for Python's re: a plain name here
     pack = Pack.load(pack_dir)
     assert '"id": "a{4294967295}"' in appium.export(pack, pack.journeys["w"])[0]
-    with pytest.raises(ActionError, match="a pattern Python cannot read"):
-        maestro.export(pack, pack.journeys["w"])
+    assert "id: (?-ims)a\\{4294967295\\}" in maestro.export(pack, pack.journeys["w"])[0]
     j.write_text("name: w\nsteps:\n  - see: {id: '['}\n")
     pack = Pack.load(pack_dir)
-    with pytest.raises(ActionError, match="a pattern Python cannot read"):
-        maestro.export(pack, pack.journeys["w"])  # never sent to Maestro as (?-ims)[
+    assert "id: (?-ims)\\[" in maestro.export(pack, pack.journeys["w"])[0]  # never sent as (?-ims)[
     f = pack_dir / "map" / "screens.yaml"
     f.write_text(f.read_text().replace('all: [{text: "/^Network & internet/"}]', 'all: [{text: "Code ${draft}"}]'))
     j.write_text("name: w\nsteps:\n  - expect: SETTINGS-HOME\n")
@@ -565,3 +562,32 @@ def test_explore_survives_a_tap_the_driver_cannot_send(tappable_pack_dir, tmp_pa
     monkeypatch.setattr(runner_mod, "explore", refuse)
     monkeypatch.setattr(r, "_alive", lambda: True)
     r._explore_failure("F-1", Step("see", "x"))  # no exception
+
+
+ID_NAMES = ["next", "a.b", "a$b", "x(y)", "q?", "[n]", "a\\b", "a|b", "{1}", "a b", "Name", "ß", "naïve", "😀"]
+
+
+@pytest.mark.skipif(shutil.which("java") is None, reason="java is not installed")
+def test_maestro_matches_an_id_by_its_name_on_java_as_the_other_drivers_do():
+    """Maestro full-matches an id pattern against the whole resource-id or the part after its last /
+    (Filters.idMatches, cli-2.12.1); the other drivers compare the name with id_matches on the bare names
+    they report. The maestro driver's id must pick the same views on real Java."""
+    from journeys.drivers.base import id_matches
+    from journeys.drivers.maestro import SAME, _maestro_id
+    wants = [w for n in ID_NAMES for w in (n, f"com.x:id/{n}")]
+    haves = [h for n in ID_NAMES for h in (n, f"com.x:id/{n}", f"android:id/{n}", n.upper(), f"x{n}", f"{n}x")] + \
+        ["axb", "a.bc", "com.x:id/axb"]
+    runs, pairs = [], []
+    for w in wants:
+        p = _maestro_id(w)[len(SAME):]  # Match.java adds SAME itself
+        for h in haves:
+            pairs.append((w, h))
+            runs += [(p, h), (p, h.rsplit("/", 1)[-1])]
+    got = _java(runs)
+    wrong = [(w, h) for k, (w, h) in enumerate(pairs)
+             if ("true" in got[2 * k:2 * k + 2]) != id_matches(w, h.rsplit("/", 1)[-1])]
+    assert wrong == []
+    # The one known difference from id_matches on full ids: a package in the id is dropped, as the
+    # Appium driver and export do (docs/packs.md).
+    assert not id_matches("com.x:id/next", "android:id/next") and "true" in _java([(_maestro_id(
+        "com.x:id/next")[len(SAME):], "next")])

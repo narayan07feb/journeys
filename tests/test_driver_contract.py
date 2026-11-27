@@ -163,6 +163,21 @@ def test_full_and_short_ids_match_on_every_driver(drv):
     assert drv.do(["back", {"tapOn": {"id": "next"}}]).ok
 
 
+@pytest.mark.parametrize("kind", DRIVERS)
+@pytest.mark.parametrize("want", ["a.b", "com.example.app:id/a.b"])
+def test_an_id_with_pattern_characters_matches_only_that_name_on_every_driver(kind, want, tmp_path):
+    """Maestro reads an id as a pattern (Filters.idMatches): "a.b" would also match "axb" there."""
+    app = {"app": "com.example.app", "start": "HOME", "screens": {
+        "HOME": {"elements": [{"kind": "Button", "text": "Decoy", "id": "com.example.app:id/axb", "to": "DECOY"},
+                              {"kind": "Button", "text": "Target", "id": "a.b", "to": "TARGET"}]},
+        "DECOY": {"elements": [{"kind": "Text", "text": "Wrong page"}]},
+        "TARGET": {"elements": [{"kind": "Text", "text": "Right page"}]}}}
+    d = hooked(kind, Phone(app), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": want}}]).ok and texts(d) == ["Right page"]
+    assert not d.do(["back", {"tapOn": {"id": "a.c"}}]).ok
+
+
 def test_id_rules():
     from journeys.appmap import Rule
     from journeys.drivers.base import Element, id_matches

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import ActionError
+from ..actions import ActionError, escape
 from ..regex_parity import JAVA, check
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, kind_of
@@ -53,10 +53,23 @@ def _java(rx: str) -> str:
     return SAME + rx
 
 
+def _maestro_id(want: str) -> str:
+    """An id as Maestro matches it like the other drivers: by its name alone, as plain text. Maestro reads an
+    id as a pattern and matches it against the whole resource-id and against the part after the last "/"
+    (Filters.idMatches, maestro cli-2.12.1); the other drivers compare only the name too (id_matches on the
+    bare names they report), so a package in the id is dropped."""
+    name = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
+    if not name or "/" in name:
+        raise ActionError(f"id {want!r}: Maestro can match only an id whose name (after :id/) has no / and "
+                          "is not empty")
+    return SAME + escape(name)
+
+
 def _maestro_sel(sel):
     """The drivers' selector -> Maestro's (text is a whole-text regex in both; SAME keeps the case)."""
     out = {"text": sel} if isinstance(sel, str) else dict(sel)
-    return {k: _java(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in out.items()}
+    return {k: _java(v) if k == "text" and isinstance(v, str) else _maestro_id(v) if k == "id" and isinstance(v, str)
+            else v for k, v in out.items()}
 
 
 def to_maestro(cmd):

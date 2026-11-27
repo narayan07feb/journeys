@@ -33,6 +33,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
 
 _FLOW_VAR = re.compile(r"\$\{|\{\{")
 _REGEX_CHARS = re.compile(r"[.^$*+?{}\[\]\\|()]")
+_ESCAPED = re.compile(re.escape(SAME) + r"(?:\\[.^$*+?{}\[\]\\|()]|[^.^$*+?{}\[\]\\|()])+")  # SAME + escape(name)
 
 
 def _plain(value, what: str) -> str:
@@ -57,14 +58,17 @@ def _neutral_sel(arg, notes=None, where=""):
                        else []) if isinstance(v, str)]
     if notes is not None and any(not v.startswith(SAME) for v in had) and f"{where}{_CASE}" not in notes:
         notes.append(f"{where}{_CASE}")
+    literal = isinstance(arg, dict) and isinstance(arg.get("id"), str) and _ESCAPED.fullmatch(arg["id"])
     arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
+    if literal:  # an id Journeys wrote (_maestro_id): plain text again
+        arg["id"] = re.sub(r"\\(.)", r"\1", arg["id"])
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
         if "text" in arg:
             _plain(arg["text"], "selector text")
         rid = _plain(arg["id"], "id") if "id" in arg else ""
-        if rid and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
+        if rid and not literal and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
             raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
         return from_selector(arg)
     raise ActionError(f"selector {arg!r} has keys with no neutral form")

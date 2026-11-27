@@ -122,22 +122,35 @@ class Phone:
             return subprocess.CompletedProcess(args, 0, json.dumps({"attributes": {}, "children": kids}), "")
         if args[0] == "test":
             flow = Path(args[1]).read_text().split("---\n", 1)[1]
-            res = self.app.do([_as_maestro_matches(c) for c in yaml.safe_load(flow)])
+            res = self.app.do([])
+            for c in yaml.safe_load(flow):  # one at a time: an id resolves on the screen its command sees
+                res = self.app.do([_as_maestro_matches(c, [e.id for e in self.app.look().elements if e.id])])
+                if not res.ok:
+                    break
             return subprocess.CompletedProcess(args, 0 if res.ok else 1, "", "" if res.ok else res.message)
         raise AssertionError(args)
 
 
-def _as_maestro_matches(cmd):
+def _as_maestro_matches(cmd, ids=()):
     """Maestro matches text and ids with IGNORE_CASE, DOT_MATCHES_ALL and MULTILINE (Orchestra.kt, cli-2.12.1)
     unless the pattern turns them off with a leading (?-ims), as java.util.regex allows. Python's re has
-    no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims)."""
+    no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims).
+    An id pattern matches the whole resource-id or the part after its last "/" (Filters.idMatches); the
+    app matches ids by name, so the pattern becomes the one screen id it matches (or none)."""
     def one(v):
         return v[len("(?-ims)"):] if v.startswith("(?-ims)") else f"(?ims:{v})"
+
+    def rid(v):
+        rx = one(v)
+        hits = {i for i in ids if re.fullmatch(rx, i) or re.fullmatch(rx, i.rsplit("/", 1)[-1])}
+        assert len(hits) <= 1, f"sim: id pattern {v!r} matches several ids {hits}"
+        return hits.pop() if hits else "\x00matches no id"
 
     def sel(a):
         if isinstance(a, str):
             return one(a)
-        return {k: one(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in a.items()}
+        return {k: one(v) if k == "text" and isinstance(v, str) else rid(v) if k == "id" and isinstance(v, str)
+                else v for k, v in a.items()}
     if not isinstance(cmd, dict) or len(cmd) != 1:
         return cmd
     (name, arg), = cmd.items()

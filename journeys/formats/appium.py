@@ -315,7 +315,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     erased = sum(_count(command_name(c)[1]) for c in cmds if command_name(c)[0] == "eraseText")
     # mocha's own 60 s is too short for a journey; erase is one call per character
     timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls + 200 * erased
-    notes += notes_for(cmds, JS, keys=("text",))  # refuses or notes; ids match by name, not as a pattern
+    notes += notes_for(cmds, JS)  # refuses or notes; ids match by name, not as a pattern
     head = (f"// Exported from Journeys: journey {json.dumps(j.name)}, pack {json.dumps(pack.name)}.\n"
             "// Runs with WebdriverIO (mocha) and Appium UiAutomator2; your wdio.conf picks the server and "
             "the device.\n"
