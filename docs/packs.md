@@ -253,6 +253,26 @@ The Maestro export (and the maestro driver) also:
   `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so the flow
   matches what the journey matches. Import drops it again, and a flow written without it gets a
   note: Maestro matched its texts and ids without case, the draft matches them with case.
+- sends an id as plain text (`a.b` goes as `a\.b`). Maestro reads an id as a pattern and matches it
+  against the whole resource-id and against the part after its last `/`. So `{id: name}` goes as the
+  name and matches that name in any package; `{id: pkg:id/name}` goes whole and matches only that
+  package. Only these two shapes go. Refused: an empty part (`:id/next`), a `/` in a part (`x/y`,
+  `p/q:id/next`, `pkg:id/a/b`), and a `${` anywhere (reserved: Maestro would read a variable's value
+  as a pattern).
+- Two id gaps stay. `{id: pkg:id/name}` does not find a view whose resource-id has no package
+  (`name`, `g/name`, `:id/name`; a Compose test tag, for example): the step fails, so write
+  `{id: name}` for such a view. `{id: name}` also matches a resource-id whose name holds a `/` and
+  ends in `/name` (not a valid Android resource name).
+- Import reads an escaped id back as plain text. Left out with a note: an id Maestro reads as another
+  pattern (a hand-written `a\.b` or `[` too), and an id that would read as a `${NAME}`. An older
+  flow's id with a `.` or a `/` in its name gets a note; a `.` in the package does not (it matched
+  any character, nearly always harmless). An imported id in a shape the maestro driver refuses
+  (`p/q:id/next`) fails when that step runs on Maestro.
+- The maestro and Appium drivers read a screen's ids as bare names, so a map rule `{id: pkg:id/name}`
+  and the Appium driver's `{id: pkg:id/name}` do not check the package.
+- Every YAML file Journeys writes reads a text with U+0085, U+2028 or U+2029 back unchanged (flows,
+  drafts and map proposals quote U+0085; the others write non-ASCII as escapes); a comment line holds no
+  line break.
 - refuses `press: search` (Maestro has no Search key).
 - checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 
@@ -266,7 +286,8 @@ What both exports do:
   `expect: SCREEN` becomes checks for the screen's `all` rules that have a text or an id.
 - Hook steps and `events.check` steps run only in Journeys: they are left out with a note.
 
-Maestro (`appId` + flow): `${NAME}` stays a Maestro variable; run it with `maestro test -e NAME=...`.
+Maestro (`appId` + flow): `${NAME}` in a text stays a Maestro variable; run it with
+`maestro test -e NAME=...`. An id with `${NAME}` is refused (see above).
 
 Appium (a WebdriverIO mocha spec):
 
@@ -361,8 +382,8 @@ export as they search. A `^` or `$` inside a group that also has a `|` or a quan
 or `(^Save)?Cancel`, stays, and is refused. YAML reads `"\uD83D\uDE00"` as two halves of one character:
 selectors and map rules join them into the character when the pack loads. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
 plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
-journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. A dot in an id (`com.example:id/title`) gets no
-note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters
+journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. An id is never a pattern: both exports
+match it as plain text (the Maestro export keeps its package; see above). The maestro driver runs noted patterns without a note. Write the letters
 you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets

@@ -163,6 +163,54 @@ def test_full_and_short_ids_match_on_every_driver(drv):
     assert drv.do(["back", {"tapOn": {"id": "next"}}]).ok
 
 
+@pytest.mark.parametrize("kind", DRIVERS)
+@pytest.mark.parametrize("want", ["a.b", "com.example.app:id/a.b"])
+def test_an_id_with_pattern_characters_matches_only_that_name_on_every_driver(kind, want, tmp_path):
+    """Maestro reads an id as a pattern (Filters.idMatches): "a.b" would also match "axb" there."""
+    app = {"app": "com.example.app", "start": "HOME", "screens": {
+        "HOME": {"elements": [{"kind": "Button", "text": "Decoy", "id": "com.example.app:id/axb", "to": "DECOY"},
+                              {"kind": "Button", "text": "Target", "id": "com.example.app:id/a.b", "to": "TARGET"}]},
+        "DECOY": {"elements": [{"kind": "Text", "text": "Wrong page"}]},
+        "TARGET": {"elements": [{"kind": "Text", "text": "Right page"}]}}}
+    d = hooked(kind, Phone(app), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": want}}]).ok and texts(d) == ["Right page"]
+    assert not d.do(["back", {"tapOn": {"id": "a.c"}}]).ok
+
+
+TWO = {"app": "com.example.app", "start": "HOME", "screens": {
+    "HOME": {"elements": [{"kind": "Button", "text": "Other", "id": "com.other:id/next", "to": "OTHER"},
+                          {"kind": "Button", "text": "Ours", "id": "com.example.app:id/next", "to": "OURS"}]},
+    "OTHER": {"elements": [{"kind": "Text", "text": "Other page"}]},
+    "OURS": {"elements": [{"kind": "Text", "text": "Our page"}]}}}
+
+
+@pytest.mark.parametrize("kind", [k if k != "appium" else pytest.param(k, marks=pytest.mark.xfail(
+    strict=True, reason="the Appium driver reports bare names (appium.py), so it ignores the package")) for k in DRIVERS])
+def test_a_package_in_an_id_picks_that_package_on_every_driver(kind, tmp_path):
+    d = hooked(kind, Phone(TWO), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": "com.example.app:id/next"}}]).ok and texts(d) == ["Our page"]
+
+
+@pytest.mark.parametrize("kind", DRIVERS)
+def test_a_bare_id_counts_an_index_over_every_package_on_every_driver(kind, tmp_path):
+    d = hooked(kind, Phone(TWO), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": "next", "index": 1}}]).ok and texts(d) == ["Our page"]
+    assert d.do(["back", {"tapOn": {"id": "next"}}]).ok and texts(d) == ["Other page"]
+
+
+@pytest.mark.parametrize("kind", ["fake", "speedrun", "maestro"])
+def test_a_next_line_character_in_an_id_reaches_the_driver(kind, tmp_path):
+    app = {"app": "com.example.app", "start": "HOME", "screens": {
+        "HOME": {"elements": [{"kind": "Button", "text": "Go", "id": "a\x85b", "to": "NEXT"}]},
+        "NEXT": {"elements": [{"kind": "Text", "text": "Next page"}]}}}
+    d = hooked(kind, Phone(app), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": "a\x85b"}}]).ok and texts(d) == ["Next page"]
+
+
 def test_id_rules():
     from journeys.appmap import Rule
     from journeys.drivers.base import Element, id_matches

@@ -693,11 +693,11 @@ def test_an_exported_flow_imports_back_without_the_case_flag(pack_dir, tmp_path)
 
 
 @pytest.mark.parametrize("rx", ["a{b", "(?P<n>a)b", "x(?P=n)", "\\\\{", "(?#c)a", "(a)?(?(1)b|c)", "a{2[x]}"])
-@pytest.mark.parametrize("shape", ["tap", "tap id", "see", "scroll"])
+@pytest.mark.parametrize("shape", ["tap", "see", "scroll"])
 def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
     from journeys.actions import ActionError
     from journeys.drivers.maestro import to_maestro
-    cmd = {"tap": {"tapOn": rx}, "tap id": {"tapOn": {"id": rx}}, "see": {"assertVisible": {"text": rx}},
+    cmd = {"tap": {"tapOn": rx}, "see": {"assertVisible": {"text": rx}},
            "scroll": {"scrollUntilVisible": {"element": rx}}}[shape]
     with pytest.raises(ActionError, match="pattern subset"):  # java.util.regex (Java 17) throws or reads each differently
         to_maestro(cmd)
@@ -707,6 +707,77 @@ def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
 def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
     from journeys.drivers.maestro import SAME, to_maestro
     assert to_maestro({"tapOn": {"text": rx}}) == {"tapOn": {"text": SAME + rx}}
+
+
+@pytest.mark.parametrize("want, sent", [("next", "next"), ("com.x:id/next", "com\\.x:id/next"), ("a.b", "a\\.b"),
+                                        ("com.x:id/a{b", "com\\.x:id/a\\{b"),
+                                        ("(?P<n>a)", "\\(\\?P<n>a\\)")])
+def test_an_id_goes_to_maestro_as_plain_text(want, sent):
+    """Maestro matches an id pattern against the whole resource-id and the part after its last / (Filters.idMatches,
+    cli-2.12.1): a bare name goes alone (any package), pkg:id/name goes whole (that package only), escaped."""
+    from journeys.drivers.maestro import SAME, to_maestro
+    assert to_maestro({"tapOn": {"id": want}}) == {"tapOn": {"id": SAME + sent}}
+    assert to_maestro({"scrollUntilVisible": {"element": {"id": want}}})["scrollUntilVisible"]["element"] == \
+        {"id": SAME + sent}
+
+
+@pytest.mark.parametrize("want, says", [("com.x:id/", "Maestro can match only"), ("com.x:id/a/b", "Maestro can match only"),
+                                        ("x/", "Maestro can match only"), ("x/y", "Maestro can match only"),
+                                        (":id/next", "Maestro can match only"), ("p/q:id/next", "Maestro can match only"),
+                                        ("${ID}", "variable's value as a pattern"),
+                                        ("com.x:id/${ID}", "variable's value as a pattern")])
+def test_an_id_maestro_cannot_match_as_journeys_does_is_refused(want, says):
+    from journeys.actions import ActionError
+    from journeys.drivers.maestro import to_maestro
+    with pytest.raises(ActionError, match=says):
+        to_maestro({"tapOn": {"id": want}})
+
+
+def test_an_exported_id_imports_back_as_its_name_and_an_older_export_still_imports(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    (pack_dir / "journeys" / "ids.yaml").write_text(
+        "name: ids\nsteps:\n  - do: [{tap: {id: \"com.x:id/a.b\"}}, {tap: {id: \"a{b\"}}, {tap: {id: \"a\\\\b\"}}]\n")
+    pack = Pack.load(pack_dir)
+    flow, notes = export(pack, pack.journeys["ids"])
+    assert "id: (?-ims)com\\.x:id/a\\.b" in flow and notes == []
+    f = tmp_path / "ids.yaml"
+    f.write_text(flow)
+    draft, notes = import_flow(f)
+    assert draft["steps"] == [{"do": [{"tap": {"id": "com.x:id/a.b"}}, {"tap": {"id": "a{b"}}, {"tap": {"id": "a\\b"}}]}]
+    assert not [n for n in notes if "id" in n]
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)com.x:id/next'}\n")  # before this change
+    assert import_flow(f, "com.android.settings")[0]["steps"] == [{"do": [{"tap": {"id": "com.x:id/next"}}]}]
+
+
+def test_an_id_flow_that_matches_other_views_than_its_text_is_refused_or_noted(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)x/a\\.b'}\n")  # only the id x/a.b
+    assert any("is a pattern; Journeys ids match exactly; left out" in n for n in import_flow(f, "com.android.settings")[1])
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)a.b'}\n")  # also axb in Maestro
+    draft, notes = import_flow(f, "com.android.settings")
+    assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}]}] and any("read it as a pattern" in n for n in notes)
+    for old, noted in (("x/y", True), ("com.x:id/a.b", True), ("com.x.app:id/next", False)):  # a package's dot: no note
+        f.write_text(f"appId: com.android.settings\n---\n- tapOn: {{id: '(?-ims){old}'}}\n")
+        assert any("read it as a pattern" in n for n in import_flow(f, "com.android.settings")[1]) == noted, old
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)\\$\\{TARGET\\}'}\n")
+    assert any("would read as a Journeys variable" in n for n in import_flow(f, "com.android.settings")[1])
+    (pack_dir / "journeys" / "v.yaml").write_text("name: v\nsteps:\n  - do: [{tap: {id: \"{{save}}\"}}]\n")
+    pack = Pack.load(pack_dir)
+    f.write_text(export(pack, pack.journeys["v"])[0])
+    assert import_flow(f)[0]["steps"] == [{"do": [{"tap": {"id": "{{save}}"}}]}]  # escaped: no Maestro variable
+
+
+def test_a_next_line_character_survives_the_flow_file_and_the_written_draft(pack_dir, tmp_path, capsys):
+    from journeys.formats.maestro import export, import_flow
+    (pack_dir / "journeys" / "n.yaml").write_text(
+        "name: n\nsteps:\n  - do: [{tap: {id: \"a\\x85b\"}}, {tap: \"c\\x85d\"}]\n")
+    pack = Pack.load(pack_dir)
+    f = tmp_path / "n2.yaml"
+    f.write_text(export(pack, pack.journeys["n"])[0])
+    steps = [{"do": [{"tap": {"id": "a\x85b"}}, {"tap": "c\x85d"}]}]
+    assert import_flow(f)[0]["steps"] == steps
+    assert cli(pack_dir, "import", "maestro", str(f)) == 0 and [st.arg for st in Pack.load(pack_dir).drafts["n2"].steps] == [steps[0]["do"]]
 
 
 def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generated_one(tmp_path):

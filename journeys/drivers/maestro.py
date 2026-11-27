@@ -12,9 +12,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import yaml
 
-from ..actions import ActionError
+from ..actions import ActionError, dump, escape
 from ..regex_parity import JAVA, check
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, kind_of
@@ -53,10 +52,26 @@ def _java(rx: str) -> str:
     return SAME + rx
 
 
+def _maestro_id(want: str) -> str:
+    """An id as plain text, so Maestro matches it as id_matches does. Maestro reads an id as a pattern and
+    matches it against the whole resource-id and against the part after its last "/" (Filters.idMatches,
+    maestro cli-2.12.1). So a bare name goes alone (any package's view with that name), and pkg:id/name goes
+    whole (only that resource-id: the part after the last "/" never holds ":id/")."""
+    pkg, sep, name = want.rpartition(":id/")
+    if not name or "/" in name or "/" in pkg or (sep and not pkg):
+        raise ActionError(f"id {want!r}: Maestro can match only name or pkg:id/name, each part not empty and "
+                          "with no /")
+    if "${" in want:
+        raise ActionError(f"id {want!r}: Maestro would read the variable's value as a pattern; write the id "
+                          "in the journey, or set it in the flow by hand")
+    return SAME + escape(want)
+
+
 def _maestro_sel(sel):
     """The drivers' selector -> Maestro's (text is a whole-text regex in both; SAME keeps the case)."""
     out = {"text": sel} if isinstance(sel, str) else dict(sel)
-    return {k: _java(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in out.items()}
+    return {k: _java(v) if k == "text" and isinstance(v, str) else _maestro_id(v) if k == "id" and isinstance(v, str)
+            else v for k, v in out.items()}
 
 
 def to_maestro(cmd):
@@ -104,8 +119,7 @@ class MaestroDriver(AdbDriver):
             raise DriverError(f"maestro hierarchy: unreadable output ({e})") from None
 
     def do(self, commands: list) -> CommandResult:
-        flow = f"appId: {self.app}\n---\n" + yaml.safe_dump([to_maestro(c) for c in commands], sort_keys=False,
-                                                         allow_unicode=True)
+        flow = f"appId: {self.app}\n---\n" + dump([to_maestro(c) for c in commands])
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write(flow)
         try:

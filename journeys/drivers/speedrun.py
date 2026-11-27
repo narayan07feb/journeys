@@ -11,8 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import yaml
-
+from ..actions import dump
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, changes_allowed
 
@@ -149,7 +148,7 @@ class SpeedrunDriver(AdbDriver):
         return parse_look(p.stdout)
 
     def do(self, commands: list) -> CommandResult:
-        flow = yaml.safe_dump(commands, sort_keys=False, allow_unicode=True)
+        flow = dump(commands)
         p = self._sr("do", "-", stdin=flow)
         out = (p.stdout + p.stderr).strip()
         if p.returncode == 0:

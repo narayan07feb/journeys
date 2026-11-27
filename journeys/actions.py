@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import re
 
-_META = re.compile(r"([.^$*+?{}\[\]\\|()])")
+import yaml
+
+META = r".^$*+?{}\[\]\\|()"  # the characters escape() escapes, inside a [...] class
+_META = re.compile(f"([{META}])")
 KEYS = {"enter": "Enter", "back": "Back", "home": "Home", "tab": "Tab", "delete": "Backspace",
         "backspace": "Backspace", "search": "Search"}
 BARE = {"back": "back", "stop": "stopApp", "hide_keyboard": "hideKeyboard", "wait_idle": "waitForAnimationToEnd",
@@ -41,6 +44,25 @@ class ActionError(ValueError):
 def escape(text: str) -> str:
     """Escape only regex characters (re.escape also escapes spaces, which some engines refuse)."""
     return _META.sub(r"\\\1", text)
+
+
+class _Dumper(yaml.SafeDumper):
+    """PyYAML writes U+0085 (NEL) raw and reads it back as a line break: quote such a text (it becomes \\N)."""
+
+
+_Dumper.add_representer(str, lambda d, v: d.represent_scalar("tag:yaml.org,2002:str", v,
+                                                             style='"' if "\x85" in v else None))
+
+
+def dump(data, **kw) -> str:
+    """YAML Journeys writes (flows, drafts, map proposals), with every text read back unchanged."""
+    return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, **kw)
+
+
+def one_line(text) -> str:
+    """Text for a # comment line: every line break (also U+0085, U+2028, U+2029) becomes a space, and any other
+    character YAML may refuse (U+0000, U+0001, ...) its \\x escape."""
+    return "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in " ".join(str(text).splitlines()))
 
 
 def join_pairs(t: str) -> str:
@@ -75,7 +97,7 @@ def to_selector(sel):
             raise ActionError(f"index is a whole number from 0 (the first match), not {sel['index']!r}")
         if "id" in sel and (not isinstance(sel["id"], str) or not sel["id"]):
             raise ActionError(f"id is a non-empty text, not {sel['id']!r}")
-        out = {k: v for k, v in sel.items() if k != "text"}
+        out = {k: join_pairs(v) if k == "id" else v for k, v in sel.items() if k != "text"}
         if "text" in sel:
             out["text"] = _text(sel["text"])
         return out

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
-from ..drivers.maestro import SAME, to_maestro
+from ..actions import KEYS, META, ActionError, from_selector, one_line, to_command, to_selector
+from ..drivers.maestro import SAME, dump, to_maestro
 from ..journey import Journey
 from ..pack import Pack
 from ..regex_parity import JAVA, notes_for
@@ -27,12 +27,14 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     if "${" in yaml.safe_dump(cmds):
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")
-    body = yaml.safe_dump(cmds, sort_keys=False, allow_unicode=True)
-    return f"# Exported from Journeys journey {j.name} (pack {pack.name}).\nappId: {pack.app}\n---\n{body}", notes
+    body = dump(cmds)
+    return f"# Exported from Journeys journey {j.name} (pack {one_line(pack.name)}).\nappId: {pack.app}\n---\n{body}", notes
 
 
 _FLOW_VAR = re.compile(r"\$\{|\{\{")
-_REGEX_CHARS = re.compile(r"[.^$*+?{}\[\]\\|()]")
+_REGEX_CHARS = re.compile(f"[{META}]")
+_PART = rf"(?:\\[{META}]|[^{META}/])+"  # text as escape() writes it, with no /
+_ESCAPED = re.compile(re.escape(SAME) + f"(?:{_PART}:id/)?{_PART}")  # what _maestro_id writes
 
 
 def _plain(value, what: str) -> str:
@@ -57,15 +59,24 @@ def _neutral_sel(arg, notes=None, where=""):
                        else []) if isinstance(v, str)]
     if notes is not None and any(not v.startswith(SAME) for v in had) and f"{where}{_CASE}" not in notes:
         notes.append(f"{where}{_CASE}")
+    literal = isinstance(arg, dict) and isinstance(arg.get("id"), str) and _ESCAPED.fullmatch(arg["id"])
     arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
+    if literal:  # an id Journeys wrote (_maestro_id): plain text again, no Maestro variable in it
+        arg["id"] = re.sub(r"\\(.)", r"\1", arg["id"])
+        if "${" in arg["id"]:
+            raise ActionError(f"id {arg['id']!r} would read as a Journeys variable; write it in the journey by hand")
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
         if "text" in arg:
             _plain(arg["text"], "selector text")
-        rid = _plain(arg["id"], "id") if "id" in arg else ""
-        if rid and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
+        rid = arg["id"] if literal else _plain(arg["id"], "id") if "id" in arg else ""
+        if rid and not literal and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
             raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
+        name = rid.rpartition(":id/")[2]  # a . in the package is the package's own: no note
+        if rid and not literal and notes is not None and ("." in name or "/" in name):
+            notes.append(f"{where}id {rid!r}: Maestro read it as a pattern (a . is any character, and only the "
+                         "whole id or its last part matched); the draft matches it as Journeys ids match: check it")
         return from_selector(arg)
     raise ActionError(f"selector {arg!r} has keys with no neutral form")
 

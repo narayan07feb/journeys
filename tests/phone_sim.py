@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 
+from journeys.drivers.base import text_matches
 from journeys.drivers.fake import FakeDriver
 
 ROW = 100  # each element is a full-width row, ROW px high, in screen order
@@ -122,22 +123,44 @@ class Phone:
             return subprocess.CompletedProcess(args, 0, json.dumps({"attributes": {}, "children": kids}), "")
         if args[0] == "test":
             flow = Path(args[1]).read_text().split("---\n", 1)[1]
-            res = self.app.do([_as_maestro_matches(c) for c in yaml.safe_load(flow)])
+            res = self.app.do([])
+            for c in yaml.safe_load(flow):  # one at a time: an id resolves on the screen its command sees
+                res = self.app.do([_as_maestro_matches(c, self.app.look().elements)])
+                if not res.ok:
+                    break
             return subprocess.CompletedProcess(args, 0 if res.ok else 1, "", "" if res.ok else res.message)
         raise AssertionError(args)
 
 
-def _as_maestro_matches(cmd):
+def _as_maestro_matches(cmd, elements=()):
     """Maestro matches text and ids with IGNORE_CASE, DOT_MATCHES_ALL and MULTILINE (Orchestra.kt, cli-2.12.1)
     unless the pattern turns them off with a leading (?-ims), as java.util.regex allows. Python's re has
-    no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims)."""
+    no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims).
+    A selector with an id is resolved here as Maestro does: the id pattern matches the whole resource-id or
+    the part after its last "/" (Filters.idMatches), one that does not compile is escaped (toRegexSafe), then
+    the text and the index pick among those views; the result is the "@N" of the view (or of none). Python's re
+    decides what compiles, so this models only the escaped ids the maestro driver writes, not every Java form."""
     def one(v):
         return v[len("(?-ims)"):] if v.startswith("(?-ims)") else f"(?ims:{v})"
+
+    def compiled(v):
+        try:
+            return re.compile(one(v))
+        except re.error:
+            return re.compile(re.escape(v))
 
     def sel(a):
         if isinstance(a, str):
             return one(a)
-        return {k: one(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in a.items()}
+        a = {k: one(v) if k == "text" and isinstance(v, str) else v for k, v in a.items()}
+        if not isinstance(a.get("id"), str):
+            return a
+        rx = compiled(a["id"])
+        hits = [i for i, e in enumerate(elements) if e.id and (rx.fullmatch(e.id) or rx.fullmatch(e.id.rsplit("/", 1)[-1]))
+                and ("text" not in a or text_matches(a["text"], e.text))]
+        k = int(a.get("index", 0))
+        return f"@{hits[k] + 1}" if k < len(hits) else "@0"  # "@0" names no view
+
     if not isinstance(cmd, dict) or len(cmd) != 1:
         return cmd
     (name, arg), = cmd.items()

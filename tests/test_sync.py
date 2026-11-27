@@ -686,3 +686,16 @@ def test_round_9_env_values_reach_neither_flows_nor_state_nor_drafts(synced, mon
     for p in [*(synced / "flows").rglob("*"), *(synced / "drafts").rglob("*"), synced / "sync-state.json"]:
         if p.is_file():
             assert "topsecret99" not in p.read_text(), p
+
+
+def test_a_next_line_character_in_a_flow_survives_the_synced_draft(framework):
+    (framework / "flows" / "nel.yaml").write_text(flow("nel", 'tapOn: {id: "a\\Nb"}'))  # \N: U+0085 in YAML
+    sync(Pack.load(framework))
+    assert [st.arg for st in Pack.load(framework).drafts["nel"].steps][-1] == [{"tap": {"id": "a" + chr(0x85) + "b"}}]
+
+
+def test_a_line_break_in_a_flow_file_name_stays_in_the_draft_comment(framework):
+    (framework / "flows" / ("odd" + chr(0x85) + "na" + chr(1) + "me.yaml")).write_text(flow("odd", 'tapOn: "About phone"'))
+    sync(Pack.load(framework))
+    (d,) = (framework / "drafts").glob("odd*.yaml")
+    assert d.read_text().splitlines()[0].startswith("# synced from flows/odd na\\x01me.yaml") and Pack.load(framework).drafts

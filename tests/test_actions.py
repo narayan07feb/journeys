@@ -48,3 +48,36 @@ def test_a_pack_with_framework_words_does_not_validate(pack_dir):
     errs = Pack.load(pack_dir).errors
     assert any("extra.yaml:3" in e and "use tap" in e for e in errs)
     assert any("extra.yaml:4" in e and "a selector is" in e for e in errs)
+
+
+def test_an_id_joins_the_two_halves_of_a_character():
+    """YAML reads "\\uD83D\\uDE00" as two halves; an id holds the one character, as a text does."""
+    from journeys.actions import to_selector
+    halves = chr(0xD83D) + chr(0xDE00)
+    assert to_selector({"id": halves}) == {"id": chr(0x1F600)} and to_selector({"id": "a"}) == {"id": "a"}
+
+
+def test_yaml_journeys_writes_reads_a_next_line_character_back(tmp_path):
+    """PyYAML writes U+0085 raw and reads it back as a line break; dump quotes it (flows, drafts, proposals)."""
+    import yaml
+    from journeys.actions import dump
+    from journeys.heal import _append
+    nel = "a" + chr(0x85) + "b"
+    assert yaml.safe_load(dump([{"id": nel}, "x"])) == [{"id": nel}, "x"]
+    f = tmp_path / "screens.yaml"
+    seps = [nel, "a" + chr(0x2028) + "b", "a" + chr(0x2029) + "b", "a\n\nb"]
+    _append(f, "screens", {"S": {"all": [{"text": t} for t in seps]}})
+    assert yaml.safe_load(f.read_text()) == {"screens": {"S": {"all": [{"text": t} for t in seps]}}}
+
+
+def test_a_comment_line_holds_no_line_break(pack_dir):
+    """A pack name with U+0085 or U+2028 must not break the export's first comment line."""
+    import yaml
+    from journeys.formats.maestro import export
+    from journeys.pack import Pack
+    f = pack_dir / "pack.yaml"
+    f.write_text(f.read_text().replace("name: ", "name: \"A\\NB\\LC\\0D\\tE\" # was: ", 1))
+    pack = Pack.load(pack_dir)
+    assert "\x85" in pack.name and "\u2028" in pack.name and "\x00" in pack.name
+    flow = export(pack, next(iter(pack.journeys.values())))[0]
+    assert flow.splitlines()[0].endswith("(pack A B C\\x00D\\x09E).") and list(yaml.safe_load_all(flow))

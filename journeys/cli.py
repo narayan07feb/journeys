@@ -577,7 +577,7 @@ def cmd_sync(args) -> int:
 def cmd_import(args) -> int:
     import yaml
 
-    from .actions import ActionError
+    from .actions import ActionError, dump
     from .formats.maestro import import_flow
     pack = _load(args)
     files = [f for p in map(Path, args.paths) for f in (sorted(p.rglob("*.y*ml")) if p.is_dir() else [p])]
@@ -597,7 +597,7 @@ def cmd_import(args) -> int:
             print(f"SKIP {f}: a journey or draft named {draft['name']} exists")
             continue
         dest.parent.mkdir(exist_ok=True)
-        dest.write_text(yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
+        dest.write_text(dump(draft))
         print(f"draft {dest}")
         _log(args, pack, "draft.import", journey=draft["name"], source=f.name)
         for n in notes:
