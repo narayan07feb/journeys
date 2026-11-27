@@ -256,19 +256,23 @@ The Maestro export (and the maestro driver) also:
 - sends an id as plain text (`a.b` goes as `a\.b`). Maestro reads an id as a pattern and matches it
   against the whole resource-id and against the part after its last `/`. So `{id: name}` goes as the
   name and matches that name in any package; `{id: pkg:id/name}` goes whole and matches only that
-  package. Only these two shapes go: an id with an empty part (`:id/next`), a `/` in a part
-  (`x/y`, `p/q:id/next`, `pkg:id/a/b`) or a `${NAME}` (Maestro would read its value as a pattern) is
-  refused. Two gaps stay: `{id: pkg:id/name}` does not find a view whose resource-id is only `name` (a
-  Compose test tag, for example; the step fails, so write `{id: name}` for such a view), and `{id: name}`
-  also matches a resource-id that ends in `/name` after another `/` (not a valid Android resource
-  name). Import reads an escaped id back as plain text; an id that Maestro reads as another pattern is
-  left out, an id that would read as a `${NAME}` is left out, and an older flow's id with a `.` or a
-  `/` in its name gets a note (a `.` in the package does not: it matched any character, nearly
-  always harmless).
+  package. Only these two shapes go. Refused: an empty part (`:id/next`), a `/` in a part (`x/y`,
+  `p/q:id/next`, `pkg:id/a/b`), and a `${` anywhere (reserved: Maestro would read a variable's value
+  as a pattern).
+- Two id gaps stay. `{id: pkg:id/name}` does not find a view whose resource-id has no package
+  (`name`, `g/name`, `:id/name`; a Compose test tag, for example): the step fails, so write
+  `{id: name}` for such a view. `{id: name}` also matches a resource-id whose name holds a `/` and
+  ends in `/name` (not a valid Android resource name).
+- Import reads an escaped id back as plain text. Left out with a note: an id Maestro reads as another
+  pattern (a hand-written `a\.b` or `[` too), and an id that would read as a `${NAME}`. An older
+  flow's id with a `.` or a `/` in its name gets a note; a `.` in the package does not (it matched
+  any character, nearly always harmless). An imported id in a shape the maestro driver refuses
+  (`p/q:id/next`) fails when that step runs on Maestro.
 - The maestro and Appium drivers read a screen's ids as bare names, so a map rule `{id: pkg:id/name}`
   and the Appium driver's `{id: pkg:id/name}` do not check the package.
-- Every YAML file Journeys writes (flows, drafts, map proposals) quotes a text that holds U+0085 (next
-  line), so it reads back unchanged.
+- Every YAML file Journeys writes reads a text with U+0085, U+2028 or U+2029 back unchanged (flows,
+  drafts and map proposals quote U+0085; the others write non-ASCII as escapes); a comment line holds no
+  line break.
 - refuses `press: search` (Maestro has no Search key).
 - checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 

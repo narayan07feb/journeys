@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
+from ..actions import KEYS, ActionError, from_selector, one_line, to_command, to_selector
 from ..drivers.maestro import SAME, dump, to_maestro
 from ..journey import Journey
 from ..pack import Pack
@@ -28,7 +28,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")
     body = dump(cmds)
-    return f"# Exported from Journeys journey {j.name} (pack {pack.name}).\nappId: {pack.app}\n---\n{body}", notes
+    return f"# Exported from Journeys journey {j.name} (pack {one_line(pack.name)}).\nappId: {pack.app}\n---\n{body}", notes
 
 
 _FLOW_VAR = re.compile(r"\$\{|\{\{")

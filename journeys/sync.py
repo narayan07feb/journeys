@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from .actions import ActionError, dump
+from .actions import ActionError, dump, one_line
 from .formats.maestro import export, import_flow, slug
 from .journey import Journey
 from .pack import Pack, PackError
@@ -395,8 +395,9 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
     notes += [f"{f}: {n}" for n in more]  # a dry run shows the same notes
     if not write:  # a dry run: every check above, nothing written
         return draft[0]["name"] if isinstance(draft, list) else draft["name"]
-    comment = f"# synced from {pack.sync['dir']}/{f}: the flow is the truth; edit it, then run `journeys sync`\n" \
-        if source(pack) == "framework" else f"# imported from {pack.sync['dir']}/{f}\n"
+    where = one_line(f"{pack.sync['dir']}/{f}")
+    comment = f"# synced from {where}: the flow is the truth; edit it, then run `journeys sync`\n" \
+        if source(pack) == "framework" else f"# imported from {where}\n"
     _write(dest, comment + dump(draft))
     draft = draft[0] if isinstance(draft, list) else draft
     loaded = Pack.load(pack.root)

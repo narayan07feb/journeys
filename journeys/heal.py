@@ -200,7 +200,7 @@ def _append(path: Path, top_key: str, items) -> None:
     # an empty inline value ("edges: []", "screens: {}") cannot take block items after it
     text = re.sub(rf"(?m)^{top_key}:\s*(\[\s*\]|\{{\s*\}})\s*$", f"{top_key}:", path.read_text())
     body = dump(items, default_flow_style=False)
-    body = "".join(f"  {ln}\n" for ln in body.splitlines())
+    body = "".join(f"  {ln}\n" for ln in body.rstrip("\n").split("\n"))  # only \n: U+2028 stays in its text
     path.write_text(text.rstrip("\n") + "\n" + body)
 
 

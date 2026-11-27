@@ -58,6 +58,11 @@ def dump(data, **kw) -> str:
     return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, **kw)
 
 
+def one_line(text) -> str:
+    """Text for a # comment line: every line break (also U+0085, U+2028, U+2029) becomes a space."""
+    return " ".join(str(text).splitlines())
+
+
 def join_pairs(t: str) -> str:
     """YAML reads "\\uD83D\\uDE00" as two halves of one character: join each valid pair into the character."""
     return t.encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass") if any(
