@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import yamlio
-from .actions import QUOTE, ActionError, to_commands
+from .actions import QUOTE, ActionError, join_pairs, to_commands
 from .drivers.base import Element, Screen, id_matches
 
 _RULE_KEYS = {"text", "id", "kind"}
@@ -26,7 +26,7 @@ class Rule:
             raw = {"text": raw}
         if not isinstance(raw, dict):
             raise ValueError(f"a rule is a text or a map of {sorted(_RULE_KEYS)}, not {raw!r}")
-        raw = yamlio.strip_lines(raw)
+        raw = {k: join_pairs(v) if isinstance(v, str) else v for k, v in yamlio.strip_lines(raw).items()}
         extra = set(raw) - _RULE_KEYS
         if extra or not raw:
             raise ValueError(f"a rule takes {sorted(_RULE_KEYS)}, got {sorted(raw)}")

@@ -342,7 +342,8 @@ The subset:
 - `(?i)` at the very start, for Maestro only, noted: `[A-Z]` matches the Kelvin sign K in Python, not in
   Java.
 
-Outside it, and so refused: patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
+Outside it, and so refused: patterns over 1000 characters or 100 groups (Java and JavaScript can
+overflow their stack on them); patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
 back-references (`\1`), named groups, comments, conditionals and atomic groups; every other inline flag
 (`(?s)`: write `[\s\S]` in place of `.` to cross lines; `(?x)`, `(?i:...)`, `(?-i:...)`); possessive
 quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...}`); `\a`, `\v`,
@@ -350,10 +351,12 @@ quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...
 
 A map rule may match part of a text. The exports send each top-level branch of it as
 `[\s\S]*(?:branch)[\s\S]*`, so it also matches a text with line breaks. A branch's own leading `^`
-(after any opening groups) drops the left `[\s\S]*`, and its trailing `$` (before any closing groups)
+(after any opening groups that run once) drops the left `[\s\S]*`, and its trailing `$` (before any
+closing groups)
 becomes `\n?` (Python's `$` also matches before a final line break): `^Save|^Cancel` and `(Total$)`
-export as they search. A `^` or `$` inside a group that also has a `|`, as in `(^a|b)c`, stays, and is
-refused. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
+export as they search. A `^` or `$` inside a group that also has a `|` or a quantifier, as in `(^a|b)c`
+or `(^Save)?Cancel`, stays, and is refused. YAML reads `"\uD83D\uDE00"` as two halves of one character:
+selectors and map rules join them into the character when the pack loads. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
 plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
 journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. A dot in an id (`com.example:id/title`) gets no
 note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters

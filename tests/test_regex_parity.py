@@ -147,6 +147,8 @@ CASES = {
     "(Save)\\1|Cancel": {JAVA: (DENY, []), JS: (DENY, [])},
     "(a)\\1\u00b2": {JAVA: (DENY, []), JS: (DENY, [])},  # round 4: a crash before
     "()" * 101 + "\\101": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(a)" * 400: {JAVA: (DENY, []), JS: (DENY, [])},  # round 7: too long; both engines overflow at 10,000
+    "[^\\s\\S]": {JAVA: (SAME, ["a", E]), JS: (SAME, ["a", E])},  # matches nothing anywhere: no note
     "(?<=a)b": {JAVA: (DENY, []), JS: (DENY, [])},
     "\\0777": {JAVA: (DENY, []), JS: (DENY, [])},
 }
@@ -217,6 +219,9 @@ def test_each_case_reads_on_the_real_engine_as_the_table_says(engine, run, tool)
     for p, c in CASES.items():
         kind, texts = c[engine]
         if kind == DENY or not texts:
+            continue
+        if kind in (SAME, "note") and any(got[(p, s)] not in ("true", "false") for s in texts):
+            wrong.append((p, kind, "an accepted pattern must read on the engine", [got[(p, s)] for s in texts]))
             continue
         differs = [got[(p, s)] != _python(p, s) for s in texts]
         if (p, engine) in VERSIONS:
@@ -498,3 +503,29 @@ def test_a_rule_that_only_breaks_once_wrapped_is_an_export_error():
     with pytest.raises(ActionError, match="screen S: rule .* cannot be exported as a whole-text pattern"):
         _part(deep, "S")
     assert _part("(b|a$)", "S") == "[\\s\\S]*(?:(b|a$))[\\s\\S]*"  # a | around the $: it stays (check() refuses)
+
+
+def test_round_7_anchor_lifting_size_pairs_and_counts(pack_dir):
+    from journeys.formats import _part, appium, maestro
+    from journeys.pack import Pack
+    for rule in ("(^Save)?Cancel", "(^Save)+Cancel"):  # a quantified group: the ^ stays, and check() refuses it
+        assert "(^Save)" in _part(rule, "S")
+        with pytest.raises(ActionError, match="a \\^ inside the pattern .* only at the start"):
+            check(_part(rule, "S"), JAVA)
+    assert _part("(^Save)Cancel", "S") == "(?:(Save)Cancel)[\\s\\S]*"  # a group that runs once carries it out
+    with pytest.raises(ActionError, match="over 1000 characters or 100 groups"):
+        check("(a)" * 400, JS)
+    with pytest.raises(ActionError, match="list in a \\[\\^...\\] class only the characters"):
+        check("[^\\ud7ff-\\ue000]{2}", JS)
+    (pack_dir / "journeys" / "e.yaml").write_text('name: e\nsteps:\n  - see: "Save \\uD83D\\uDE00"\n')
+    pack = Pack.load(pack_dir)  # YAML reads the escape as two halves; the selector joins them
+    assert not pack.errors and maestro.export(pack, pack.journeys["e"]) and appium.export(pack, pack.journeys["e"])
+    f = pack_dir / "map" / "screens.yaml"
+    base = f.read_text()
+    f.write_text(base.replace('all: [{text: "/^Network & internet/"}]', 'all: [{text: "Save \\uD83D\\uDE00"}]'))
+    (pack_dir / "journeys" / "m.yaml").write_text("name: m\nsteps:\n  - expect: SETTINGS-HOME\n")
+    pack = Pack.load(pack_dir)  # a map rule joins the halves too
+    assert not pack.errors and maestro.export(pack, pack.journeys["m"]) and appium.export(pack, pack.journeys["m"])
+    f.write_text(base)
+    (pack_dir / "journeys" / "e.yaml").write_text("name: e\nsteps:\n  - see: '/a{" + "0" * 4500 + "1}/'\n")
+    assert any("bad regex" in e for e in Pack.load(pack_dir).errors)  # Python's int length limit: an error

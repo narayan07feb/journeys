@@ -43,9 +43,16 @@ def escape(text: str) -> str:
     return _META.sub(r"\\\1", text)
 
 
+def join_pairs(t: str) -> str:
+    """YAML reads "\\uD83D\\uDE00" as two halves of one character: join each valid pair into the character."""
+    return t.encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass") if any(
+        0xD800 <= ord(c) <= 0xDFFF for c in t) else t
+
+
 def _text(t) -> str:
     if not isinstance(t, str):
         raise ActionError(f"selector text {t!r} is not a text: {QUOTE}")
+    t = join_pairs(t)
     if t == "":
         raise ActionError("selector text must be a non-empty text")
     if len(t) > 1 and t.startswith("/") and t.endswith("/"):
@@ -53,7 +60,7 @@ def _text(t) -> str:
             raise ActionError("an empty regex // matches only empty text: write the text you want")
         try:
             re.compile(t[1:-1])
-        except (re.error, OverflowError, RecursionError) as e:  # a count too big for re is not a crash
+        except (re.error, OverflowError, RecursionError, ValueError) as e:  # a count too big for re: no crash
             raise ActionError(f"bad regex {t}: {e}") from None
         return "\\" + t[1:-1] if re.fullmatch(r"@\d+", t[1:-1]) else t[1:-1]  # never an element ref
     return "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t)  # "@3" is text, not a ref

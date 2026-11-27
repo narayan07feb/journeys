@@ -17,6 +17,7 @@ from .actions import ActionError
 JAVA, JS = "Java", "JavaScript"
 _COUNT = re.compile(r"\{([0-9]+)(,([0-9]*))?\}")  # ASCII digits: Python reads {٢} as text
 _MAX_COUNT = 2**31 - 1  # Java refuses a larger count
+_MAX_LEN, _MAX_GROUPS = 1000, 100  # longer patterns, or more groups, can overflow Java's and JavaScript's stack
 _HEX = re.compile(r"x[0-9a-fA-F]{2}|u(?![dD][89a-fA-F])[0-9a-fA-F]{4}")  # \xHH, \uHHHH (not half a character)
 _SHORTHAND = {"d": "digits", "D": "digits", "w": "letters and digits", "W": "letters and digits"}
 _CONTROL = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}
@@ -84,9 +85,12 @@ def check(rx: str, engine: str) -> list[str]:
         raise ActionError(f"/{shown(rx)}/: {what} is not in the pattern subset Journeys can give {engine} "
                           f"unchanged (docs/packs.md, Patterns in Java and JavaScript)" + (f"; {hint}" if hint else ""))
 
+    if len(rx) > _MAX_LEN or rx.count("(") > _MAX_GROUPS:
+        refuse(f"a pattern over {_MAX_LEN} characters or {_MAX_GROUPS} groups",
+               "Java and JavaScript can overflow their stack on it; split the check into shorter patterns")
     try:
         re.compile(rx)
-    except (re.error, OverflowError, RecursionError) as e:
+    except (re.error, OverflowError, RecursionError, ValueError) as e:
         refuse(f"a pattern Python cannot read ({e})", "escape its special characters to match the text itself")
     if any(0xD800 <= ord(c) <= 0xDFFF for c in rx):
         refuse("a lone \\uD800-\\uDFFF half of a character", "write the whole character")
@@ -102,6 +106,7 @@ def check(rx: str, engine: str) -> list[str]:
         i = 4
     begin = i
     in_class: dict[str, str] = {}  # the open class's shorthand letters, and their notes (merged at its end)
+    class_half: set[str] = set()  # the open class's half-emoji notes (merged at its end)
     while i < n:
         c = rx[i]
         count = _COUNT.match(rx, i) if c == "{" else None
@@ -122,7 +127,7 @@ def check(rx: str, engine: str) -> list[str]:
             elif e in "dDwWsS":
                 in_class[e] = _shorthand_note(e, engine)
                 if e in "DWS" and engine == JS:
-                    notes.add(_HALF.format(what=f"[...\\{e}...] class"))
+                    class_half.add(_HALF.format(what=f"[...\\{e}...] class"))
             elif e in ("b", "B") and cls is None:
                 notes.add(f"\\{e} knows only ASCII letters and digits in "
                           f"{'Java 19 and later' if engine == JAVA else JS} (Python: every language)"
@@ -139,15 +144,17 @@ def check(rx: str, engine: str) -> list[str]:
             if c == "]" and i == cls + 1 + (rx[cls + 1:cls + 2] == "^"):
                 refuse("a ] first in a [...] class", "escape it as \\]")
             if c == "]":
-                cls = None
-                notes |= {t for x, t in in_class.items() if x.swapcase() not in in_class}  # [\s\S]: all, no note
-                in_class = {}
+                pair = any(x.swapcase() in in_class for x in in_class)  # [\s\S]: every character
+                notes |= {t for x, t in in_class.items() if x.swapcase() not in in_class}
+                if not (pair and rx[cls + 1:cls + 2] == "^"):  # [^\s\S] matches nothing: no half either
+                    notes |= class_half
+                cls, in_class, class_half = None, {}, set()
             elif c == "[":
                 refuse("a [ inside a [...] class", "escape it as \\[")
             elif c == "&" and rx.startswith("&&", i):
                 refuse("&& inside a [...] class", "escape one of them as \\&")
             elif c == "^" and i == cls + 1 and engine == JS:
-                notes.add(_HALF.format(what="[^...] class"))
+                class_half.add(_HALF.format(what="[^...] class"))
             i += 1
             continue
         if ord(c) > 0xFFFF and engine == JS and (rx[i + 1:i + 2] in ("*", "+", "?") or _COUNT.match(rx, i + 1)):
@@ -155,8 +162,9 @@ def check(rx: str, engine: str) -> list[str]:
             refuse("a quantifier on an emoji", f"JavaScript repeats only its second half; write (?:{c}){q}")
         if c == "[":
             if engine == JS and any(lo <= 0xDFFF and hi >= 0xD800 for lo, hi in _class_ranges(rx, i)[0]):
-                refuse("a [...] range across U+D800-U+DFFF", "JavaScript then matches halves of emoji; stop the "
-                       "range at \\ud7ff and start again at \\ue000")
+                refuse("a [...] range across U+D800-U+DFFF", "JavaScript then matches halves of emoji; " + (
+                       "list in a [^...] class only the characters it must not match" if rx[i + 1:i + 2] == "^" else
+                       "stop the range at \\ud7ff and start again at \\ue000"))
             cls, quant = i, False
         elif c == "(":
             if rx.startswith("(?", i) and not rx.startswith("(?:", i):
@@ -174,9 +182,9 @@ def check(rx: str, engine: str) -> list[str]:
         elif c == "|":
             choice[-1] = True
         elif c == "^" and not (i == begin or (depth == 0 and rx[i - 1] == "|")):
-            refuse("a ^ inside the pattern", "leave it out: a pattern always matches the whole text")
+            refuse("a ^ inside the pattern", "^ can stand only at the start of the pattern or of a top-level branch")
         elif c == "$" and not (rx[i + 1:].strip(")") == "" or (depth == 0 and rx[i + 1:i + 2] == "|")):
-            refuse("a $ inside the pattern", "leave it out: a pattern always matches the whole text")
+            refuse("a $ inside the pattern", "$ can stand only at the end of the pattern or of a top-level branch")
         elif c == ".":
             notes.add(f". does not match \\r, \\x85, \\u2028 or \\u2029 in {engine} (Python: it does)" if engine == JAVA
                       else ". does not match \\r, \\u2028, \\u2029 or a whole emoji in JavaScript (Python: it does)")

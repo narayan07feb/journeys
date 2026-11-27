@@ -37,11 +37,13 @@ def _scan(rx: str) -> tuple[list[int], list[tuple[int, int, bool]]]:
 def _branch(b: str) -> str:
     """One top-level branch of a map rule, padded to match a whole text. Its own leading ^ (after any
     opening groups) and trailing $ (before any closing ones) mark the start and end of the text, so they
-    replace the padding there, unless a group around them has a | (then they stay, and check() refuses)."""
+    replace the padding there, unless a group around them has a | or a quantifier (then they stay, and
+    check() refuses): only a group that runs exactly once can carry the anchor out."""
     left = right = f"{ANY}*"
     _, groups = _scan(b)
     lead = re.match(r"(?:\((?:\?:)?)*", b).end()
-    if b[lead:lead + 1] == "^" and not any(alt for start, _, alt in groups if start < lead):
+    if b[lead:lead + 1] == "^" and not any(alt or b[end + 1:end + 2] in tuple("*+?{")
+                                           for start, end, alt in groups if start < lead):
         b, left = b[:lead] + b[lead + 1:], ""
     core = b.rstrip(")")
     tail = len(b) - len(core)
