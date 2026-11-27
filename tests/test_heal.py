@@ -274,3 +274,12 @@ def test_a_name_that_ends_in_a_slash_is_no_id_for_screen_identity():
     from journeys.heal import fingerprint
     a, b = _screen(("Button", "Open", "com.x:id/group/")), _screen(("Button", "Open", ""))
     assert fingerprint(a) == fingerprint(b) and _actions(a) == _actions(b)
+
+
+def test_a_deny_rule_with_a_package_still_denies_a_nested_name_in_that_package():
+    """Drivers reported pkg:id/settings/delete_account as delete_account: {id: bank:id/delete_account} denied it."""
+    from journeys.appmap import Rule
+    from journeys.heal import denied
+    rule = [Rule.parse({"id": "bank:id/delete_account"})]
+    assert denied(_screen(("Button", "Manage", "bank:id/settings/delete_account")).elements[0], rule)
+    assert not denied(_screen(("Button", "Manage", "other:id/settings/delete_account")).elements[0], rule)

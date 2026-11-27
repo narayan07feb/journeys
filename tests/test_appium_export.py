@@ -387,4 +387,5 @@ def test_the_spec_checks_packages_nested_names_and_empty_names(pack_dir, tmp_pat
                       ({"id": "wrong.pkg:id/open"}, None), ({"id": "com.x:id/group/"}, None), ("Grp", [540, 550])]:
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
         got = [c[2:] for c in calls if c[0] == "tap"]
-        assert (got == [want] if want else verdict.startswith("FAIL not on the screen")), (sel, got, verdict)
+        assert ((got, verdict) == ([want], "PASS") if want else
+                got == [] and verdict.startswith("FAIL not on the screen")), (sel, got, verdict)

@@ -87,8 +87,11 @@ def denied(el, deny: list) -> bool:
     delete_account): a label can be vague or cut short, the id often says what the button does."""
     name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", id_tail(el.id))  # delete_account, btnDeleteAccount
     el = replace(el, text=_ZW.sub("", el.text))  # "Log\u200bout" reads as "Logout"
-    tail = replace(el, id=id_tail(el.id))  # {id: delete_account} also denies pkg:id/settings/delete_account
-    return any(r.matches(el) or (r.id is not None and ":id/" not in r.id and r.matches(tail)) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
+    # also the id cut to its package and last part, as drivers reported it before: {id: delete_account} and
+    # {id: bank:id/delete_account} still deny bank:id/settings/delete_account, and a rule for another package does not
+    pkg = el.id.rpartition(":id/")[0]
+    tail = replace(el, id=f"{pkg}:id/{id_tail(el.id)}" if pkg else id_tail(el.id))
+    return any(r.matches(el) or r.matches(tail) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
                for r in deny)
 
 

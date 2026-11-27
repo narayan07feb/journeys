@@ -146,7 +146,8 @@ A selector (SEL) is `"Exact text"`, `"/regex/"` (must match the whole text), `{i
 
 An id matches by its name: `{id: login}` matches `login`, `com.example:id/login` and
 `home/login`. With a package, `{id: com.example:id/login}` also needs the package to agree when the
-screen shows one, so it skips `com.other:id/login`. The drivers show each element's whole resource-id
+screen shows one, so it skips `com.other:id/login` (on Maestro it needs the whole resource-id, so it also
+skips a view that shows only `login`). The drivers show each element's whole resource-id
 in `look` (Speedrun: as `speedrun look` prints it), and map rules check a package the same way.
 Selectors Journeys writes (proposals, `tap-all`) use the name, so they stay right in a build whose
 package differs; use the index when two packages share a name (an index counts matches in the order the
