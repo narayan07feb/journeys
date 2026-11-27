@@ -23,7 +23,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen, changes_allowed, command_name, find, kind_of, shown
+from .base import (CommandResult, DriverError, Element, Screen, changes_allowed, command_name, find, id_tail, kind_of,
+                   shown)
 
 SCROLL_S = 20  # seconds scroll_to looks for its element
 START_S = 300  # seconds a session start may take (Appium may install its helpers first)
@@ -71,7 +72,7 @@ def parse_source(xml) -> tuple[Screen, list[tuple[int, int, int, int]]]:
         text = a.get("text") or a.get("content-desc") or a.get("hint") or ""
         rid = a.get("resource-id") or ""  # the whole id, so a package in a selector or map rule counts
         clickable = a.get("clickable") == "true"
-        if not m or not (text or rid or clickable):
+        if not m or not (text or id_tail(rid) or clickable):  # "group/" is no id
             continue
         state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")
         if a.get("enabled") == "false":

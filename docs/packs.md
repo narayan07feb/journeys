@@ -149,7 +149,9 @@ An id matches by its name: `{id: login}` matches `login`, `com.example:id/login`
 screen shows one, so it skips `com.other:id/login`. The drivers show each element's whole resource-id
 in `look` (Speedrun: as `speedrun look` prints it), and map rules check a package the same way.
 Selectors Journeys writes (proposals, `tap-all`) use the name, so they stay right in a build whose
-package differs; use the index when two packages share a name.
+package differs; use the index when two packages share a name. They use no id when Maestro would read
+it as other views too (a name with a `/`, or another id that ends in `/name`): the text, then. An id
+whose name is empty (`group/`) is no id, and it matches nothing.
 
 `goto` takes the shortest path of edges.
 

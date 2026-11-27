@@ -202,3 +202,43 @@ def test_a_proposal_with_a_masked_value_is_not_promoted(h):
         "kind": "new-screen", "name": "S", "match": {"all": [{"text": "Second •••"}]}, "edges": []}})
     with pytest.raises(PromoteError, match="masked"):
         promote(Pack.load(pack_dir), store, pid)
+
+
+def _screen(*els):
+    from journeys.drivers.base import Element, Screen
+    return Screen([Element(f"@{i + 1}", k, t, rid) for i, (k, t, rid) in enumerate(els)])
+
+
+def test_heal_gives_no_id_selector_that_maestro_would_read_as_other_views():
+    """Maestro matches a bare name on the whole id or the part after the last "/": {id: next} would also hit
+    pkg:id/group/next. Heal then falls back to the text; a name with a / is never an id selector."""
+    from journeys.heal import selector
+    s = _screen(("Button", "A", "com.x:id/group/next"), ("Button", "B", "com.x:id/next"))
+    assert selector(s.elements[0], s) == "A" and selector(s.elements[1], s) == "B"
+
+
+def test_the_deny_list_and_its_siblings_read_the_ids_last_part():
+    from journeys.appmap import Rule
+    from journeys.heal import denied, tap_targets
+    s = _screen(("Button", "Open", "one:id/action"), ("Button", "Blocked", "two:id/action"),
+                ("Button", "Manage", "com.x:id/settings/delete_account"), ("Button", "Fine", "com.x:id/ok"))
+    deny = [Rule.parse({"text": "Blocked"}), Rule.parse({"text": "delete account"})]
+    assert denied(s.elements[2], deny)  # the id's last part says what the button does
+    assert [e.text for e in tap_targets(s, deny, 10)] == ["Fine"]  # Open shares the name action with Blocked
+
+
+def test_a_package_change_alone_is_the_same_screen():
+    from journeys.explore import _actions
+    from journeys.heal import fingerprint
+    a = _screen(("Button", "Open", "one:id/open"), ("Button", "Help", "one:id/help"))
+    b = _screen(("Button", "Open", "two:id/open"), ("Button", "Help", "two:id/help"))
+    assert fingerprint(a) == fingerprint(b) and _actions(a) == _actions(b)
+
+
+def test_an_id_with_an_empty_name_is_no_id():
+    from journeys.drivers.base import id_matches
+    from journeys.drivers.maestro import parse_hierarchy
+    tree = {"attributes": {}, "children": [{"attributes": {"resource-id": "group/"}},
+                                           {"attributes": {"text": "Next", "resource-id": "com.x:id/next"}}]}
+    assert [e.text for e in parse_hierarchy(tree).elements] == ["Next"]
+    assert not id_matches("another/", "group/") and not id_matches("com.x:id/", "com.x:id/")

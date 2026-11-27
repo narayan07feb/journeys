@@ -138,13 +138,19 @@ def id_name(rid: str) -> str:
     return _id_parts(rid)[1]
 
 
+def id_tail(rid: str) -> str:
+    """The part after the last "/": what the drivers reported as the id before they kept the whole
+    resource-id, and what Maestro also matches. Screen identity and the deny list read this."""
+    return rid.rsplit("/", 1)[-1]
+
+
 def id_matches(want: str, have: str) -> bool:
     """Ids match by name ("pkg:id/name" or "name"); a package on both sides must agree too. The
     drivers report the whole resource-id; an app can report a bare name (a Compose test tag)."""
     if not have or not want:
         return False
     (w_pkg, w_name), (h_pkg, h_name) = _id_parts(want), _id_parts(have)
-    return w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
+    return bool(w_name) and w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
 
 
 def find(elements: list[Element], sel) -> int | None:

@@ -66,7 +66,7 @@ async function screen() {
     const b = /^\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]$/.exec(a.bounds || "");
     const text = a.text || a["content-desc"] || a.hint || "";
     const id = a["resource-id"] || "";
-    if (!b || !(text || id || a.clickable === "true")) continue;
+    if (!b || !(text || id.split("/").pop() || a.clickable === "true")) continue;
     const [x1, y1, x2, y2] = b.slice(1).map(Number);
     const [c1, d1, c2, d2] = [Math.max(x1, 0), Math.max(y1, 0), Math.min(x2, w), Math.min(y2, h)];
     if (c1 < c2 && d1 < d2) {
@@ -85,7 +85,7 @@ function idParts(rid) {
 function idMatch(want, have) {
   if (!want || !have) return false;
   const [wp, wn] = idParts(want), [hp, hn] = idParts(have);
-  return wn === hn && (!wp || !hp || wp === hp);
+  return wn !== "" && wn === hn && (!wp || !hp || wp === hp);
 }
 
 function hit(sel, els) {

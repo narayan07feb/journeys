@@ -131,6 +131,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
     xml = ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">'
            '<android.widget.FrameLayout package="com.android.settings" bounds="[0,0][1080,2400]">'
            '<android.widget.TextView package="com.android.settings" text="Open" content-desc="Menu" bounds="[0,100][500,200]"/>'
+           '<android.view.View text="" resource-id="group/" bounds="[0,250][500,290]"/>'
            '<android.widget.TextView text="" content-desc="Menu" bounds="[0,300][500,400]"/>'
            '<android.widget.EditText text="" content-desc="" hint="Search here" resource-id="com.x:id/q" bounds="[0,500][1080,600]"/>'
            '<android.widget.TextView text="Row" bounds="[0,2500][1080,2600]"/>'
@@ -149,7 +150,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
     app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
     sels = ["Menu", "Open", "Search here", {"id": "q"}, "Row", {"text": "Row", "index": 1}, {"text": "Row", "index": 2},
             'a & b é "q" <x>', {"id": "com.android.settings:id/btn"}, {"id": "btn"}, "/R.w/", "/Line.*/", "/Line\\ntwo/",
-            {"text": "/M.*/", "index": 0}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}]
+            {"text": "/M.*/", "index": 0}, {"text": "/.*/", "index": 1}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}, {"id": "another/"}]
     for sel in sels:
         i = find(screen.elements, to_command({"tap": sel})["tapOn"])
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel, ensure_ascii=False)}}}]\n"), app=app)
@@ -361,7 +362,7 @@ def test_the_specs_id_match_is_the_drivers_on_node():
     from journeys.formats.appium import _HELPERS
     js = re.search(r"function idParts.*?\n}\nfunction idMatch.*?\n}\n", _HELPERS, re.S).group(0)
     ids = ["next", "com.x:id/next", "com.y:id/next", "g/next", ":id/next", "a:id/b:id/next", "a:id/b", "nexts",
-           "com.x:id/g/next", "Next", ""]
+           "com.x:id/g/next", "Next", "", "group/", "another/", "com.x:id/"]
     pairs = [[w, h] for w in ids for h in ids]
     out = subprocess.run([shutil.which("node"), "-e", js + "const p = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
                           "console.log(JSON.stringify(p.map(([w, h]) => idMatch(w, h))));"],
