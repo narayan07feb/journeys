@@ -54,15 +54,31 @@ def _java(rx: str) -> str:
 
 
 def _maestro_id(want: str) -> str:
-    """An id as Maestro matches it like the other drivers: by its name alone, as plain text. Maestro reads an
-    id as a pattern and matches it against the whole resource-id and against the part after the last "/"
-    (Filters.idMatches, maestro cli-2.12.1); the other drivers compare only the name too (id_matches on the
-    bare names they report), so a package in the id is dropped."""
+    """An id as plain text, so Maestro matches it as id_matches does. Maestro reads an id as a pattern and
+    matches it against the whole resource-id and against the part after its last "/" (Filters.idMatches,
+    maestro cli-2.12.1). So a bare name goes alone (any package's view with that name), and pkg:id/name goes
+    whole (only that resource-id: the part after the last "/" never holds ":id/")."""
     name = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
     if not name or "/" in name:
         raise ActionError(f"id {want!r}: Maestro can match only an id whose name (after :id/) has no / and "
                           "is not empty")
-    return SAME + escape(name)
+    if "${" in want:
+        raise ActionError(f"id {want!r}: Maestro would read the variable's value as a pattern; write the id "
+                          "in the journey, or set it in the flow by hand")
+    return SAME + escape(want if ":id/" in want else name)
+
+
+class _Dumper(yaml.SafeDumper):
+    """PyYAML writes U+0085 (NEL) raw and reads it back as a line break: quote such a text (it becomes \\N)."""
+
+
+_Dumper.add_representer(str, lambda d, v: d.represent_scalar("tag:yaml.org,2002:str", v,
+                                                             style='"' if "\x85" in v else None))
+
+
+def dump(data) -> str:
+    """YAML for a flow, with every text read back unchanged."""
+    return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True)
 
 
 def _maestro_sel(sel):
@@ -117,8 +133,7 @@ class MaestroDriver(AdbDriver):
             raise DriverError(f"maestro hierarchy: unreadable output ({e})") from None
 
     def do(self, commands: list) -> CommandResult:
-        flow = f"appId: {self.app}\n---\n" + yaml.safe_dump([to_maestro(c) for c in commands], sort_keys=False,
-                                                         allow_unicode=True)
+        flow = f"appId: {self.app}\n---\n" + dump([to_maestro(c) for c in commands])
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write(flow)
         try:

@@ -253,11 +253,15 @@ The Maestro export (and the maestro driver) also:
   `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so the flow
   matches what the journey matches. Import drops it again, and a flow written without it gets a
   note: Maestro matched its texts and ids without case, the draft matches them with case.
-- sends an id as its name alone, in plain text (`a.b` goes as `a\.b`). Maestro reads an id as a
-  pattern and matches it against the whole resource-id and against the part after its last `/`, so
-  `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the other drivers (the
-  package is dropped). An id whose name is empty or holds a `/` is refused. Import reads the escaped
-  name back as plain text.
+- sends an id as plain text (`a.b` goes as `a\.b`). Maestro reads an id as a pattern and matches it
+  against the whole resource-id and against the part after its last `/`. So `{id: name}` goes as the
+  name and matches that name in any package; `{id: pkg:id/name}` goes whole and matches only that
+  package. One gap: `{id: pkg:id/name}` does not find a view whose resource-id is only `name` (a
+  Compose test tag, for example); the step fails, so write `{id: name}` for such a view. An id whose
+  name is empty or holds a `/`, or an id with a `${NAME}` (Maestro would read its value as a pattern),
+  is refused. Import reads an escaped id back as plain text; an id that Maestro reads as another
+  pattern is left out, and a `.` in an older flow's id gets a note.
+- quotes a text that holds U+0085 (next line), so the flow reads it back unchanged.
 - refuses `press: search` (Maestro has no Search key).
 - checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 
@@ -271,7 +275,8 @@ What both exports do:
   `expect: SCREEN` becomes checks for the screen's `all` rules that have a text or an id.
 - Hook steps and `events.check` steps run only in Journeys: they are left out with a note.
 
-Maestro (`appId` + flow): `${NAME}` stays a Maestro variable; run it with `maestro test -e NAME=...`.
+Maestro (`appId` + flow): `${NAME}` in a text stays a Maestro variable; run it with
+`maestro test -e NAME=...`. An id with `${NAME}` is refused (see above).
 
 Appium (a WebdriverIO mocha spec):
 

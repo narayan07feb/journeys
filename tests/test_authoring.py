@@ -709,22 +709,25 @@ def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
     assert to_maestro({"tapOn": {"text": rx}}) == {"tapOn": {"text": SAME + rx}}
 
 
-@pytest.mark.parametrize("want, sent", [("next", "next"), ("com.x:id/next", "next"), ("a.b", "a\\.b"),
-                                        ("com.x:id/a{b", "a\\{b"), ("x/y", "y"), ("(?P<n>a)", "\\(\\?P<n>a\\)")])
-def test_an_id_goes_to_maestro_as_its_name_in_plain_text(want, sent):
+@pytest.mark.parametrize("want, sent", [("next", "next"), ("com.x:id/next", "com\\.x:id/next"), ("a.b", "a\\.b"),
+                                        ("com.x:id/a{b", "com\\.x:id/a\\{b"), ("x/y", "y"),
+                                        ("(?P<n>a)", "\\(\\?P<n>a\\)")])
+def test_an_id_goes_to_maestro_as_plain_text(want, sent):
     """Maestro matches an id pattern against the whole resource-id and the part after its last / (Filters.idMatches,
-    cli-2.12.1); Journeys matches an id by its name, so the name goes alone, escaped."""
+    cli-2.12.1): a bare name goes alone (any package), pkg:id/name goes whole (that package only), escaped."""
     from journeys.drivers.maestro import SAME, to_maestro
     assert to_maestro({"tapOn": {"id": want}}) == {"tapOn": {"id": SAME + sent}}
     assert to_maestro({"scrollUntilVisible": {"element": {"id": want}}})["scrollUntilVisible"]["element"] == \
         {"id": SAME + sent}
 
 
-@pytest.mark.parametrize("want", ["com.x:id/", "com.x:id/a/b", "x/"])
-def test_an_id_maestro_cannot_match_by_name_is_refused(want):
+@pytest.mark.parametrize("want, says", [("com.x:id/", "Maestro can match only"), ("com.x:id/a/b", "Maestro can match only"),
+                                        ("x/", "Maestro can match only"), ("${ID}", "variable's value as a pattern"),
+                                        ("com.x:id/${ID}", "variable's value as a pattern")])
+def test_an_id_maestro_cannot_match_as_journeys_does_is_refused(want, says):
     from journeys.actions import ActionError
     from journeys.drivers.maestro import to_maestro
-    with pytest.raises(ActionError, match="Maestro can match only"):
+    with pytest.raises(ActionError, match=says):
         to_maestro({"tapOn": {"id": want}})
 
 
@@ -734,13 +737,38 @@ def test_an_exported_id_imports_back_as_its_name_and_an_older_export_still_impor
         "name: ids\nsteps:\n  - do: [{tap: {id: \"com.x:id/a.b\"}}, {tap: {id: \"a{b\"}}, {tap: {id: \"a\\\\b\"}}]\n")
     pack = Pack.load(pack_dir)
     flow, notes = export(pack, pack.journeys["ids"])
-    assert "id: (?-ims)a\\.b" in flow and notes == []
+    assert "id: (?-ims)com\\.x:id/a\\.b" in flow and notes == []
     f = tmp_path / "ids.yaml"
     f.write_text(flow)
-    draft, _ = import_flow(f)
-    assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}, {"tap": {"id": "a{b"}}, {"tap": {"id": "a\\b"}}]}]
+    draft, notes = import_flow(f)
+    assert draft["steps"] == [{"do": [{"tap": {"id": "com.x:id/a.b"}}, {"tap": {"id": "a{b"}}, {"tap": {"id": "a\\b"}}]}]
+    assert not [n for n in notes if "id" in n]
     f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)com.x:id/next'}\n")  # before this change
     assert import_flow(f, "com.android.settings")[0]["steps"] == [{"do": [{"tap": {"id": "com.x:id/next"}}]}]
+
+
+def test_an_id_flow_that_matches_other_views_than_its_text_is_refused_or_noted(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)x/a\\.b'}\n")  # only the id x/a.b
+    assert any("is a pattern; Journeys ids match exactly; left out" in n for n in import_flow(f, "com.android.settings")[1])
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)a.b'}\n")  # also axb in Maestro
+    draft, notes = import_flow(f, "com.android.settings")
+    assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}]}] and any("read its . as any character" in n for n in notes)
+    (pack_dir / "journeys" / "v.yaml").write_text("name: v\nsteps:\n  - do: [{tap: {id: \"{{save}}\"}}]\n")
+    pack = Pack.load(pack_dir)
+    f.write_text(export(pack, pack.journeys["v"])[0])
+    assert import_flow(f)[0]["steps"] == [{"do": [{"tap": {"id": "{{save}}"}}]}]  # escaped: no Maestro variable
+
+
+def test_a_next_line_character_survives_the_flow_file(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    (pack_dir / "journeys" / "n.yaml").write_text(
+        "name: n\nsteps:\n  - do: [{tap: {id: \"a\\x85b\"}}, {tap: \"c\\x85d\"}]\n")
+    pack = Pack.load(pack_dir)
+    f = tmp_path / "n.yaml"
+    f.write_text(export(pack, pack.journeys["n"])[0])
+    assert import_flow(f)[0]["steps"] == [{"do": [{"tap": {"id": "a\x85b"}}, {"tap": "c\x85d"}]}]
 
 
 def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generated_one(tmp_path):

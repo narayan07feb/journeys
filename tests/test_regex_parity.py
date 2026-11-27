@@ -568,15 +568,15 @@ ID_NAMES = ["next", "a.b", "a$b", "x(y)", "q?", "[n]", "a\\b", "a|b", "{1}", "a 
 
 
 @pytest.mark.skipif(shutil.which("java") is None, reason="java is not installed")
-def test_maestro_matches_an_id_by_its_name_on_java_as_the_other_drivers_do():
+def test_maestro_matches_an_id_on_java_as_journeys_does():
     """Maestro full-matches an id pattern against the whole resource-id or the part after its last /
-    (Filters.idMatches, cli-2.12.1); the other drivers compare the name with id_matches on the bare names
-    they report. The maestro driver's id must pick the same views on real Java."""
+    (Filters.idMatches, cli-2.12.1). The maestro driver's id must pick the views id_matches picks, on real
+    Java, except one known gap: pkg:id/name cannot match a view whose resource-id is the bare name."""
     from journeys.drivers.base import id_matches
     from journeys.drivers.maestro import SAME, _maestro_id
     wants = [w for n in ID_NAMES for w in (n, f"com.x:id/{n}")]
     haves = [h for n in ID_NAMES for h in (n, f"com.x:id/{n}", f"android:id/{n}", n.upper(), f"x{n}", f"{n}x")] + \
-        ["axb", "a.bc", "com.x:id/axb"]
+        ["axb", "a.bc", "com.x:id/axb", "comxx:id/next"]
     runs, pairs = [], []
     for w in wants:
         p = _maestro_id(w)[len(SAME):]  # Match.java adds SAME itself
@@ -584,10 +584,6 @@ def test_maestro_matches_an_id_by_its_name_on_java_as_the_other_drivers_do():
             pairs.append((w, h))
             runs += [(p, h), (p, h.rsplit("/", 1)[-1])]
     got = _java(runs)
-    wrong = [(w, h) for k, (w, h) in enumerate(pairs)
-             if ("true" in got[2 * k:2 * k + 2]) != id_matches(w, h.rsplit("/", 1)[-1])]
-    assert wrong == []
-    # The one known difference from id_matches on full ids: a package in the id is dropped, as the
-    # Appium driver and export do (docs/packs.md).
-    assert not id_matches("com.x:id/next", "android:id/next") and "true" in _java([(_maestro_id(
-        "com.x:id/next")[len(SAME):], "next")])
+    differ = {(w, h) for k, (w, h) in enumerate(pairs) if ("true" in got[2 * k:2 * k + 2]) != id_matches(w, h)}
+    gap = {(w, h) for w, h in pairs if ":id/" in w and ":id/" not in h and id_matches(w, h)}
+    assert gap and differ == gap

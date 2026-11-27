@@ -48,3 +48,10 @@ def test_a_pack_with_framework_words_does_not_validate(pack_dir):
     errs = Pack.load(pack_dir).errors
     assert any("extra.yaml:3" in e and "use tap" in e for e in errs)
     assert any("extra.yaml:4" in e and "a selector is" in e for e in errs)
+
+
+def test_an_id_joins_the_two_halves_of_a_character():
+    """YAML reads "\\uD83D\\uDE00" as two halves; an id holds the one character, as a text does."""
+    from journeys.actions import to_selector
+    halves = chr(0xD83D) + chr(0xDE00)
+    assert to_selector({"id": halves}) == {"id": chr(0x1F600)} and to_selector({"id": "a"}) == {"id": "a"}

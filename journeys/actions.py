@@ -75,7 +75,7 @@ def to_selector(sel):
             raise ActionError(f"index is a whole number from 0 (the first match), not {sel['index']!r}")
         if "id" in sel and (not isinstance(sel["id"], str) or not sel["id"]):
             raise ActionError(f"id is a non-empty text, not {sel['id']!r}")
-        out = {k: v for k, v in sel.items() if k != "text"}
+        out = {k: join_pairs(v) if k == "id" else v for k, v in sel.items() if k != "text"}
         if "text" in sel:
             out["text"] = _text(sel["text"])
         return out
