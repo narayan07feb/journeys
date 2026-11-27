@@ -1,9 +1,18 @@
 """Other tools' test formats <-> neutral journeys (import and export)."""
 from __future__ import annotations
 
+import re
+
 from ..actions import escape, to_commands
 from ..journey import Journey
 from ..pack import Pack
+
+
+def _part(rx: str) -> str:
+    """A map rule's pattern, which may match part of a text, as one that matches all of it. Flags for the
+    whole pattern, such as (?i), go on the inner group: Python reads them only at the start."""
+    m = re.match(r"\(\?([aiLmsux]+)\)", rx)
+    return f".*(?{m[1]}:{rx[m.end():]}).*" if m else f".*(?:{rx}).*"
 
 
 def screen_checks(pack: Pack, screen: str, tool: str, notes: list[str] | None = None) -> list:
@@ -14,7 +23,7 @@ def screen_checks(pack: Pack, screen: str, tool: str, notes: list[str] | None = 
         sel = {}
         if r.text is not None:
             regex = len(r.text) > 1 and r.text.startswith("/") and r.text.endswith("/")
-            sel["text"] = f".*(?:{r.text[1:-1]}).*" if regex else escape(r.text)
+            sel["text"] = _part(r.text[1:-1]) if regex else escape(r.text)
         if r.id is not None:
             sel["id"] = r.id
         if sel:

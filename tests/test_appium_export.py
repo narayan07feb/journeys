@@ -156,13 +156,16 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
         assert (got == [list(centres[i])] if i is not None else verdict.startswith("FAIL not on the screen")), sel
 
 
-@needs_node
-def test_a_pattern_javascript_cannot_read_stops_the_spec_at_load(pack_dir, tmp_path, monkeypatch):
-    import journeys.formats.appium as fa
+def test_the_export_refuses_a_pattern_javascript_cannot_read(pack_dir):
     for pattern in ("(?P<n>Net).*", "(?i)net.*"):
         with pytest.raises(ActionError, match="JavaScript reads"):
-            spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n")  # export refuses what it knows
-    monkeypatch.setattr(fa, "notes_for", lambda *a, **k: [])  # one the export does not know: the spec still stops
+            spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n")
+
+
+@needs_node
+def test_a_pattern_the_export_check_misses_still_stops_the_spec_at_load(pack_dir, tmp_path, monkeypatch):
+    import journeys.formats.appium as fa
+    monkeypatch.setattr(fa, "notes_for", lambda *a, **k: [])  # stands in for a pattern the check does not know
     for pattern in ("(?P<n>Net).*", "(?i)net.*"):
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n"))
         assert verdict.startswith(f'FAIL the pattern "{pattern}" works in Journeys but not in JavaScript')
@@ -316,6 +319,8 @@ def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var
         pack, j = journey(pack_dir, f"steps:\n  - see: {sel}\n")
         with pytest.raises(ActionError, match="cannot put a variable in a selector"):
             export(pack, j)
+    pack, j = journey(pack_dir, 'steps:\n  - see: "Total ${before tax}"\n')  # not a variable name: plain text
+    assert "Total \\\\$\\\\{before tax\\\\}" in export(pack, j)[0]
     y = pack_dir / "pack.yaml"
     y.write_text(y.read_text() + "accounts:\n  demo: {user: DEMO_USER}\n")
     pack, j = journey(pack_dir, 'steps:\n  - input: "${demo.user}/${DEMO_USER}"\n')

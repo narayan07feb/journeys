@@ -199,8 +199,11 @@ async function type(text) {
 """
 
 
+_ESCAPED_VAR = re.compile(r"\\\$\\\{[A-Za-z_]([A-Za-z0-9_]|\\\.)*\\\}")  # ${NAME} after escape()
+
+
 def _no_vars(value: str, what: str) -> str:
-    if _VAR.search(value) or "\\$\\{" in value:
+    if _VAR.search(value) or _ESCAPED_VAR.search(value):
         raise ActionError(f"{what} {shown(value)!r} uses ${{NAME}}: the Appium export cannot put a variable "
                           "in a selector; write the value, or run this journey with Journeys")
     return value
