@@ -218,8 +218,8 @@ def _appended(path: Path, top_key: str, items) -> str:
     old = raw[len(bom):].replace("\r\n", "\n")
     if "\r" in raw.replace("\r\n", "") or ("\r\n" in raw and "\n" in raw.replace("\r\n", "")):
         raise refuse("its line ends are not all LF or all CRLF")
-    if "\ufeff" in old:
-        raise refuse("it holds a second byte order mark")
+    if old.startswith("\ufeff"):
+        raise refuse("it starts with a second byte order mark")
     try:
         before = yaml.safe_load(old) or {}
         root = yaml.compose(old, Loader=yaml.SafeLoader)  # every top-level key, before duplicates collapse
@@ -233,8 +233,8 @@ def _appended(path: Path, top_key: str, items) -> str:
     keys = [k for k, _ in root.value if k.value == top_key] if isinstance(root, yaml.MappingNode) else []
     if len(keys) > 1:
         raise refuse(f"it names {top_key} twice")
-    lines = [old.count("\n", 0, m.start()) for m in re.finditer(key, old)]  # where the text match sees the key
-    if lines != [k.start_mark.line for k in keys]:  # "edges :", or a quoted text that looks like the key
+    at = [m.start() for m in re.finditer(key, old)]  # where the text match sees the key, as characters
+    if at != [k.start_mark.index for k in keys]:  # "edges :", or a quoted text that looks like the key
         raise refuse(f"its {top_key} key is written in a form Journeys cannot append to")
     # an empty inline value ("edges: []", "screens: {}  # none yet") cannot take block entries after it
     text = re.sub(rf"""(?m)^((["']?){top_key}\2:)[ \t]*(?:\[[ \t]*\]|\{{[ \t]*\}})([ \t]*(?:#.*)?)$""",
@@ -303,7 +303,8 @@ def apply(pack: Pack, change: dict) -> str:
             raise PromoteError(f"screen name {yamlio.LINE} is reserved: rename it in the proposal")
         texts = {screens_file: _appended(screens_file, "screens", {change["name"]: {"match": change["match"]}})}
         if change.get("edges"):  # both files checked before either is written
-            if screens_file.resolve() == edges_file.resolve():
+            if screens_file.resolve() == edges_file.resolve() or (
+                    screens_file.exists() and edges_file.exists() and screens_file.samefile(edges_file)):  # a hard link
                 raise PromoteError(f"{screens_file} and {edges_file} are one file: add the screen and edges by hand")
             texts[edges_file] = _appended(edges_file, "edges", [{**e, "do": _neutral(e["do"])} for e in change["edges"]])
         for f, text in texts.items():

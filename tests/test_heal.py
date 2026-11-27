@@ -478,3 +478,41 @@ def test_a_new_screen_refuses_when_both_map_files_are_one_file(h):
 def test_the_pack_names_a_map_file_with_a_malformed_tag(pack_dir):
     (pack_dir / "map" / "edges.yaml").write_text("meta: !!bool maybe\nedges: []\n")
     assert any("edges.yaml: cannot read" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_a_hard_link_behind_both_map_files_is_one_file(h):
+    import os
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    screens, edges = pack_dir / "map" / "screens.yaml", pack_dir / "map" / "edges.yaml"
+    screens.write_text("screens:\n  HOME: {match: {all: [{text: Home}]}}\n")
+    edges.unlink()
+    os.link(screens, edges)
+    with pytest.raises(PromoteError, match="are one file"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                    "edges": [{"from": "NEW", "to": "HOME", "do": [{"tap": "Hi"}]}]})
+
+
+def test_line_separators_and_a_bom_inside_a_text_are_fine(tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    for before in ("# one" + chr(0x2028) + "# two\nedges: []\n", 'meta: "a' + chr(0xFEFF) + 'b"\nedges: []\n'):
+        f.write_text(before)
+        out = _appended(f, "edges", EDGE)
+        assert yaml.safe_load(out)["edges"] == EDGE, before
+    decoy = "# a" + chr(0x2028) * 4 + '\nedges :\n  - from: A\n    meta: "start\nedges: []\n  end"\n    meta: keep\n'
+    f.write_text(decoy)
+    with pytest.raises(PromoteError, match="cannot append to"):
+        _appended(f, "edges", EDGE)
+
+
+def test_the_check_loads_the_exact_text_to_be_written(tmp_path, monkeypatch):
+    import journeys.heal as heal
+    seen = []
+    real = heal.yaml.safe_load
+    monkeypatch.setattr(heal.yaml, "safe_load", lambda t: seen.append(t) or real(t))
+    bom, crlf = chr(0xFEFF), chr(13) + chr(10)
+    f = tmp_path / "edges.yaml"
+    f.write_bytes(f"{bom}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode("utf-8"))
+    out = heal._appended(f, "edges", EDGE)
+    assert seen[-1] == out and out.startswith(bom) and crlf in out
