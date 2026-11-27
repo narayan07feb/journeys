@@ -151,7 +151,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
             {"text": "/M.*/", "index": 0}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}]
     for sel in sels:
         i = find(screen.elements, to_command({"tap": sel})["tapOn"])
-        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel, ensure_ascii=False)}}}]\n"), app=app)
         got = [c[2:] for c in calls if c[0] == "tap"]
         assert (got == [list(centres[i])] if i is not None else verdict.startswith("FAIL not on the screen")), sel
 

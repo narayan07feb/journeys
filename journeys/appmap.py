@@ -125,7 +125,7 @@ class AppMap:
                     )
                     if not (match.get("all") or match.get("any")):
                         m.errors.append(f"{yamlio.where(sf, raw)}: screen {name} has no all/any rule")
-                except (ValueError, AttributeError, TypeError, re.error) as e:
+                except (ValueError, AttributeError, TypeError, re.error, OverflowError, RecursionError) as e:
                     m.errors.append(f"{yamlio.where(sf, raw)}: screen {name}: {e}")
         if ef.exists():
             edges = yamlio.load_map(ef, m.errors).get("edges") or []

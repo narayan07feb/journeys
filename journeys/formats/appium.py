@@ -17,7 +17,7 @@ from ..drivers.base import command_name, shown
 from ..journey import Journey
 from ..pack import _VAR, Pack
 from ..regex_parity import JS, notes_for
-from . import journey_commands
+from . import MapText, journey_commands
 
 SCROLL_MS = 20_000  # as the Appium driver: scroll_to looks for 20 s
 WAIT_MS = 5_000  # as the Appium driver: an element gets 5 s to come or go
@@ -80,7 +80,7 @@ async function screen() {
 function hit(sel, els) {
   if (sel.text === null && sel.id === null) return null;
   const hits = els.filter((e) => (sel.id === null || (sel.id !== "" && e.id === sel.id))
-    && (sel.text === null || e.text === sel.text || (sel.rx !== false && sel.rx.test(e.text))));
+    && (sel.text === null || (sel.exact !== false && e.text === sel.text) || (sel.rx !== false && sel.rx.test(e.text))));
   return hits[sel.index] ?? null;
 }
 
@@ -224,12 +224,15 @@ def _sel(sel, sels: list[str]) -> str:
         want = _no_vars(str(sel["id"]), "id")  # the driver reports bare names, so only the name counts
         out["id"] = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
     if "text" in sel:
-        out["text"] = _no_vars(str(sel["text"]), "text")
+        from_map = isinstance(sel["text"], MapText)  # a map rule: never a variable, only a pattern
+        out["text"] = str(sel["text"]) if from_map else _no_vars(str(sel["text"]), "text")
         try:
             re.compile(out["text"])
             out["rx"] = True
         except re.error:
             pass  # Journeys then matches the exact text only
+        if from_map:
+            out["exact"] = False
     sels.append(f"S({json.dumps(out)})")
     return f"SEL[{len(sels) - 1}]"
 

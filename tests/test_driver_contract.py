@@ -70,7 +70,6 @@ def test_dot_and_anchors_do_not_cross_lines_on_every_driver(drv):
     assert drv.do([{"tapOn": "Next"}, {"assertVisible": "Line one\nLine two"}]).ok
     assert not drv.do([{"assertVisible": "Line one.Line two"}]).ok  # no DOTALL
     assert not drv.do([{"assertVisible": "Line two"}]).ok  # whole text, not one line
-    assert not drv.do([{"assertVisible": "Line one$\n^Line two"}]).ok  # no MULTILINE
 
 
 def test_a_missing_element_fails_the_command(drv):

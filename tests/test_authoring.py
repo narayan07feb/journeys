@@ -52,7 +52,7 @@ def test_export_to_maestro_and_import_back(pack_dir, tmp_path, capsys):
     assert flow[0] == {"appId": "com.android.settings"}
     cmds = flow[1]
     assert cmds[0] == "launchApp"
-    assert {"assertVisible": {"text": "(?-ims)[\\s\\S]*(?:^Network & internet)[\\s\\S]*"}} in cmds  # expect SETTINGS-HOME
+    assert {"assertVisible": {"text": "(?-ims)(?:Network & internet)[\\s\\S]*"}} in cmds  # the rule's ^: no padding  # expect SETTINGS-HOME
     assert {"tapOn": "(?-ims)Display.*"} in cmds                            # goto via the map's edges
     assert "back" not in cmds  # the last goto follows a `do`: the screen is unknown, so it is left out
     assert {"scrollUntilVisible": {"element": {"text": "(?-ims)Dark theme.*"}, "direction": "DOWN"}} in cmds

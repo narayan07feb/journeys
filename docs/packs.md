@@ -308,40 +308,50 @@ flags). The two disagree with Python in many corners, so Journeys gives them onl
 The contract: a pattern in the subset with no note matches the same texts in Python, Java and
 JavaScript. A note names a difference that shows only on some texts. Anything outside the subset is
 refused, with a hint, even where one engine happens to read it the same: Journeys never sends a pattern
-it has not proven. `tests/test_regex_parity.py` proves it on Java 11, 17 and 25 and node 22 and 23: a
-table with every rule and each case a review found, and a fuzz of the subset's grammar (about 100,000
-pattern and text pairs per engine with `JOURNEYS_FUZZ=20000`, none differing).
+it has not proven. `tests/test_regex_parity.py` checks it on Java 11, 17 and 25 and node 22 and 23: a
+table with every rule and each case a review found, and a sampled fuzz of the subset's grammar (about
+80,000 pattern and text pairs per engine with `JOURNEYS_FUZZ=20000`, none differing). A fuzz samples:
+it is strong evidence, not a proof.
 
 The subset:
-- any character, except an emoji (above U+FFFF) before a quantifier or inside a `[...]` class for
-  JavaScript (it is two units there; write `(?:a|b)` for a choice of emoji);
+- any character, except a lone `\uD800`-`\uDFFF` half, and for JavaScript an emoji (above U+FFFF)
+  before a quantifier or inside a `[...]` class (two units there: write `(?:😀){2}`, or `(?:a|b)` for a
+  choice);
 - an escaped ASCII punctuation mark or space (`\.`, `\$`, `\(`, `\ `, ...), `\t`, `\n`, `\r`, `\f`,
   `\xHH` and `\uHHHH` (not a `\uD800`-`\uDFFF` half);
-- `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b` and `\B` (noted: ASCII only in Java and JavaScript; `\s`
-  differs on `\x1c`-`\x1f`; `\b` is ASCII in Java 19 and later; `\B` matches an empty text);
-- a `[...]` class, with `^` first (noted for JavaScript: it matches half an emoji), ranges and the
-  escapes above; no `]` first, no `[` or `&&` inside, no `\b` or digit escapes inside;
+- `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b` and `\B`, noted: `\d` and `\w` know only ASCII in Java and
+  JavaScript; `\s` knows only ASCII spaces in Java, and another set in JavaScript (with `\ufeff`;
+  Python has `\x1c`-`\x1f`); `\b` is ASCII in JavaScript and Java 19 and later; `\B` matches an empty
+  text;
+- a `[...]` class, with `^` first, ranges and the escapes above; no `]` first, no `[` or `&&` inside, no
+  `\b` or digit escapes inside; for JavaScript no range across U+D800-U+DFFF (it would match halves
+  of emoji: stop at `\ud7ff` and start again at `\ue000`); a `[^...]` class, or one with `\D`, `\W` or
+  `\S` inside, is noted for JavaScript (it can match half an emoji);
 - `( )`, `(?: )` and `|`;
-- `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms with a
-  `?` after;
-- `^`; `$` (noted when more of the pattern follows: JavaScript matches it only at the very end, Java also
-  before a final `\r`, `\x85`, `\u2028` or `\u2029`, Python also before a final `\n`);
-- `.` (noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
-  in JavaScript);
-- `(?i)` at the very start, for Maestro only (noted: Java folds a few letters, such as the Kelvin sign K,
-  another way).
+- `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms; a
+  group with `|` inside repeated without a small limit is noted for Java (it can overflow Java's stack on
+  a text of a few thousand characters; for single characters write a class: `[ab]*`, not `(?:a|b)*`);
+- `^` at the start of the pattern or of a top-level branch, and `$` at the end of the pattern or of a
+  top-level branch (anywhere else they are refused: a pattern matches the whole text anyway);
+- `.`, noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
+  in JavaScript;
+- `[\s\S]*`, with no note (every character, any number, in all three; `[\s\S]` alone is a class);
+- `(?i)` at the very start, for Maestro only, noted: `[A-Z]` matches the Kelvin sign K in Python, not in
+  Java.
 
-Outside it, and so refused: lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`), back-references (`\1`), named
-groups, comments, conditionals and atomic groups, every other inline flag group (`(?s)`, `(?x)`,
-`(?i:...)`, `(?-i:...)`), possessive quantifiers, `\A`, `\Z` and `\z` (a pattern matches the whole
-text anyway), octal and named escapes (`\0`, `\101`, `\N{...}`), `\a`, `\v`, `\U...`, a `{` that is not
-a count, and `{,n}`.
+Outside it, and so refused: patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
+back-references (`\1`), named groups, comments, conditionals and atomic groups; every other inline flag
+(`(?s)`: write `[\s\S]` in place of `.` to cross lines; `(?x)`, `(?i:...)`, `(?-i:...)`); possessive
+quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...}`); `\a`, `\v`,
+`\U...`; a `{` that is not a count; and `{,n}` (write `{0,n}`).
 
-A map rule (which may match part of a text) is exported as `[\s\S]*(?:rule)[\s\S]*`, so it also
-matches a text with line breaks; a leading `(?i)` stays at the very start. A rule that does not fit is an
-export error, never plain text. A dot in an id (`com.example:id/title`) gets no note: it is the
-package's dot. The maestro driver runs noted patterns without a note. Write the letters you mean
-(`[0-9]`, `[A-Za-z]`) when the app shows other text.
+A map rule may match part of a text. The exports send it as `[\s\S]*(?:rule)[\s\S]*`, so it also
+matches a text with line breaks. A rule's own leading `^` drops the left `[\s\S]*`, and its trailing
+`$` becomes `\n?` (Python's `$` also matches before a final line break). A leading `(?i)` stays at the
+very start. A rule that does not fit is an export error, never plain text, and the Appium spec matches
+it only as a pattern. Map rules never hold `${NAME}`. A dot in an id (`com.example:id/title`) gets no
+note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters
+you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets
 
