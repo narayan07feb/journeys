@@ -59,7 +59,7 @@ def test_example_journey_runs_through_the_map(pack_dir, tmp_path):
     spec, notes = export(pack, pack.journeys["open-display"])
     assert [n for n in notes if "JavaScript (Python" in n] == [  # one line per difference, not per pattern
         ". does not match \\r, \\u2028, \\u2029 or a whole emoji in JavaScript (Python: it does): "
-        "/.*(?:^Network & internet).*/ and 3 more pattern(s)"]
+        "/Display.*/ and 1 more pattern(s)"]  # map rules are wrapped in [\\s\\S]*, which has no note
     calls, verdict = run(tmp_path, spec)
     assert verdict == "PASS"
     assert calls[1:3] == [["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
@@ -158,7 +158,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
 
 def test_the_export_refuses_a_pattern_javascript_cannot_read(pack_dir):
     for pattern in ("(?P<n>Net).*", "(?i)net.*"):
-        with pytest.raises(ActionError, match="JavaScript reads"):
+        with pytest.raises(ActionError, match="pattern subset"):
             spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n")
 
 
@@ -275,7 +275,7 @@ def test_the_spec_file_holds_no_raw_line_separators(pack_dir):
 def test_an_anchor_javascript_reads_as_a_letter_is_refused(pack_dir):
     for pattern in ("/Total\\Z/", "/\\ATotal/"):
         pack, j = journey(pack_dir, f"steps:\n  - see: '{pattern}'\n")
-        with pytest.raises(ActionError, match="JavaScript reads .[AZ]"):
+        with pytest.raises(ActionError, match="the escape .[AZ]"):
             export(pack, j)
     pack, j = journey(pack_dir, "steps:\n  - see: '/a\\\\Z/'\n")  # an escaped backslash, then a plain Z
     assert export(pack, j)

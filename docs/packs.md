@@ -303,53 +303,44 @@ Appium (a WebdriverIO mocha spec):
 Journeys reads every pattern as Python's `re` does. Maestro (the maestro driver and a Maestro export)
 reads it as Java: a Kotlin `Regex` with ignore-case, dot-all and multiline on (Kotlin also turns on
 Unicode case), and `(?-ims)` in front. The Appium export reads it as JavaScript (`new RegExp` with no
-flags). Where the two read a pattern another way, Journeys refuses it, with a hint, or notes it in the
-export. That covers the differences listed here, not every one there is. Each rule was run on Java 11,
-17 and 25 and node 22 and 23 (`tests/test_regex_parity.py` runs them again on the `java` and `node` it
-finds). A map rule's flags, as in `/(?i)Network/`, stay on the rule's own part of the export's pattern.
+flags). The two disagree with Python in many corners, so Journeys gives them only a shared subset.
 
-Refused in both:
-- `(?P<n>...)` and `(?P=n)` (write `(?:...)` and repeat the text), `(?#...)` and `(?(1)a|b)`;
-- `\U0001F600` and `\N{...}` (write the character; Java knows only some names), and `\uD800`-`\uDFFF`
-  halves of a character (Java and JavaScript join two into one emoji);
-- `{,3}` (Python reads it as `{0,3}`); a count is digits 0-9 only (`{٢}` is text in Python).
+The contract: a pattern in the subset with no note matches the same texts in Python, Java and
+JavaScript. A note names a difference that shows only on some texts. Anything outside the subset is
+refused, with a hint, even where one engine happens to read it the same: Journeys never sends a pattern
+it has not proven. `tests/test_regex_parity.py` proves it on Java 11, 17 and 25 and node 22 and 23: a
+table with every rule and each case a review found, and a fuzz of the subset's grammar (about 100,000
+pattern and text pairs per engine with `JOURNEYS_FUZZ=20000`, none differing).
 
-Refused for Java only:
-- a `{` that is not a count (write `\{`), and a count above 2147483647;
-- a `[` inside a `[...]` class (a union in Java; write `\[`), and `&&` inside a class (an intersection);
-- `\Z` before more of the pattern (nothing can follow Python's `\Z`; Java's also matches before a
-  final line break). A `\Z` at the very end passes: the whole text must match anyway;
-- octal escapes that Java reads another way: a bare `\0` or `\0` before 8 or 9 (an error), `\0101`
-  (Python: `\010` then "1") and `\101` (Java: group 1, then "01"); write `\xNN`. `\012`, `\00`
-  and `\0777` read the same and pass;
-- `[\b]` and a digit escape inside a class such as `[\1]` (errors in Java; write `\xNN`), a
-  back-reference inside a lookbehind (an error in Java), `\v` (any vertical space in Java; write
-  `\x0b`), `(?a)`, and `(?x)` when a `[...]` class holds a space or `#` (Java skips them there too).
+The subset:
+- any character, except an emoji (above U+FFFF) before a quantifier or inside a `[...]` class for
+  JavaScript (it is two units there; write `(?:a|b)` for a choice of emoji);
+- an escaped ASCII punctuation mark or space (`\.`, `\$`, `\(`, `\ `, ...), `\t`, `\n`, `\r`, `\f`,
+  `\xHH` and `\uHHHH` (not a `\uD800`-`\uDFFF` half);
+- `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b` and `\B` (noted: ASCII only in Java and JavaScript; `\s`
+  differs on `\x1c`-`\x1f`; `\b` is ASCII in Java 19 and later; `\B` matches an empty text);
+- a `[...]` class, with `^` first (noted for JavaScript: it matches half an emoji), ranges and the
+  escapes above; no `]` first, no `[` or `&&` inside, no `\b` or digit escapes inside;
+- `( )`, `(?: )` and `|`;
+- `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms with a
+  `?` after;
+- `^`; `$` (noted when more of the pattern follows: JavaScript matches it only at the very end, Java also
+  before a final `\r`, `\x85`, `\u2028` or `\u2029`, Python also before a final `\n`);
+- `.` (noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
+  in JavaScript);
+- `(?i)` at the very start, for Maestro only (noted: Java folds a few letters, such as the Kelvin sign K,
+  another way).
 
-Refused for JavaScript only: `\A`, `\Z` and `\z` (letters there); `\a` (write the character); a `]`
-first in a class, as in `[]a]` or `[^]a]` (an empty class or "any character" there; write `\]`); a
-character above U+FFFF, such as an emoji, inside a class (two units there; write `(?:a|b)`); `(?>...)`
-and possessive `*+`, `++`, `?+`; a quantifier on a lookbehind, as in `(?<=a)?`; and any inline flag
-group, such as `(?i)`, `(?s:...)` or `(?-i:...)` (node 23 and later read the scoped `(?s:...)` form;
-it stays refused so the spec also loads on older node).
+Outside it, and so refused: lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`), back-references (`\1`), named
+groups, comments, conditionals and atomic groups, every other inline flag group (`(?s)`, `(?x)`,
+`(?i:...)`, `(?-i:...)`), possessive quantifiers, `\A`, `\Z` and `\z` (a pattern matches the whole
+text anyway), octal and named escapes (`\0`, `\101`, `\N{...}`), `\a`, `\v`, `\U...`, a `{` that is not
+a count, and `{,n}`.
 
-Read, with an export note (they match the same on most text, not on all):
-- `\d`, `\w` and `\s`: Java and JavaScript know only ASCII digits and letters, and other space
-  characters (Python's `\s` also matches `\x1c`-`\x1f`); `\b` and `\B` know only ASCII letters in
-  JavaScript and in Java 19 and later, and `\B` also matches an empty text;
-- `.` outside `(?s)`: it does not match `\r`, `\u2028` or `\u2029` in either, nor `\x85` in Java,
-  nor a whole emoji in JavaScript;
-- a `$` before more of the pattern, not at the end of a branch (JavaScript: only the very end; Python
-  also before a final `\n`; Java also before a final `\r`, `\x85`, `\u2028` or `\u2029`);
-- in Java: `(?i)` (folds a few letters differently, such as the Kelvin sign K), `(?m)` (`^` and `$`
-  also break lines at `\r`, `\x85`, `\u2028`, `\u2029`), and a back-reference in a pattern that
-  captures inside `(?!...)` or `(?<!...)` (the capture stays set in Java);
-- in JavaScript: a back-reference such as `\1` to a group a match can leave out (after `?`, `*` or
-  `{0`, or beside a `|`; JavaScript then matches an empty text, Python fails), a `[^...]` class (half
-  an emoji), and a quantifier on an emoji (JavaScript repeats only its second half).
-
-A dot in an id (`com.example:id/title`) gets no note: it is the package's dot, and an id never holds a
-line break. The maestro driver runs noted patterns without a note. Write the letters you mean
+A map rule (which may match part of a text) is exported as `[\s\S]*(?:rule)[\s\S]*`, so it also
+matches a text with line breaks; a leading `(?i)` stays at the very start. A rule that does not fit is an
+export error, never plain text. A dot in an id (`com.example:id/title`) gets no note: it is the
+package's dot. The maestro driver runs noted patterns without a note. Write the letters you mean
 (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets

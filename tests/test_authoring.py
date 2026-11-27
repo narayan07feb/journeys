@@ -52,7 +52,7 @@ def test_export_to_maestro_and_import_back(pack_dir, tmp_path, capsys):
     assert flow[0] == {"appId": "com.android.settings"}
     cmds = flow[1]
     assert cmds[0] == "launchApp"
-    assert {"assertVisible": {"text": "(?-ims).*(?:^Network & internet).*"}} in cmds  # expect SETTINGS-HOME
+    assert {"assertVisible": {"text": "(?-ims)[\\s\\S]*(?:^Network & internet)[\\s\\S]*"}} in cmds  # expect SETTINGS-HOME
     assert {"tapOn": "(?-ims)Display.*"} in cmds                            # goto via the map's edges
     assert "back" not in cmds  # the last goto follows a `do`: the screen is unknown, so it is left out
     assert {"scrollUntilVisible": {"element": {"text": "(?-ims)Dark theme.*"}, "direction": "DOWN"}} in cmds
@@ -699,11 +699,11 @@ def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
     from journeys.drivers.maestro import to_maestro
     cmd = {"tap": {"tapOn": rx}, "tap id": {"tapOn": {"id": rx}}, "see": {"assertVisible": {"text": rx}},
            "scroll": {"scrollUntilVisible": {"element": rx}}}[shape]
-    with pytest.raises(ActionError, match="Java reads"):  # java.util.regex (Java 17) throws or reads each differently
+    with pytest.raises(ActionError, match="pattern subset"):  # java.util.regex (Java 17) throws or reads each differently
         to_maestro(cmd)
 
 
-@pytest.mark.parametrize("rx", ["a{2}", "a{2,}", "a{2,3}", "\\{x\\}", "[{]x", "[^]{]x", "a\\(?P", "x}"])
+@pytest.mark.parametrize("rx", ["a{2}", "a{2,}", "a{2,3}", "\\{x\\}", "[{]x", "[^{]x", "a\\(?P", "x}"])
 def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
     from journeys.drivers.maestro import SAME, to_maestro
     assert to_maestro({"tapOn": {"text": rx}}) == {"tapOn": {"text": SAME + rx}}

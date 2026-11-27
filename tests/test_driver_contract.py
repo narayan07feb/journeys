@@ -71,7 +71,6 @@ def test_dot_and_anchors_do_not_cross_lines_on_every_driver(drv):
     assert not drv.do([{"assertVisible": "Line one.Line two"}]).ok  # no DOTALL
     assert not drv.do([{"assertVisible": "Line two"}]).ok  # whole text, not one line
     assert not drv.do([{"assertVisible": "Line one$\n^Line two"}]).ok  # no MULTILINE
-    assert drv.do([{"assertVisible": "(?s)Line one.Line two"}]).ok  # a team can still turn it on
 
 
 def test_a_missing_element_fails_the_command(drv):
@@ -218,7 +217,7 @@ def test_tap_all_and_a_journey_run_the_same_on_every_driver(kind, tappable_pack_
     assert [o.status for o in outs] == ["passed", "passed"], [o.message for o in outs]
 
 
-@pytest.mark.parametrize("step, says", [("{press: search}", "no Search key"), ("{tap: '/a{b/'}", "Java reads")])
+@pytest.mark.parametrize("step, says", [("{press: search}", "no Search key"), ("{tap: '/a{b/'}", "pattern subset")])
 def test_a_step_maestro_cannot_run_fails_cleanly_in_a_journey(step, says, tappable_pack_dir, tmp_path):
     import yaml
     from journeys.pack import Pack

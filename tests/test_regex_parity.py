@@ -1,14 +1,20 @@
-"""Every pattern rule in journeys/regex_parity.py, checked against the real engines.
+"""journeys/regex_parity.py's contract, checked against the real engines.
 
-CASES says, per engine, what Journeys does with a pattern and a text that shows why:
-- ("refuse", text): the engine cannot read the pattern, or matches `text` unlike Python's fullmatch.
-- ("note", text): the engine reads it, but matches `text` unlike Python (the export notes it).
-- ("same", [texts]): the engine matches every text as Python does.
-The verdict test always runs. The engine tests run each case on java (Java 11+, as Maestro: "(?-ims)" +
-pattern with Maestro's Kotlin Regex flags, Matcher.matches()) and node (as the Appium export: new RegExp(`^(?:${p})$`)) when installed.
+The checker is default-deny: it passes only a shared subset. CASES says, per engine, what it does with a
+pattern, and what the engine does with the texts given:
+- (SAME, texts): passed with no note; the engine matches every text as Python's fullmatch does.
+- ("note", texts): passed with a note; the engine differs from Python on at least one text (none given:
+  the note names a difference these texts do not show).
+- ("refuse", texts): refused; the engine cannot read it, or differs from Python on at least one text.
+- (DENY, []): refused because it is outside the subset; no claim about the engine.
+Every witness the review rounds found is a row. test_the_subset_reads_the_same_on_the_engines fuzzes the
+subset's grammar: what passes with no note must match the same. The engine tests run on the java
+(Maestro: "(?-ims)" + pattern with Maestro's Kotlin Regex flags, Matcher.matches()) and node (the Appium
+export: new RegExp(`^(?:${p})$`)) on PATH, when there.
 """
 import base64
 import json
+import random
 import re
 import shutil
 import subprocess
@@ -17,81 +23,116 @@ from pathlib import Path
 
 import pytest
 
-from journeys.actions import ActionError
+from journeys.actions import ActionError, escape
 from journeys.regex_parity import JAVA, JS, check, notes_for
 
-SAME = "same"
+SAME, DENY = "same", "deny"
+E = "\U0001F600"  # an emoji: two UTF-16 units in JavaScript
 CASES = {
-    "a{b": {JAVA: ("refuse", "a{b"), JS: (SAME, ["a{b", "ab"])},
-    "(?P<n>a)": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
-    "(?#c)a": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
-    "(a)?(?(1)b|c)": {JAVA: ("refuse", "c"), JS: ("refuse", "c")},
-    "[a[b]]": {JAVA: ("refuse", "b"), JS: (SAME, ["b", "a]", "b]"])},
-    "[a&&b]": {JAVA: ("refuse", "a"), JS: (SAME, ["a", "&", "b"])},
-    "a\\Z\\n": {JAVA: ("refuse", "a\n"), JS: ("refuse", "aZ\n")},
-    "\\ATotal": {JAVA: (SAME, ["Total", "ATotal"]), JS: ("refuse", "Total")},
-    "a{,3}": {JAVA: ("refuse", "aa"), JS: ("refuse", "aa")},
-    "\\0101": {JAVA: ("refuse", "\x081"), JS: (SAME, ["\x081", "A"])},
-    "\\U00000041": {JAVA: ("refuse", "A"), JS: ("refuse", "A")},
-    "\\N{DIGIT ONE}": {JAVA: ("refuse", "1"), JS: ("refuse", "1")},  # Java knows this name: STRICT
-    "\\N{LF}": {JAVA: ("refuse", "\n"), JS: ("refuse", "\n")},
-    "\\v": {JAVA: ("refuse", "\n"), JS: (SAME, ["\x0b", "\n", "v"])},
-    "\\a": {JAVA: (SAME, ["\x07", "a"]), JS: ("refuse", "\x07")},
-    "[]a]": {JAVA: (SAME, ["]", "a", "b"]), JS: ("refuse", "]")},
-    "[^]a]": {JAVA: (SAME, ["b", "]"]), JS: ("refuse", "b")},
-    "(?>a)": {JAVA: (SAME, ["a"]), JS: ("refuse", "a")},
-    "a*+": {JAVA: (SAME, ["aa", ""]), JS: ("refuse", "aa")},
-    "a{2}+": {JAVA: (SAME, ["aa"]), JS: ("refuse", "aa")},
-    "(?i)é": {JAVA: ("note", "É"), JS: ("refuse", "É")},  # Maestro folds é and É alike: STRICT
-    "(?i)[A-Z]": {JAVA: ("note", "\u212a"), JS: ("refuse", "\u212a")},  # the Kelvin sign
-    "[\U0001F600-\U0001F64F]": {JAVA: (SAME, ["\U0001F603"]), JS: ("refuse", "\U0001F603")},
-    "\\\U0001F600+": {JAVA: (SAME, ["\U0001F600\U0001F600"]), JS: ("note", "\U0001F600\U0001F600")},
-    "(a)(?<=\\1)b": {JAVA: ("refuse", "ab"), JS: (SAME, ["ab"])},
-    "(?!(a))a|\\1": {JAVA: ("note", "a"), JS: ("note", "")},
-    "(?s:.)": {JAVA: (SAME, ["\r", "a"]), JS: ("refuse", "\r")},
-    "(?x)Save": {JAVA: (SAME, ["Save", "S ave"]), JS: ("refuse", "Save")},
-    "a{\u0662}+": {JAVA: ("refuse", "a{\u0662}}"), JS: (SAME, ["a{\u0662}}"])},
-    "a{2147483648}": {JAVA: ("refuse", "a"), JS: (SAME, ["a"])},
-    "Total\\Z": {JAVA: (SAME, ["Total", "Total\n", "Total\r"]), JS: ("refuse", "Total")},
-    "(?-i:a)b": {JAVA: (SAME, ["ab", "Ab"]), JS: ("refuse", "ab")},
-    "(?a)\\w": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
-    "\\d": {JAVA: ("note", "٣"), JS: ("note", "٣")},
-    "\\w": {JAVA: ("note", "é"), JS: ("note", "é")},
-    "\\s": {JAVA: ("note", "\x1c"), JS: ("note", "\x1c")},
-    "é\\b": {JAVA: ("note", "é"), JS: ("note", "é")},  # Java 11/17 read it as Python, Java 19+ do not: VARIES
-    "\\B": {JAVA: ("note", ""), JS: ("note", "")},
-    "\\101": {JAVA: ("refuse", "A"), JS: (SAME, ["A"])},
-    "\\0": {JAVA: ("refuse", "\x00"), JS: (SAME, ["\x00"])},
-    "\\08": {JAVA: ("refuse", "\x008"), JS: (SAME, ["\x008"])},
-    "[\\b]": {JAVA: ("refuse", "\b"), JS: (SAME, ["\b"])},
-    "(?<=a)?b": {JAVA: (SAME, ["b"]), JS: ("refuse", "b")},
-    "a$\n": {JAVA: (SAME, ["a\n"]), JS: ("note", "a\n")},
-    "(?iu)é": {JAVA: ("note", "É"), JS: ("refuse", "É")},  # STRICT, as (?i)é
-    "(?x)[a b]": {JAVA: ("refuse", " "), JS: ("refuse", " ")},
-    "(?m)a$\r?b": {JAVA: ("note", "a\rb"), JS: ("refuse", "a\rb")},
-    "[^a]": {JAVA: (SAME, ["\U0001F600", "b"]), JS: ("note", "\U0001F600")},
-    "\U0001F600+": {JAVA: (SAME, ["\U0001F600\U0001F600"]), JS: ("note", "\U0001F600\U0001F600")},
-    "[\U0001F600]": {JAVA: (SAME, ["\U0001F600"]), JS: ("refuse", "\U0001F600")},
-    "\U0001F600 hi": {JAVA: (SAME, ["\U0001F600 hi"]), JS: (SAME, ["\U0001F600 hi"])},
-    "\\ud83d\\ude00": {JAVA: ("refuse", "\U0001F600"), JS: ("refuse", "\U0001F600")},
-    "(a)?\\1": {JAVA: (SAME, ["", "a", "aa"]), JS: ("note", "")},
-    "(a)?\\101": {JAVA: ("refuse", "A"), JS: (SAME, ["A", "aA"])},  # octal in Python and JS: no back-reference note
-    "a$\\s": {JAVA: ("note", "a\r"), JS: ("note", "a\n")},
-    "[\\1]": {JAVA: ("refuse", "\x01"), JS: (SAME, ["\x01"])},
-    "\\0377": {JAVA: ("refuse", "\x1f7"), JS: (SAME, ["\x1f7"])},
-    "x.y": {JAVA: ("note", "x\x85y"), JS: ("note", "x\U0001F600y")},
-    "a.b": {JAVA: ("note", "a\rb"), JS: ("note", "a\rb")},
+    # the ordinary patterns a pack uses: they must pass
+    "(?:Save|Next)+": {JAVA: (SAME, ["SaveNext", "Save", ""]), JS: (SAME, ["SaveNext", "Save", ""])},
+    "(Yes|No)?": {JAVA: (SAME, ["", "Yes", "YesNo"]), JS: (SAME, ["", "Yes", "YesNo"])},
+    "Price: \\$[0-9]+(\\.[0-9][0-9])?": {JAVA: (SAME, ["Price: $10", "Price: $1.50", "Price: 1"]),
+                                         JS: (SAME, ["Price: $10", "Price: $1.50", "Price: 1"])},
+    "[A-Z][a-z]+": {JAVA: (SAME, ["Settings", "SETTINGS"]), JS: (SAME, ["Settings", "SETTINGS"])},
+    "(a|b){2,3}?": {JAVA: (SAME, ["ab", "aaaa"]), JS: (SAME, ["ab", "aaaa"])},
+    "^Total": {JAVA: (SAME, ["Total", "xTotal"]), JS: (SAME, ["Total", "xTotal"])},
+    "[\\s\\S]*(?:Network)[\\s\\S]*": {JAVA: (SAME, ["Header\nNetwork", "x"]), JS: (SAME, ["Header\nNetwork", "x"])},
+    "(?i)[\\s\\S]*(?:network)[\\s\\S]*": {JAVA: ("note", []), JS: (DENY, [])},
+    "\\t\\n\\r\\f": {JAVA: (SAME, ["\t\n\r\f"]), JS: (SAME, ["\t\n\r\f"])},
+    "\\ \\-\\_\\#\\&\\~": {JAVA: (SAME, [" -_#&~"]), JS: (SAME, [" -_#&~"])},
+    "x{0}y": {JAVA: (SAME, ["y", "xy"]), JS: (SAME, ["y", "xy"])},
+    "a{2}": {JAVA: (SAME, ["aa", "a{2}"]), JS: (SAME, ["aa", "a{2}"])},
+    "\\{x\\}": {JAVA: (SAME, ["{x}"]), JS: (SAME, ["{x}"])},
+    "[{]x": {JAVA: (SAME, ["{x"]), JS: (SAME, ["{x"])},
+    "x}": {JAVA: (SAME, ["x}"]), JS: (SAME, ["x}"])},
+    "a]": {JAVA: (SAME, ["a]"]), JS: (SAME, ["a]"])},
+    "Café": {JAVA: (SAME, ["Café", "cafe"]), JS: (SAME, ["Café", "cafe"])},
+    "[\\]]x": {JAVA: (SAME, ["]x"]), JS: (SAME, ["]x"])},
+    "\\x41\\u00e9": {JAVA: (SAME, ["Aé"]), JS: (SAME, ["Aé"])},
+    "[a-]": {JAVA: (SAME, ["-"]), JS: (SAME, ["-"])},
+    "[.]": {JAVA: (SAME, [".", "a"]), JS: (SAME, [".", "a"])},
+    "\\\\Z": {JAVA: (SAME, ["\\Z"]), JS: (SAME, ["\\Z"])},
+    E + " hi": {JAVA: (SAME, [E + " hi"]), JS: (SAME, [E + " hi"])},
+    # passed with a note
+    "\\d+ items": {JAVA: ("note", ["\u0663 items"]), JS: ("note", ["\u0663 items"])},
+    "\\w": {JAVA: ("note", ["é"]), JS: ("note", ["é"])},
+    "\\s": {JAVA: ("note", ["\x1c"]), JS: ("note", ["\x1c"])},
+    "\\B": {JAVA: ("note", [""]), JS: ("note", [""])},
+    "é\\b": {JAVA: ("note", ["é"]), JS: ("note", ["é"])},  # Java: see VERSIONS
+    "a.b": {JAVA: ("note", ["a\rb"]), JS: ("note", ["a\rb"])},
+    "x.y": {JAVA: ("note", ["x\x85y"]), JS: ("note", [f"x{E}y"])},
+    "[^a]": {JAVA: (SAME, [E, "b"]), JS: ("note", [E])},
+    "a$\\s": {JAVA: ("note", ["a\r"]), JS: ("note", ["a\n"])},
+    "(a$|b)\\n": {JAVA: ("note", []), JS: ("note", ["a\n"])},
+    "(a$|b)\\r": {JAVA: ("note", ["a\r"]), JS: ("note", [])},
+    "(?i)[A-Z]": {JAVA: ("note", ["\u212a"]), JS: ("refuse", ["\u212a"])},  # the Kelvin sign
+    "(?i)é": {JAVA: ("note", []), JS: ("refuse", ["É"])},  # Maestro folds é and É as Python does
+    # refused, with a text the engine reads another way
+    "a{b": {JAVA: ("refuse", ["a{b"]), JS: (DENY, [])},
+    "(?P<n>a)": {JAVA: ("refuse", ["a"]), JS: ("refuse", ["a"])},
+    "(?#c)a": {JAVA: ("refuse", ["a"]), JS: ("refuse", ["a"])},
+    "(a)?(?(1)b|c)": {JAVA: ("refuse", ["c"]), JS: ("refuse", ["c"])},
+    "[a[b]]": {JAVA: ("refuse", ["b"]), JS: (DENY, [])},
+    "[a&&b]": {JAVA: ("refuse", ["a"]), JS: (DENY, [])},
+    "a\\Z\\n": {JAVA: ("refuse", ["a\n"]), JS: ("refuse", ["aZ\n"])},
+    "\\ATotal": {JAVA: (DENY, []), JS: ("refuse", ["Total"])},
+    "Total\\Z": {JAVA: (DENY, []), JS: ("refuse", ["Total"])},
+    "a{,3}": {JAVA: ("refuse", ["aa"]), JS: ("refuse", ["aa"])},
+    "\\0101": {JAVA: ("refuse", ["\x081"]), JS: (DENY, [])},
+    "\\101": {JAVA: ("refuse", ["A"]), JS: (DENY, [])},
+    "\\0": {JAVA: ("refuse", ["\x00"]), JS: (DENY, [])},
+    "\\0377": {JAVA: ("refuse", ["\x1f7"]), JS: (DENY, [])},
+    "\\U00000041": {JAVA: ("refuse", ["A"]), JS: ("refuse", ["A"])},
+    "\\N{DIGIT ONE}": {JAVA: (DENY, []), JS: ("refuse", ["1"])},
+    "\\N{LF}": {JAVA: ("refuse", ["\n"]), JS: ("refuse", ["\n"])},
+    "\\v": {JAVA: ("refuse", ["\n"]), JS: (DENY, [])},
+    "\\a": {JAVA: (DENY, []), JS: ("refuse", ["\x07"])},
+    "[]a]": {JAVA: (DENY, []), JS: ("refuse", ["]"])},
+    "[^]a]": {JAVA: (DENY, []), JS: ("refuse", ["b"])},
+    "[\\b]": {JAVA: ("refuse", ["\b"]), JS: (DENY, [])},
+    "[\\1]": {JAVA: ("refuse", ["\x01"]), JS: (DENY, [])},
+    "(?>a)": {JAVA: (DENY, []), JS: ("refuse", ["a"])},
+    "a*+": {JAVA: (DENY, []), JS: ("refuse", ["aa"])},
+    "a{2}+": {JAVA: (DENY, []), JS: ("refuse", ["aa"])},
+    "a{\u0662}+": {JAVA: ("refuse", ["a{\u0662}}"]), JS: (DENY, [])},
+    "a{\u0662}": {JAVA: ("refuse", ["a{\u0662}"]), JS: (DENY, [])},  # not a count: Python reads the text
+    "a{2147483648}": {JAVA: ("refuse", ["a"]), JS: (DENY, [])},
+    "\\ud83d\\ude00": {JAVA: ("refuse", [E]), JS: ("refuse", [E])},
+    E + "+": {JAVA: (SAME, [E + E, E]), JS: ("refuse", [E + E])},
+    "\\" + E + "+": {JAVA: (DENY, []), JS: ("refuse", [E + E])},
+    f"[{E}]": {JAVA: (SAME, [E]), JS: ("refuse", [E])},
+    f"[{E}-\U0001F64F]": {JAVA: (SAME, ["\U0001F603"]), JS: ("refuse", ["\U0001F603"])},
+    E + "{1}": {JAVA: (SAME, [E]), JS: (DENY, [])},
+    "(?x)[a b]": {JAVA: ("refuse", [" "]), JS: ("refuse", [" "])},
+    "(?x)[\r]": {JAVA: ("refuse", ["\r"]), JS: (DENY, [])},
+    "(?m)a$\\r?b": {JAVA: ("refuse", ["a\rb"]), JS: ("refuse", ["a\rb"])},
+    "(?<=a)?b": {JAVA: (DENY, []), JS: ("refuse", ["b"])},
+    "(a)?\\1": {JAVA: (DENY, []), JS: ("refuse", [""])},
+    "(a)(?<=\\1)b": {JAVA: ("refuse", ["ab"]), JS: (DENY, [])},
+    "(?!(a))a|\\1": {JAVA: ("refuse", ["a"]), JS: ("refuse", [""])},
+    "(?!(Cancel))Save\\1": {JAVA: (DENY, []), JS: ("refuse", ["Save"])},
+    "ab(?<=([ab]){2})\\1": {JAVA: (DENY, []), JS: ("refuse", ["aba"])},
+    "(a?){2}\\1": {JAVA: ("refuse", ["aa"]), JS: (DENY, [])},
+    "bb(?<=(?:a$|b){2})": {JAVA: ("refuse", ["bb"]), JS: (DENY, [])},
+    # refused because they are outside the subset (the engine may read them the same)
+    "(?-i:a)b": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?iu)é": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?s:.)": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?x)Save": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?s:Header(?-s:.))": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?x:Save)[ a]": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?m)OK": {JAVA: (DENY, []), JS: (DENY, [])},
+    "Total\\Z|Subtotal": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(a)\\1": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(Save)\\1|Cancel": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(a)\\1\u00b2": {JAVA: (DENY, []), JS: (DENY, [])},  # round 4: a crash before
+    "()" * 101 + "\\101": {JAVA: (DENY, []), JS: (DENY, [])},
+    "(?<=a)b": {JAVA: (DENY, []), JS: (DENY, [])},
+    "\\0777": {JAVA: (DENY, []), JS: (DENY, [])},
 }
-# The engine test accepts both results for these. VARIES: the engine version decides (Java 19+ reads \b as
-# ASCII; node 23+ reads (?-i:...)), and Journeys keeps the stricter verdict. STRICT: refused on purpose
-# although this case reads the same (Java knows some \N{...} names, not all).
-VARIES = {("é\\b", JAVA), ("(?-i:a)b", JS), ("(?s:.)", JS)}
-STRICT = {("\\N{DIGIT ONE}", JAVA), ("(?i)é", JAVA), ("(?iu)é", JAVA)}
-for _p, _texts in {"(ab|cd)\\1": ["abab", "abcd"], "a$|b": ["a", "b", "a\n"], "\\0777": ["?7"], "\\012": ["\n"], "\\00": ["\x00"], "(?<=a)b?": ["", "b"], "a$": ["a", "a\n"],
-                   "(a$)": ["a", "a\n"], "a{2}": ["aa", "a{2}"], "\\{x\\}": ["{x}"], "[{]x": ["{x"], "x}": ["x}"], "(?:a)b": ["ab"],
-                   "(?=a)a": ["a"], "Café": ["Café", "cafe"], "[\\]]x": ["]x"], "a+?": ["aa"], "(a)\\1": ["aa"],
-                   "\\x41": ["A"], "[a-]": ["-"], "[.]": [".", "a"], "\\\\Z": ["\\Z"]}.items():
-    CASES[_p] = {JAVA: (SAME, _texts), JS: (SAME, _texts)}
+# (pattern, engine): the engine version decides whether it reads the text as Python does
+VERSIONS = {("é\\b", JAVA): lambda v: v >= 19}  # True: it differs (Java 19 and later read \b as ASCII)
 
 
 def verdict(p, engine):
@@ -105,23 +146,20 @@ def verdict(p, engine):
 @pytest.mark.parametrize("p", list(CASES))
 def test_journeys_refuses_notes_or_passes_each_pattern(p, engine):
     _python(p, "")  # every case is a pattern Journeys itself accepts
-    assert verdict(p, engine) == CASES[p][engine][0]
+    kind = CASES[p][engine][0]
+    assert verdict(p, engine) == ("refuse" if kind == DENY else kind)
 
 
 def _python(p, s):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)  # [a[b]]: Python warns about a future set syntax
-        return bool(re.fullmatch(p, s))
-
-
-def _runs(engine):
-    return [(p, s) for p, c in CASES.items() for s in ([c[engine][1]] if c[engine][0] != SAME else c[engine][1])]
+        return str(bool(re.fullmatch(p, s))).lower()
 
 
 def _java(runs):
     b = lambda x: base64.b64encode(x.encode()).decode()
     out = subprocess.run([shutil.which("java"), str(Path(__file__).parent / "regex" / "Match.java")], text=True,
-                         input="".join(f"{b(p)}\t{b(s)}\n" for p, s in runs), capture_output=True, timeout=120)
+                         input="".join(f"{b(p)}\t{b(s)}\n" for p, s in runs), capture_output=True, timeout=300)
     assert out.returncode == 0, out.stderr
     return out.stdout.split()
 
@@ -131,26 +169,127 @@ def _node(runs):
           "console.log(r.map(([p, s]) => { try { return String(new RegExp(`^(?:${p})$`).test(s)); }"
           " catch (e) { return 'ERROR'; } }).join(' '));")
     out = subprocess.run([shutil.which("node"), "-e", js], text=True, input=json.dumps(runs), capture_output=True,
-                         timeout=60)
+                         timeout=300)
     assert out.returncode == 0, out.stderr
     return out.stdout.split()
 
 
-@pytest.mark.parametrize("engine, run, tool", [(JAVA, _java, "java"), (JS, _node, "node")])
+def _version(tool):
+    """The major version: java -version says `version "17.0.15"`, node --version says `v22.23.4`."""
+    out = subprocess.run([shutil.which(tool), "-version" if tool == "java" else "--version"], text=True,
+                         capture_output=True)
+    return int(re.search(r'version "(\d+)|v(\d+)', out.stdout + out.stderr).group(1, 2)[tool == "node"])
+
+
+ENGINES = [(JAVA, _java, "java"), (JS, _node, "node")]
+
+
+@pytest.mark.parametrize("engine, run, tool", ENGINES)
 def test_each_case_reads_on_the_real_engine_as_the_table_says(engine, run, tool):
     if shutil.which(tool) is None:
         pytest.skip(f"{tool} is not installed")
-    runs = _runs(engine)
-    got = run(runs)
+    version = _version(tool)
+    runs = [(p, s) for p, c in CASES.items() if c[engine][0] != DENY for s in c[engine][1]]
+    got = dict(zip(runs, run(runs)))
     assert len(got) == len(runs)
     wrong = []
-    for (p, s), g in zip(runs, got):
-        kind, py = CASES[p][engine][0], str(_python(p, s)).lower()
-        ok = {SAME: g == py, "note": g not in (py, "ERROR"), "refuse": g != py}[kind] or \
-            ((p, engine) in VARIES | STRICT and g == py)
+    for p, c in CASES.items():
+        kind, texts = c[engine]
+        if kind == DENY or not texts:
+            continue
+        differs = [got[(p, s)] != _python(p, s) for s in texts]
+        if (p, engine) in VERSIONS:
+            ok = any(differs) == VERSIONS[(p, engine)](version)
+        else:
+            ok = not any(differs) if kind == SAME else any(differs)
         if not ok:
-            wrong.append((p, s, kind, f"{engine} {g}, Python {py}"))
-    assert not wrong
+            wrong.append((p, kind, [(s, got[(p, s)], _python(p, s)) for s in texts]))
+    assert not wrong, f"{engine} {version}"
+
+
+# The subset's grammar, for the fuzz: each node gives (pattern, a text it matches).
+_LIT = ["a", "b", "Z", "é", "1", "-", " ", ",", "/", "\u00a0", "\u0663", "\r", "\n", "\x85", "ß", "I", "\u0130"]
+_ESC = ["\\.", "\\$", "\\(", "\\)", "\\[", "\\]", "\\{", "\\}", "\\|", "\\*", "\\+", "\\?", "\\\\", "\\-", "\\ ",
+        "\\t", "\\n", "\\x41", "\\u00e9", "\\/", "\\,", "\\#"]
+_CLASS = ["[ab]", "[a-z]", "[^a]", "[-a]", "[a-]", "[\\]a]", "[.]", "[é1]", "[A-Z0-9]", "[^\\n]", "[\\-\\]]"]
+_SHORT = ["\\d", "\\w", "\\s", "\\D", "\\W", "\\S"]
+
+
+_POOL = _LIT + ["A", "{", "}", "(", ")", "[", "]", ".", "$", "\\", "|", "*", "+", "?", "\t", "\u2028", E, "\x1c",
+                "_", "#", ","]
+
+
+def _gen(rng, depth=0, inside=False):
+    """A random pattern from the subset, and a text built to match it (Python may still say no: ^ or $ mid).
+    No quantifier inside a quantified group: nested ones backtrack for minutes on a text that fails late."""
+    r = rng.random()
+    if depth > 2 or r < 0.35:
+        atom = rng.choice(_LIT + _ESC + _CLASS + _SHORT + [".", "^", "$"])
+        if atom == "$":
+            return atom, rng.choice(["", "\n"])
+        if atom == "^":
+            return atom, ""
+        fits = [ch for ch in _POOL if re.fullmatch(atom, ch)]
+        return atom, rng.choice(fits) if fits else ""
+    if r < 0.55:
+        parts = [_gen(rng, depth + 1, inside) for _ in range(rng.randint(1, 3))]
+        return "".join(p for p, _ in parts), "".join(t for _, t in parts)
+    if r < 0.75 or inside:
+        a, b = _gen(rng, depth + 1, inside), _gen(rng, depth + 1, inside)
+        return f"{rng.choice(['(', '(?:'])}{a[0]}|{b[0]})", rng.choice([a, b])[1]
+    a = _gen(rng, depth + 1, True)
+    q, low, high = rng.choice([("*", 0, 3), ("+", 1, 3), ("?", 0, 1), ("{2}", 2, 2), ("{0,2}", 0, 2), ("{1,}", 1, 3),
+                               ("*?", 0, 3), ("+?", 1, 3), ("??", 0, 1)])
+    return f"(?:{a[0]}){q}", a[1] * rng.randint(low, high)
+
+
+def _texts(rng, built):
+    """Texts to try: the one built to match, it with a final line break, and random strings."""
+    return [built, built + "\n", built + "\r"] + ["".join(rng.choice(_POOL) for _ in range(rng.randint(0, 4)))
+                                                 for _ in range(4)]
+
+
+def _fuzz(seed, count):
+    rng = random.Random(seed)
+    cases = {JAVA: [], JS: []}
+    for _ in range(count):
+        pat, built = _gen(rng)
+        if rng.random() < 0.2:
+            pat = "^" + pat
+        if rng.random() < 0.2:
+            pat = pat + "$"
+        try:
+            re.compile(pat)
+        except re.error:
+            continue
+        for engine in (JAVA, JS):
+            try:
+                if check(pat, engine):
+                    continue  # a note: the contract does not promise the same matches
+            except ActionError:
+                continue
+            cases[engine] += [(pat, s) for s in _texts(rng, built)]
+    return cases
+
+
+@pytest.mark.parametrize("engine, run, tool", ENGINES)
+def test_the_subset_reads_the_same_on_the_engines(engine, run, tool):
+    """What check() passes with no note matches the same texts (seeded; a larger run: JOURNEYS_FUZZ=20000)."""
+    import os
+    if shutil.which(tool) is None:
+        pytest.skip(f"{tool} is not installed")
+    runs = _fuzz(7, int(os.environ.get("JOURNEYS_FUZZ", "400")))[engine]
+    assert len(runs) > 200
+    got = run(runs)
+    wrong = [(p, s, g) for (p, s), g in zip(runs, got) if g != _python(p, s)]
+    assert not wrong[:20], f"{len(wrong)} of {len(runs)} differ"
+
+
+def test_escaped_plain_texts_pass_with_no_note():
+    for t in ["Total ${x}", "a.b", "[x]", "{y}", "50% (approx)", "C:\\path", "x|y", "a+b?", "^$", E, "é\n\x85",
+              "\\Z", "&&", "[a[b]]"]:
+        for engine in (JAVA, JS):
+            assert check(escape(t), engine) == [], (t, engine)
 
 
 def test_export_notes_name_each_difference_once():
@@ -165,6 +304,27 @@ def test_export_notes_name_each_difference_once():
     assert notes_for([{"tapOn": {"id": "x\\d"}}], JS, keys=("text",)) == []  # the Appium export leaves ids out
 
 
+def test_the_notes_name_what_differs():
+    assert check("x\\B", JS) == [
+        "\\B knows only ASCII letters and digits in JavaScript (Python: every language), and \\B matches an empty text"]
+    assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java 19 and later (Python: every language)"]
+    assert check("\\s", JAVA) == ["\\s knows only ASCII space characters in Java (Python: every language, "
+                                  "and \\x1c-\\x1f as spaces)"]
+    assert check("a$\\r", JAVA) == ["a $ before more of the pattern matches only at the very end in JavaScript and "
+                                    "also before a final \\r, \\x85, \\u2028 or \\u2029 in Java (Python: also before "
+                                    "a final \\n)"]
+    assert check("a$", JAVA) == check("(a$)", JS) == []
+    assert check("(?i)a", JAVA) == ["(?i) folds a few letters differently in Java, such as the Kelvin sign \u212a "
+                                    "(Python: full Unicode case folding)"]
+
+
+def test_a_refusal_names_the_subset_and_a_hint():
+    with pytest.raises(ActionError, match=r"the group \(\?=\.\.\. is not in the pattern subset .* use \( \) or"):
+        check("a(?=b)", JAVA)
+    with pytest.raises(ActionError, match=r"the escape \\1 .* write the character itself"):
+        check("(a)\\1", JS)
+
+
 def test_both_exports_carry_the_notes_and_refusals(pack_dir):
     from journeys.formats import appium, maestro
     from journeys.pack import Pack
@@ -173,44 +333,25 @@ def test_both_exports_carry_the_notes_and_refusals(pack_dir):
     for fmt, engine in ((maestro, JAVA), (appium, JS)):
         assert f"\\d knows only ASCII digits in {engine} (Python: every language): /\\d+ items/" in \
             fmt.export(pack, pack.journeys["n"])[1], engine
-    (pack_dir / "journeys" / "n.yaml").write_text("name: n\nsteps:\n  - see: '/Total\\Z\\n/'\n")
+    (pack_dir / "journeys" / "n.yaml").write_text("name: n\nsteps:\n  - see: '/Total\\Z/'\n")
     pack = Pack.load(pack_dir)
     for fmt, engine in ((maestro, JAVA), (appium, JS)):
-        with pytest.raises(ActionError, match=f"{engine} reads .Z"):
+        with pytest.raises(ActionError, match=f"the escape .Z is not in the pattern subset Journeys can give {engine}"):
             fmt.export(pack, pack.journeys["n"])
 
 
 def test_an_id_is_a_pattern_in_maestro_and_a_plain_name_in_the_appium_export(pack_dir):
     from journeys.formats import appium, maestro
     from journeys.pack import Pack
-    (pack_dir / "journeys" / "i.yaml").write_text("name: i\nsteps:\n  - see: {id: 'a\\Z\\n'}\n")
+    (pack_dir / "journeys" / "i.yaml").write_text("name: i\nsteps:\n  - see: {id: 'a\\Z'}\n")
     pack = Pack.load(pack_dir)
-    with pytest.raises(ActionError, match="Java reads .Z"):
+    with pytest.raises(ActionError, match="the escape .Z"):
         maestro.export(pack, pack.journeys["i"])
     spec, notes = appium.export(pack, pack.journeys["i"])
-    assert '"id": "a\\\\Z\\\\n"' in spec and not [n for n in notes if "JavaScript" in n]
+    assert '"id": "a\\\\Z"' in spec and not [n for n in notes if "JavaScript" in n]
 
 
-def test_python_3_14_end_of_text_is_refused_for_javascript_and_read_by_java():
-    """Python 3.14 reads \\z as the end (3.12 refuses it, so it is not in the table); JavaScript reads the letter z."""
-    with pytest.raises(ActionError, match="JavaScript reads .z"):
-        check("a\\z", JS)
-    assert check("a\\z", JAVA) == []  # Java's \\z is the end of the text too
-
-
-def test_the_b_notes_name_what_differs():
-    assert check("x\\B", JS) == [
-        "\\B knows only ASCII letters and digits in JavaScript (Python: every language), and \\B matches an empty text"]
-    assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java 19 and later (Python: every language)"]
-
-
-def test_a_dollar_before_more_of_the_pattern_is_noted_for_java_unless_a_line_feed_follows():
-    assert check("a$\\r", JAVA) == ["a $ before more of the pattern also matches before a final \\r, \\x85, \\u2028 "
-                                    "or \\u2029 in Java (Python: only before \\n)"]
-    assert check("a$\\n", JAVA) == check("a$", JAVA) == []
-
-
-def test_a_screen_rule_with_flags_keeps_them_in_both_exports(pack_dir):
+def test_a_screen_rule_is_checked_and_wrapped_for_both_exports(pack_dir):
     from journeys.formats import appium, maestro
     from journeys.pack import Pack
     f = pack_dir / "map" / "screens.yaml"
@@ -218,21 +359,15 @@ def test_a_screen_rule_with_flags_keeps_them_in_both_exports(pack_dir):
     (pack_dir / "journeys" / "s.yaml").write_text("name: s\nsteps:\n  - expect: SETTINGS-HOME\n")
     pack = Pack.load(pack_dir)
     flow, notes = maestro.export(pack, pack.journeys["s"])
-    assert ".*(?i:network).*" in flow and any(n.startswith("(?i) folds") for n in notes)
-    with pytest.raises(ActionError, match="JavaScript reads .[?]i"):
+    assert "(?i)[\\s\\S]*(?:network)[\\s\\S]*" in flow and any(n.startswith("(?i) folds") for n in notes)
+    with pytest.raises(ActionError, match=r"\(\?i\) is not in the pattern subset Journeys can give JavaScript"):
         appium.export(pack, pack.journeys["s"])  # refused, never sent as plain text
+    f.write_text(f.read_text().replace('/(?i)network/', '/(?i)(?s)network/'))
+    pack = Pack.load(pack_dir)
+    with pytest.raises(ActionError, match="SETTINGS-HOME: rule .* cannot be exported as a whole-text pattern"):
+        appium.export(pack, pack.journeys["s"])  # (?s) moves past the start: an error, never plain text
 
 
 def test_a_note_names_its_pattern_on_one_line():
     assert notes_for([{"tapOn": "\\d\nNext"}], JS) == [
         "\\d knows only ASCII digits in JavaScript (Python: every language): /\\d\\x0aNext/"]
-
-
-def test_structure_decides_the_back_reference_dot_and_space_notes():
-    ten = "(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)?"
-    backref = "a back-reference to a group that did not take part matches an empty text in JavaScript (Python: it fails)"
-    assert backref in check(ten + "\\10", JS)  # group 10, which a match can leave out
-    assert backref not in check(ten.replace("?", "") + "\\10", JS)
-    assert check("(?s)a.b", JAVA) == [] and check("a.b", JAVA) != []  # (?s) at the start covers every dot
-    assert check("\\s", JAVA) == [
-        "\\s knows only ASCII space characters in Java (Python: every Unicode space, and \\x1c-\\x1f)"]

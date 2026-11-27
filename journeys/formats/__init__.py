@@ -3,27 +3,34 @@ from __future__ import annotations
 
 import re
 
-from ..actions import escape, to_commands
+from ..actions import ActionError, escape, to_commands
 from ..journey import Journey
 from ..pack import Pack
+from ..regex_parity import ANY
 
 
-def _part(rx: str) -> str:
-    """A map rule's pattern, which may match part of a text, as one that matches all of it. Flags for the
-    whole pattern, such as (?i), go on the inner group: Python reads them only at the start."""
-    m = re.match(r"\(\?([aiLmsux]+)\)", rx)
-    return f".*(?{m[1]}:{rx[m.end():]}).*" if m else f".*(?:{rx}).*"
+def _part(rx: str, screen: str) -> str:
+    """A map rule's pattern, which may match part of a text, as one that matches all of it: [\\s\\S]* on both
+    sides (every character, line breaks too, in Python, Java and JavaScript). A leading (?i) stays at the
+    start, where Python reads flags. The result must compile: a broken one is an error, never plain text."""
+    flags = "(?i)" if rx.startswith("(?i)") else ""
+    out = f"{flags}{ANY}*(?:{rx[len(flags):]}){ANY}*"
+    try:
+        re.compile(out)
+    except re.error as e:
+        raise ActionError(f"screen {screen}: rule /{rx}/ cannot be exported as a whole-text pattern ({e})") from None
+    return out
 
 
 def screen_checks(pack: Pack, screen: str, tool: str, notes: list[str] | None = None) -> list:
     """Asserts (shared command form) that stand for `expect: SCREEN`: its `all` rules with text or id.
-    A map rule's /regex/ may match part of a text; a flow's must match all of it, hence .*(?:...).*"""
+    A map rule's /regex/ may match part of a text; a flow's must match all of it (see _part)."""
     out = []
     for r in pack.map.screens[screen].all:
         sel = {}
         if r.text is not None:
             regex = len(r.text) > 1 and r.text.startswith("/") and r.text.endswith("/")
-            sel["text"] = _part(r.text[1:-1]) if regex else escape(r.text)
+            sel["text"] = _part(r.text[1:-1], screen) if regex else escape(r.text)
         if r.id is not None:
             sel["id"] = r.id
         if sel:
