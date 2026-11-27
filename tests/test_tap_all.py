@@ -155,7 +155,7 @@ def test_tap_targets_skip_label_less_elements_and_name_repeated_ids():
     from journeys.drivers.base import find
     for e in targets + [s.elements[4]]:  # every selector finds that element again, and only it
         assert find(s.elements, selector(e, s)) == s.elements.index(e)
-    assert selector(s.elements[2], s) == "Row B" and selector(s.elements[4], s) == {"id": "com.a:id/icon", "index": 1}
+    assert selector(s.elements[2], s) == "Row B" and selector(s.elements[4], s) == {"id": "icon", "index": 1}
 
 
 def test_a_prefix_selector_never_lands_on_a_denied_sibling(pack_dir):

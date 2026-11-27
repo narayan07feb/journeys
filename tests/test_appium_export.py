@@ -98,7 +98,8 @@ def test_labels_ids_index_and_escaping_follow_the_driver(pack_dir, tmp_path):
     calls, verdict = run(tmp_path, spec_of(pack_dir, """steps:
   - do: [{tap: Search settings}]
   - see: {id: search_src_text}
-  - see: {id: "other.pkg:id/search_src_text"}
+  - see: {id: "com.android.settings.intelligence:id/search_src_text"}
+  - not_see: {id: "other.pkg:id/search_src_text"}
   - see: {text: Row, index: 1}
   - not_see: {text: Row, index: 2}
   - see: {text: Row, index: 0, id: second}
@@ -347,3 +348,23 @@ def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
 def test_after_cleanup_hooks_are_left_out_with_a_note(pack_dir):
     pack, j = journey(pack_dir, "after: [note]\nsteps:\n  - expect: SETTINGS-HOME\n")
     assert any("after: cleanup hooks run only in Journeys" in n for n in export(pack, j)[1])
+
+
+@needs_node
+def test_the_specs_id_match_is_the_drivers_on_node():
+    """idMatch in the spec reads ids as id_matches does: by name, and a package on both sides must agree."""
+    import json
+    import re
+    import shutil
+    import subprocess
+    from journeys.drivers.base import id_matches
+    from journeys.formats.appium import _HELPERS
+    js = re.search(r"function idParts.*?\n}\nfunction idMatch.*?\n}\n", _HELPERS, re.S).group(0)
+    ids = ["next", "com.x:id/next", "com.y:id/next", "g/next", ":id/next", "a:id/b:id/next", "a:id/b", "nexts",
+           "com.x:id/g/next", "Next", ""]
+    pairs = [[w, h] for w in ids for h in ids]
+    out = subprocess.run([shutil.which("node"), "-e", js + "const p = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                          "console.log(JSON.stringify(p.map(([w, h]) => idMatch(w, h))));"],
+                         input=json.dumps(pairs), text=True, capture_output=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == [id_matches(w, h) for w, h in pairs]

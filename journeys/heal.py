@@ -17,7 +17,7 @@ from pathlib import Path
 from . import yamlio
 from .actions import ActionError, dump, escape, from_command, from_commands, to_commands
 from .appmap import KINDS, AppMap
-from .drivers.base import Driver, DriverError, Screen, find, id_matches
+from .drivers.base import Driver, DriverError, Screen, find, id_matches, id_name
 from .pack import Pack
 from .results import Store
 
@@ -48,8 +48,9 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
     text = el.text
     lit = (lambda t: "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t))  # "@2" is text, not a ref
     tries: list = []
-    if el.id:
-        tries.append({"id": el.id})
+    name = id_name(el.id) if el.id else ""  # a selector names the id by its name: it stays right in a build
+    if name:                                 # with another package, and Maestro takes every name shape
+        tries.append({"id": name})
     prefix = text[:-1].split(", ")[0] if text.endswith("…") else text.split(", ")[0] if ", " in text else ""
     if prefix.strip():  # never ".*" alone: it would match whatever is first
         tries.append(lit(prefix) + ".*")
@@ -57,9 +58,9 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
         tries.append(lit(text))
         same = [i for i, e in enumerate(els) if e.text == text]
         tries.append({"text": lit(text), "index": same.index(me)})
-    if el.id:
-        same = [i for i, e in enumerate(els) if e.id and id_matches(el.id, e.id)]
-        tries.append({"id": el.id, "index": same.index(me)})
+    if name:
+        same = [i for i, e in enumerate(els) if e.id and id_matches(name, e.id)]
+        tries.append({"id": name, "index": same.index(me)})
     return next((t for t in tries if find(els, t) == me and _only(els, t)), None)
 
 
@@ -82,8 +83,7 @@ def screen_name(text: str) -> str:
 def denied(el, deny: list) -> bool:
     """A deny rule matches the label, or a text rule matches the id's name ("OK" with id
     delete_account): a label can be vague or cut short, the id often says what the button does."""
-    name = el.id.rsplit("/", 1)[-1] if el.id else ""
-    name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", name)  # delete_account, btnDeleteAccount
+    name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", id_name(el.id))  # delete_account, btnDeleteAccount
     el = replace(el, text=_ZW.sub("", el.text))  # "Log\u200bout" reads as "Logout"
     return any(r.matches(el) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
                for r in deny)

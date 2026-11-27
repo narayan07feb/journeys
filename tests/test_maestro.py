@@ -18,8 +18,8 @@ def test_parse_hierarchy():
     got = [(e.kind, e.text, e.id, e.state) for e in s.elements]
     assert got == [
         ("Text", "Sign in", "", ()),
-        ("Field", "Email", "email", ("focused",)),
-        ("Button", "Next", "next", ("disabled",)),
+        ("Field", "Email", "com.example:id/email", ("focused",)),
+        ("Button", "Next", "com.example:id/next", ("disabled",)),
         ("Image", "Close", "", ()),
         ("Button", "", "", ()),
         ("Switch", "Dark", "", ("checked",)),

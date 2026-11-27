@@ -69,7 +69,7 @@ def parse_source(xml) -> tuple[Screen, list[tuple[int, int, int, int]]]:
         a = node.attrib
         m = _BOUNDS.fullmatch(a.get("bounds", ""))
         text = a.get("text") or a.get("content-desc") or a.get("hint") or ""
-        rid = (a.get("resource-id") or "").rsplit("/", 1)[-1]  # the bare name, as the other drivers report it
+        rid = a.get("resource-id") or ""  # the whole id, so a package in a selector or map rule counts
         clickable = a.get("clickable") == "true"
         if not m or not (text or rid or clickable):
             continue

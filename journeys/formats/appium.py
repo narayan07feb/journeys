@@ -65,7 +65,7 @@ async function screen() {
     for (const [, k, v] of attrs.matchAll(/([\\w:.-]+)="([^"]*)"/g)) a[k] = unxml(v);
     const b = /^\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]$/.exec(a.bounds || "");
     const text = a.text || a["content-desc"] || a.hint || "";
-    const id = (a["resource-id"] || "").split("/").pop();
+    const id = a["resource-id"] || "";
     if (!b || !(text || id || a.clickable === "true")) continue;
     const [x1, y1, x2, y2] = b.slice(1).map(Number);
     const [c1, d1, c2, d2] = [Math.max(x1, 0), Math.max(y1, 0), Math.min(x2, w), Math.min(y2, h)];
@@ -77,9 +77,20 @@ async function screen() {
   return out;
 }
 
+// As the Journeys driver: ids match by name; a package on both sides must agree too.
+function idParts(rid) {
+  const i = rid.lastIndexOf(":id/");
+  return i >= 0 ? [rid.slice(0, i), rid.slice(i + 4)] : ["", rid.split("/").pop()];
+}
+function idMatch(want, have) {
+  if (!want || !have) return false;
+  const [wp, wn] = idParts(want), [hp, hn] = idParts(have);
+  return wn === hn && (!wp || !hp || wp === hp);
+}
+
 function hit(sel, els) {
   if (sel.text === null && sel.id === null) return null;
-  const hits = els.filter((e) => (sel.id === null || (sel.id !== "" && e.id === sel.id))
+  const hits = els.filter((e) => (sel.id === null || idMatch(sel.id, e.id))
     && (sel.text === null || (sel.exact !== false && e.text === sel.text) || (sel.rx !== false && sel.rx.test(e.text))));
   return hits[sel.index] ?? null;
 }
@@ -224,8 +235,7 @@ def _sel(sel, sels: list[str], declared: set[str]) -> str:
         raise ActionError(f"index {sel.get('index')!r} is not a number") from None
     out = {"text": None, "rx": False, "id": None, "index": index, "show": show}
     if "id" in sel:
-        want = _no_vars(str(sel["id"]), "id", declared)  # the driver reports bare names, so only the name counts
-        out["id"] = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
+        out["id"] = _no_vars(str(sel["id"]), "id", declared)  # the whole id: idMatch reads its package
     if "text" in sel:
         from_map = isinstance(sel["text"], MapText)  # a map rule: never a variable, only a pattern
         out["text"] = str(sel["text"]) if from_map else _no_vars(str(sel["text"]), "text", declared)

@@ -26,7 +26,7 @@ def parse_hierarchy(data: dict) -> Screen:
     def walk(node: dict) -> None:
         a = node.get("attributes") or {}
         text = a.get("text") or a.get("accessibilityText") or a.get("hintText") or ""
-        rid = (a.get("resource-id") or "").rsplit("/", 1)[-1]
+        rid = a.get("resource-id") or ""  # the whole id, so a package in a selector or map rule counts
         clickable = a.get("clickable") == "true"
         if text or rid or clickable:
             state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")

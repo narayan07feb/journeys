@@ -127,13 +127,23 @@ def text_matches(pattern: str, text: str) -> bool:
         return False
 
 
+def _id_parts(rid: str) -> tuple[str, str]:
+    """(package, name) of "pkg:id/name"; ("", the part after the last "/") of any other id."""
+    pkg, sep, name = rid.rpartition(":id/")
+    return (pkg, name) if sep else ("", rid.rsplit("/", 1)[-1])
+
+
+def id_name(rid: str) -> str:
+    """The name of an id: "login" for "com.x:id/login", "home/login" and "login"."""
+    return _id_parts(rid)[1]
+
+
 def id_matches(want: str, have: str) -> bool:
-    """Ids match by name ("pkg:id/name" or "name"); a package on both sides must agree too. Some
-    drivers report the full id, others only the name."""
+    """Ids match by name ("pkg:id/name" or "name"); a package on both sides must agree too. The
+    drivers report the whole resource-id; an app can report a bare name (a Compose test tag)."""
     if not have or not want:
         return False
-    w_pkg, _, w_name = want.rpartition(":id/") if ":id/" in want else ("", "", want.rsplit("/", 1)[-1])
-    h_pkg, _, h_name = have.rpartition(":id/") if ":id/" in have else ("", "", have.rsplit("/", 1)[-1])
+    (w_pkg, w_name), (h_pkg, h_name) = _id_parts(want), _id_parts(have)
     return w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
 
 
