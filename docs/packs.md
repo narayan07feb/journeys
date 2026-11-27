@@ -144,6 +144,21 @@ A selector (SEL) is `"Exact text"`, `"/regex/"` (must match the whole text), `{i
 `{text: ..., id: ..., index: 1}` (index 0 is the first match). Words from a test framework
 (`tapOn`, `inputText`, ...) are a pack error that names the word to use.
 
+An id matches by its name: `{id: login}` matches `login`, `com.example:id/login` and
+`home/login`. With a package, `{id: com.example:id/login}` also needs the package to agree when the
+screen shows one, so it skips `com.other:id/login` (on Maestro it needs the whole resource-id, so it also
+skips a view that shows only `login`). The drivers show each element's whole resource-id
+in `look` (Speedrun: as `speedrun look` prints it), and map rules check a package the same way.
+Selectors Journeys writes (proposals, `tap-all`) use the name, so they stay right in a build whose
+package differs; use the index when two packages share a name (an index counts matches in the order the
+driver lists them; a driver that lists them in another order picks another view). They use no id when Maestro would read
+it as other views too (a name with a `/`, or another id that ends in `/name`): the text, then. An id
+whose name is empty or ends in `/` (`group/`, `pkg:id/group/`) is no id, and it matches nothing.
+A name that holds a `/` (`pkg:id/inbox/open`) matches only that whole name, on every driver but
+Maestro: `{id: open}` no longer picks it on Appium; write the whole id, `{id: pkg:id/inbox/open}`
+(`{id: inbox/open}` reads as `open`, so it can pick `pkg:id/open`). Maestro still matches
+`{id: open}` on it (it reads the part after the last `/`), and refuses `{id: pkg:id/inbox/open}`.
+
 `goto` takes the shortest path of edges.
 
 ## Journeys
@@ -268,8 +283,6 @@ The Maestro export (and the maestro driver) also:
   flow's id with a `.` or a `/` in its name gets a note; a `.` in the package does not (it matched
   any character, nearly always harmless). An imported id in a shape the maestro driver refuses
   (`p/q:id/next`) fails when that step runs on Maestro.
-- The maestro and Appium drivers read a screen's ids as bare names, so a map rule `{id: pkg:id/name}`
-  and the Appium driver's `{id: pkg:id/name}` do not check the package.
 - Every YAML file Journeys writes reads a text with U+0085, U+2028 or U+2029 back unchanged (flows,
   drafts and map proposals quote U+0085; the others write non-ASCII as escapes); a comment line holds no
   line break.
@@ -297,7 +310,7 @@ Appium (a WebdriverIO mocha spec):
   element one label: its text, else its content description, else its hint. It leaves out elements
   entirely outside the window, counts an `index` in page order, and taps the centre of the visible
   part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
-  regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
+  regex. An id matches as in the driver: by its name, and a package on both sides must agree.
 - Text patterns run as JavaScript regexes; the export checks each one as JavaScript reads it ("Patterns
   in Java and JavaScript" below). A pattern JavaScript cannot read that the check does not know still
   stops the spec when it loads, before it touches the device.

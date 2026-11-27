@@ -160,7 +160,7 @@ def test_ids_labels_and_taps_like_the_other_drivers():
            '<android.widget.Button class="android.widget.Button" text="Pay" clickable="true" '
            'bounds="[0,2300][1080,2500]"/></hierarchy>')
     screen, boxes = parse_source(xml)
-    assert [e.line() for e in screen.elements] == ['@1 Field "Email" #email', '@2 Button "Pay"']
+    assert [e.line() for e in screen.elements] == ['@1 Field "Email" #com.example.app:id/email', '@2 Button "Pay"']
     phone, taps = Phone(APP), []
     d = driver(phone, allow_changes="any")
     d.start("com.example.app", "emulator-5554")

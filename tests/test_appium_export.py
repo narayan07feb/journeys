@@ -98,7 +98,8 @@ def test_labels_ids_index_and_escaping_follow_the_driver(pack_dir, tmp_path):
     calls, verdict = run(tmp_path, spec_of(pack_dir, """steps:
   - do: [{tap: Search settings}]
   - see: {id: search_src_text}
-  - see: {id: "other.pkg:id/search_src_text"}
+  - see: {id: "com.android.settings.intelligence:id/search_src_text"}
+  - not_see: {id: "other.pkg:id/search_src_text"}
   - see: {text: Row, index: 1}
   - not_see: {text: Row, index: 2}
   - see: {text: Row, index: 0, id: second}
@@ -130,6 +131,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
     xml = ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">'
            '<android.widget.FrameLayout package="com.android.settings" bounds="[0,0][1080,2400]">'
            '<android.widget.TextView package="com.android.settings" text="Open" content-desc="Menu" bounds="[0,100][500,200]"/>'
+           '<android.view.View text="" resource-id="group/" bounds="[0,250][500,290]"/>'
            '<android.widget.TextView text="" content-desc="Menu" bounds="[0,300][500,400]"/>'
            '<android.widget.EditText text="" content-desc="" hint="Search here" resource-id="com.x:id/q" bounds="[0,500][1080,600]"/>'
            '<android.widget.TextView text="Row" bounds="[0,2500][1080,2600]"/>'
@@ -148,7 +150,7 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
     app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
     sels = ["Menu", "Open", "Search here", {"id": "q"}, "Row", {"text": "Row", "index": 1}, {"text": "Row", "index": 2},
             'a & b é "q" <x>', {"id": "com.android.settings:id/btn"}, {"id": "btn"}, "/R.w/", "/Line.*/", "/Line\\ntwo/",
-            {"text": "/M.*/", "index": 0}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}]
+            {"text": "/M.*/", "index": 0}, {"text": "/.*/", "index": 1}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}, {"id": "another/"}]
     for sel in sels:
         i = find(screen.elements, to_command({"tap": sel})["tapOn"])
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel, ensure_ascii=False)}}}]\n"), app=app)
@@ -347,3 +349,43 @@ def test_refusals_and_the_cli(pack_dir, tmp_path, capsys):
 def test_after_cleanup_hooks_are_left_out_with_a_note(pack_dir):
     pack, j = journey(pack_dir, "after: [note]\nsteps:\n  - expect: SETTINGS-HOME\n")
     assert any("after: cleanup hooks run only in Journeys" in n for n in export(pack, j)[1])
+
+
+@needs_node
+def test_the_specs_id_match_is_the_drivers_on_node():
+    """idMatch in the spec reads ids as id_matches does: by name, and a package on both sides must agree."""
+    import json
+    import re
+    import shutil
+    import subprocess
+    from journeys.drivers.base import id_matches
+    from journeys.formats.appium import _HELPERS
+    js = re.search(r"function idParts.*?\n}\nfunction idMatch.*?\n}\n", _HELPERS, re.S).group(0)
+    ids = ["next", "com.x:id/next", "com.y:id/next", "g/next", ":id/next", "a:id/b:id/next", "a:id/b", "nexts",
+           "com.x:id/g/next", "Next", "", "group/", "another/", "com.x:id/", "com.x:id/group/", "com.x:id/inbox/open"]
+    pairs = [[w, h] for w in ids for h in ids]
+    out = subprocess.run([shutil.which("node"), "-e", js + "const p = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                          "console.log(JSON.stringify(p.map(([w, h]) => idMatch(w, h))));"],
+                         input=json.dumps(pairs), text=True, capture_output=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == [id_matches(w, h) for w, h in pairs]
+
+
+
+@needs_node
+def test_the_spec_checks_packages_nested_names_and_empty_names(pack_dir, tmp_path):
+    """Fixed outcomes, not read from the driver: a wrong package and an empty name find nothing; a nested name
+    is found by its whole id and not by its plain decoy."""
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">'
+           '<android.widget.FrameLayout bounds="[0,0][1080,2400]">'
+           '<android.widget.Button text="" clickable="true" resource-id="com.x:id/open" bounds="[0,100][1080,200]"/>'
+           '<android.widget.Button text="" clickable="true" resource-id="com.x:id/inbox/open" bounds="[0,300][1080,400]"/>'
+           '<android.widget.Button text="Grp" resource-id="com.x:id/group/" bounds="[0,500][1080,600]"/>'
+           '</android.widget.FrameLayout></hierarchy>')
+    app = {"app": "com.android.settings", "start": "X", "screens": {"X": {"xml": xml}}}
+    for sel, want in [({"id": "com.x:id/inbox/open"}, [540, 350]), ({"id": "com.x:id/open"}, [540, 150]),
+                      ({"id": "wrong.pkg:id/open"}, None), ({"id": "com.x:id/group/"}, None), ("Grp", [540, 550])]:
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
+        got = [c[2:] for c in calls if c[0] == "tap"]
+        assert ((got, verdict) == ([want], "PASS") if want else
+                got == [] and verdict.startswith("FAIL not on the screen")), (sel, got, verdict)

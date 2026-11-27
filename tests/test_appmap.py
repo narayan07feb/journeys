@@ -81,4 +81,4 @@ def test_selector_for_real_labels():
     assert sel("Wild +4 (x)") == r"Wild \+4 \(x\)"
     assert sel("Daily table, Must play") == "Daily table.*"
     assert sel("Skip: next (with two p…") == r"Skip: next \(with two p.*"
-    assert sel("x", "com.a:id/go") == {"id": "com.a:id/go"}
+    assert sel("x", "com.a:id/go") == {"id": "go"}  # the name: right in a build with another package

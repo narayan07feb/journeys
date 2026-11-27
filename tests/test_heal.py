@@ -202,3 +202,84 @@ def test_a_proposal_with_a_masked_value_is_not_promoted(h):
         "kind": "new-screen", "name": "S", "match": {"all": [{"text": "Second •••"}]}, "edges": []}})
     with pytest.raises(PromoteError, match="masked"):
         promote(Pack.load(pack_dir), store, pid)
+
+
+def _screen(*els):
+    from journeys.drivers.base import Element, Screen
+    return Screen([Element(f"@{i + 1}", k, t, rid) for i, (k, t, rid) in enumerate(els)])
+
+
+def test_heal_gives_no_id_selector_that_maestro_would_read_as_other_views():
+    """Maestro matches a bare name on the whole id or the part after the last "/": {id: next} would also hit
+    pkg:id/group/next. Heal then falls back to the text; a name with a / is never an id selector."""
+    from journeys.heal import selector
+    s = _screen(("Button", "A", "com.x:id/group/next"), ("Button", "B", "com.x:id/next"))
+    assert selector(s.elements[0], s) == "A" and selector(s.elements[1], s) == "B"
+
+
+def test_the_deny_list_and_its_siblings_read_the_ids_last_part():
+    from journeys.appmap import Rule
+    from journeys.heal import denied, tap_targets
+    s = _screen(("Button", "Open", "one:id/action"), ("Button", "Blocked", "two:id/action"),
+                ("Button", "Manage", "com.x:id/settings/delete_account"), ("Button", "Fine", "com.x:id/ok"))
+    deny = [Rule.parse({"text": "Blocked"}), Rule.parse({"text": "delete account"})]
+    assert denied(s.elements[2], deny)  # the id's last part says what the button does
+    assert [e.text for e in tap_targets(s, deny, 10)] == ["Fine"]  # Open shares the name action with Blocked
+
+
+def test_a_package_change_alone_is_the_same_screen():
+    from journeys.explore import _actions
+    from journeys.heal import fingerprint
+    a = _screen(("Button", "Open", "one:id/open"), ("Button", "Help", "one:id/help"))
+    b = _screen(("Button", "Open", "two:id/open"), ("Button", "Help", "two:id/help"))
+    assert fingerprint(a) == fingerprint(b) and _actions(a) == _actions(b)
+
+
+def test_an_id_with_an_empty_name_is_no_id():
+    from journeys.drivers.base import id_matches
+    from journeys.drivers.maestro import parse_hierarchy
+    tree = {"attributes": {}, "children": [{"attributes": {"resource-id": "group/"}},
+                                           {"attributes": {"text": "Next", "resource-id": "com.x:id/next"}}]}
+    assert [e.text for e in parse_hierarchy(tree).elements] == ["Next"]
+    assert not id_matches("another/", "group/") and not id_matches("com.x:id/", "com.x:id/")
+
+
+def test_round_2_deny_and_identity_keep_their_meaning():
+    from journeys.appmap import Rule
+    from journeys.heal import denied, fingerprint, new_denied, selector, tap_targets
+    from journeys.explore import _actions
+    nested = _screen(("Button", "Manage", "com.x:id/settings/delete_account"))
+    assert denied(nested.elements[0], [Rule.parse({"id": "delete_account"})])  # as when drivers cut the id
+    base = _screen(("Button", "Manage", "safe.pkg:id/action"))
+    after = _screen(("Button", "Manage", "danger.pkg:id/action"))
+    danger = [Rule.parse({"id": "danger.pkg:id/action"})]
+    assert not denied(base.elements[0], danger) and denied(after.elements[0], danger)  # the package counts
+    assert new_denied(base, after, danger)  # a package change, newly denied
+    a = _screen(("Button", "Open", "com.x:id/inbox/open"))
+    b = _screen(("Button", "Open", "com.x:id/archive/open"))
+    assert fingerprint(a) != fingerprint(b) and _actions(a) != _actions(b)  # the path in the name stays identity
+    v = _screen(("Button", "Open", "com.x:id/${NEXT}"))
+    assert selector(v.elements[0], v) == "Open"  # Maestro refuses ${ in an id
+    g = _screen(("Button", "Blocked", "group/"), ("Button", "Open", ""), ("Button", "Fine", "com.x:id/ok"))
+    assert [e.text for e in tap_targets(g, [Rule.parse({"text": "Blocked"})], 10)] == ["Open", "Fine"]
+
+
+def test_an_id_whose_name_ends_in_a_slash_matches_nothing():
+    from journeys.drivers.base import id_matches
+    assert not id_matches("com.x:id/group/", "com.x:id/group/") and not id_matches("group/", "group/")
+
+
+def test_a_name_that_ends_in_a_slash_is_no_id_for_screen_identity():
+    from journeys.explore import _actions
+    from journeys.heal import fingerprint
+    a, b = _screen(("Button", "Open", "com.x:id/group/")), _screen(("Button", "Open", ""))
+    assert fingerprint(a) == fingerprint(b) and _actions(a) == _actions(b)
+
+
+def test_a_deny_rule_with_a_package_still_denies_a_nested_name_in_that_package():
+    """Drivers reported pkg:id/settings/delete_account as delete_account: {id: bank:id/delete_account} denied it."""
+    from journeys.appmap import Rule
+    from journeys.heal import denied
+    rule = [Rule.parse({"id": "bank:id/delete_account"})]
+    assert denied(_screen(("Button", "Manage", "bank:id/settings/delete_account")).elements[0], rule)
+    assert not denied(_screen(("Button", "Manage", "other:id/settings/delete_account")).elements[0], rule)

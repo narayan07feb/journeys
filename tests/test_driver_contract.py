@@ -185,8 +185,7 @@ TWO = {"app": "com.example.app", "start": "HOME", "screens": {
     "OURS": {"elements": [{"kind": "Text", "text": "Our page"}]}}}
 
 
-@pytest.mark.parametrize("kind", [k if k != "appium" else pytest.param(k, marks=pytest.mark.xfail(
-    strict=True, reason="the Appium driver reports bare names (appium.py), so it ignores the package")) for k in DRIVERS])
+@pytest.mark.parametrize("kind", DRIVERS)
 def test_a_package_in_an_id_picks_that_package_on_every_driver(kind, tmp_path):
     d = hooked(kind, Phone(TWO), tmp_path)
     d.start("com.example.app", "emulator-5554")
@@ -209,6 +208,60 @@ def test_a_next_line_character_in_an_id_reaches_the_driver(kind, tmp_path):
     d = hooked(kind, Phone(app), tmp_path)
     d.start("com.example.app", "emulator-5554")
     assert d.do(["launchApp", {"tapOn": {"id": "a\x85b"}}]).ok and texts(d) == ["Next page"]
+
+
+SHAPES = {"app": "com.example.app", "start": "HOME", "screens": {
+    "HOME": {"elements": [{"kind": "Button", "text": "", "id": "com.other:id/a", "to": "P1"},
+                          {"kind": "Button", "text": "", "id": "com.example.app:id/a", "to": "P2"},
+                          {"kind": "Button", "text": "", "id": "b", "to": "P3"},
+                          {"kind": "Button", "text": "", "id": "g/c", "to": "P4"},
+                          {"kind": "Button", "text": "", "id": "com.example.app:id/d", "to": "P5"}]},
+    **{f"P{i}": {"elements": [{"kind": "Text", "text": f"Page {i}"}]} for i in range(1, 6)}}}
+
+
+@pytest.mark.parametrize("kind", DRIVERS)
+def test_each_id_shape_round_trips_through_look_heal_and_tap_on_every_driver(kind, tmp_path):
+    """look reports the whole resource-id; heal's selector names it by its name (with an index when two packages
+    share it); the tap lands on that view on every driver."""
+    from journeys.heal import selector
+    d = hooked(kind, Phone(SHAPES), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp"]).ok
+    got = []
+    for i in range(5):
+        screen = d.look()
+        el = screen.elements[i]
+        sel = selector(el, screen)
+        got.append((el.id, sel))
+        assert d.do([{"tapOn": sel}]).ok and texts(d) == [f"Page {i + 1}"], (kind, el.id, sel)
+        assert d.do(["back"]).ok
+    assert got == [("com.other:id/a", {"id": "a", "index": 0}), ("com.example.app:id/a", {"id": "a", "index": 1}),
+                   ("b", {"id": "b"}), ("g/c", {"id": "c"}), ("com.example.app:id/d", {"id": "d"})]
+
+
+@pytest.mark.parametrize("kind", DRIVERS)
+def test_a_map_rule_with_a_package_checks_the_package_on_every_driver(kind, tmp_path):
+    from journeys.appmap import Rule
+    d = hooked(kind, Phone(TWO), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp"]).ok
+    els = d.look().elements
+    assert [Rule.parse({"id": w}).matches(e) for w in ("com.example.app:id/next", "next") for e in els] == \
+        [False, True, True, True]
+
+
+NESTED = {"app": "com.example.app", "start": "HOME", "screens": {
+    "HOME": {"elements": [{"kind": "Button", "text": "", "id": "com.example.app:id/open", "to": "DECOY"},
+                          {"kind": "Button", "text": "", "id": "com.example.app:id/inbox/open", "to": "INBOX"}]},
+    "DECOY": {"elements": [{"kind": "Text", "text": "Plain open"}]},
+    "INBOX": {"elements": [{"kind": "Text", "text": "Inbox"}]}}}
+
+
+@pytest.mark.parametrize("kind", [k for k in DRIVERS if k != "maestro"])  # Maestro refuses a / in a name
+def test_a_nested_name_is_picked_by_its_whole_id(kind, tmp_path):
+    d = hooked(kind, Phone(NESTED), tmp_path)
+    d.start("com.example.app", "emulator-5554")
+    assert d.do(["launchApp", {"tapOn": {"id": "com.example.app:id/inbox/open"}}]).ok and texts(d) == ["Inbox"]
 
 
 def test_id_rules():

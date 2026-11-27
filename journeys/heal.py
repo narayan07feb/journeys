@@ -17,7 +17,7 @@ from pathlib import Path
 from . import yamlio
 from .actions import ActionError, dump, escape, from_command, from_commands, to_commands
 from .appmap import KINDS, AppMap
-from .drivers.base import Driver, DriverError, Screen, find, id_matches
+from .drivers.base import Driver, DriverError, Screen, find, id_key, id_matches, id_name, id_tail
 from .pack import Pack
 from .results import Store
 
@@ -25,7 +25,7 @@ TAPPABLE = set(KINDS)  # every kind a driver reports can be tapped
 
 
 def fingerprint(screen: Screen) -> frozenset:
-    return frozenset((e.kind, e.text, e.id) for e in screen.elements)
+    return frozenset((e.kind, e.text, id_key(e.id)) for e in screen.elements)  # a package change is the same screen
 
 
 def same_screen(a: Screen, b: Screen) -> bool:
@@ -48,8 +48,12 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
     text = el.text
     lit = (lambda t: "\\" + escape(t) if re.fullmatch(r"@\d+", t) else escape(t))  # "@2" is text, not a ref
     tries: list = []
-    if el.id:
-        tries.append({"id": el.id})
+    name = id_name(el.id) if el.id else ""  # by its name: right in a build with another package
+    hits = [i for i, e in enumerate(els) if e.id and id_matches(name, e.id)] if name else []
+    if "${" in name or hits != [i for i, e in enumerate(els) if e.id and id_tail(e.id) == name]:
+        name = ""  # Maestro would refuse it, or pick other views (it also matches the part after the last "/")
+    if name:
+        tries.append({"id": name})
     prefix = text[:-1].split(", ")[0] if text.endswith("…") else text.split(", ")[0] if ", " in text else ""
     if prefix.strip():  # never ".*" alone: it would match whatever is first
         tries.append(lit(prefix) + ".*")
@@ -57,9 +61,8 @@ def selector(el, screen: Screen | None = None) -> dict | str | None:
         tries.append(lit(text))
         same = [i for i, e in enumerate(els) if e.text == text]
         tries.append({"text": lit(text), "index": same.index(me)})
-    if el.id:
-        same = [i for i, e in enumerate(els) if e.id and id_matches(el.id, e.id)]
-        tries.append({"id": el.id, "index": same.index(me)})
+    if name:
+        tries.append({"id": name, "index": hits.index(me)})
     return next((t for t in tries if find(els, t) == me and _only(els, t)), None)
 
 
@@ -82,10 +85,13 @@ def screen_name(text: str) -> str:
 def denied(el, deny: list) -> bool:
     """A deny rule matches the label, or a text rule matches the id's name ("OK" with id
     delete_account): a label can be vague or cut short, the id often says what the button does."""
-    name = el.id.rsplit("/", 1)[-1] if el.id else ""
-    name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", name)  # delete_account, btnDeleteAccount
+    name = re.sub(r"[_.]+|(?<=[a-z0-9])(?=[A-Z])", " ", id_tail(el.id))  # delete_account, btnDeleteAccount
     el = replace(el, text=_ZW.sub("", el.text))  # "Log\u200bout" reads as "Logout"
-    return any(r.matches(el) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
+    # also the id cut to its package and last part, as drivers reported it before: {id: delete_account} and
+    # {id: bank:id/delete_account} still deny bank:id/settings/delete_account, and a rule for another package does not
+    pkg = el.id.rpartition(":id/")[0]
+    tail = replace(el, id=f"{pkg}:id/{id_tail(el.id)}" if pkg else id_tail(el.id))
+    return any(r.matches(el) or r.matches(tail) or (name and r.text and r.id is None and r.matches(replace(el, text=name)))
                for r in deny)
 
 
@@ -109,17 +115,17 @@ def tap_targets(screen: Screen, deny: list, limit: int) -> list:
     no = [e for e in screen.elements if denied(e, deny)]
     if no or _warns(screen):  # "Delete all your data?" [Yes]: a confirm button does what the words say
         no += [e for e in screen.elements if _CONFIRM.search(_ZW.sub("", e.text)) or _WARN.search(e.text)]
-    texts, ids = {e.text for e in no}, {e.id for e in no if e.id}
+    texts, ids = {e.text for e in no}, {id_tail(e.id) for e in no if id_tail(e.id)}
     # an element that shares its text or id with a denied one is skipped too: its selector needs an
     # index, and a driver may count matches in another order than this listing
     return [e for e in screen.elements if e.kind in TAPPABLE and e.text.strip() and e not in no
-            and e.text not in texts and e.id not in ids][:limit]
+            and e.text not in texts and id_tail(e.id) not in ids][:limit]
 
 
 def new_denied(base: Screen, after: Screen, deny: list) -> bool:
     """Denied words on `after` that `base` did not show. Used when a tap looks like "no change" but
     put up a dialog ("Delete all?" over a long list): the old option list is stale then."""
-    seen = {(e.text, e.id) for e in base.elements}
+    seen = {(e.text, e.id) for e in base.elements}  # the whole id: a package change can be newly denied
     new = [e for e in after.elements if (e.text, e.id) not in seen]
     risky = _warns(after) or any(denied(e, deny) for e in after.elements)  # a dialog over a denied screen too
     return any(denied(e, deny) for e in new) or (risky and any(_CONFIRM.search(_ZW.sub("", e.text)) for e in new))

@@ -16,7 +16,7 @@ from pathlib import Path
 from ..actions import ActionError, dump, escape
 from ..regex_parity import JAVA, check
 from .adb import AdbDriver
-from .base import CommandResult, DriverError, Element, Screen, kind_of
+from .base import CommandResult, DriverError, Element, Screen, id_tail, kind_of
 
 
 def parse_hierarchy(data: dict) -> Screen:
@@ -26,9 +26,9 @@ def parse_hierarchy(data: dict) -> Screen:
     def walk(node: dict) -> None:
         a = node.get("attributes") or {}
         text = a.get("text") or a.get("accessibilityText") or a.get("hintText") or ""
-        rid = (a.get("resource-id") or "").rsplit("/", 1)[-1]
+        rid = a.get("resource-id") or ""  # the whole id, so a package in a selector or map rule counts
         clickable = a.get("clickable") == "true"
-        if text or rid or clickable:
+        if text or id_tail(rid) or clickable:  # an id with an empty name ("group/") is no id
             state = tuple(s for s in ("checked", "selected", "focused") if a.get(s) == "true")
             if a.get("enabled") == "false":
                 state += ("disabled",)
