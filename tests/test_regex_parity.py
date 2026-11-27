@@ -588,7 +588,10 @@ def test_maestro_matches_an_id_on_java_as_journeys_does():
             runs += [(p, h), (p, h.rsplit("/", 1)[-1])]
     got = _java(runs, raw=True)
     differ = {(w, h) for k, (w, h) in enumerate(pairs) if ("true" in got[2 * k:2 * k + 2]) != id_matches(w, h)}
-    gap = {(w, h) for w, h in pairs if ":id/" in w and not h.rpartition(":id/")[0] and id_matches(w, h)}
+    gap = {(w, h) for w, h in pairs if ":id/" in w and not h.rpartition(":id/")[0]
+           and h.rsplit("/", 1)[-1] == w.rpartition(":id/")[2]}  # the docs' gap, not read from id_matches
     slash = {(w, h) for w, h in pairs if ":id/" not in w and "/" in h.rpartition(":id/")[2] and ":id/" in h
              and w == h.rsplit("/", 1)[-1]}
     assert gap and slash and differ == gap | slash
+    # directions: Journeys finds the no-package view and Maestro does not; Maestro matches the "/" name, Journeys not
+    assert all(id_matches(w, h) for w, h in gap) and not any(id_matches(w, h) for w, h in slash)

@@ -59,8 +59,9 @@ def dump(data, **kw) -> str:
 
 
 def one_line(text) -> str:
-    """Text for a # comment line: every line break (also U+0085, U+2028, U+2029) becomes a space."""
-    return " ".join(str(text).splitlines())
+    """Text for a # comment line: every line break (also U+0085, U+2028, U+2029) becomes a space, and any other
+    character YAML may refuse (U+0000, U+0001, ...) its \\x escape."""
+    return "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in " ".join(str(text).splitlines()))
 
 
 def join_pairs(t: str) -> str:

@@ -695,7 +695,7 @@ def test_a_next_line_character_in_a_flow_survives_the_synced_draft(framework):
 
 
 def test_a_line_break_in_a_flow_file_name_stays_in_the_draft_comment(framework):
-    (framework / "flows" / ("odd" + chr(0x85) + "name.yaml")).write_text(flow("odd", 'tapOn: "About phone"'))
+    (framework / "flows" / ("odd" + chr(0x85) + "na" + chr(1) + "me.yaml")).write_text(flow("odd", 'tapOn: "About phone"'))
     sync(Pack.load(framework))
     (d,) = (framework / "drafts").glob("odd*.yaml")
-    assert d.read_text().splitlines()[0].startswith("# synced from flows/odd name.yaml") and Pack.load(framework).drafts
+    assert d.read_text().splitlines()[0].startswith("# synced from flows/odd na\\x01me.yaml") and Pack.load(framework).drafts

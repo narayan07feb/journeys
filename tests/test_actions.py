@@ -76,8 +76,8 @@ def test_a_comment_line_holds_no_line_break(pack_dir):
     from journeys.formats.maestro import export
     from journeys.pack import Pack
     f = pack_dir / "pack.yaml"
-    f.write_text(f.read_text().replace("name: ", "name: \"A\\NB\\LC\" # was: ", 1))
+    f.write_text(f.read_text().replace("name: ", "name: \"A\\NB\\LC\\0D\\tE\" # was: ", 1))
     pack = Pack.load(pack_dir)
-    assert "\x85" in pack.name and "\u2028" in pack.name
+    assert "\x85" in pack.name and "\u2028" in pack.name and "\x00" in pack.name
     flow = export(pack, next(iter(pack.journeys.values())))[0]
-    assert flow.splitlines()[0].endswith("(pack A B C).") and list(yaml.safe_load_all(flow))
+    assert flow.splitlines()[0].endswith("(pack A B C\\x00D\\x09E).") and list(yaml.safe_load_all(flow))
