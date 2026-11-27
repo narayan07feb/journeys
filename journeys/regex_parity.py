@@ -27,7 +27,8 @@ ANY = r"[\s\S]"  # every character in all three engines; Journeys writes [\s\S]*
 _HALF = ("a {what} can match half of an emoji in JavaScript (Python: only the whole one)")
 _GROUP_HINTS = {"=": "lookarounds cannot be sent; write the text without them", "!": "lookarounds cannot be sent",
                 "<": "lookarounds and named groups cannot be sent; use ( ) for a group",
-                "P": "named groups cannot be sent; use ( )"}
+                "P": "named groups cannot be sent; use ( )", "#": "comments cannot be sent; leave the comment out",
+                ">": "atomic groups cannot be sent; use (?: )"}
 
 
 def shown(rx: str) -> str:
@@ -36,14 +37,15 @@ def shown(rx: str) -> str:
                   lambda m: f"\\x{ord(m[0]):02x}" if ord(m[0]) < 256 else f"\\u{ord(m[0]):04x}", rx)
 
 
-def _shorthand_note(e: str, engine: str) -> str:
-    """The note for \\d \\D \\w \\W \\s \\S."""
+def _shorthand_note(e: str, engine: str, in_class: bool = False) -> str:
+    """The note for \\d \\D \\w \\W \\s \\S (in a class, the class's own note covers the emoji half)."""
+    half = ", and matches only half of an emoji in JavaScript" if engine == JS and e in "DWS" and not in_class else ""
     if e in _SHORTHAND:
-        return f"\\{e} knows only ASCII {_SHORTHAND[e]} in {engine} (Python: every language)"
+        return f"\\{e} knows only ASCII {_SHORTHAND[e]} in {engine} (Python: every language){half}"
     if engine == JAVA:
         return f"\\{e} knows only ASCII spaces in Java (Python: Unicode spaces, and \\x1c-\\x1f)"
     return (f"\\{e} knows another set of spaces in JavaScript, such as \\ufeff (Python: Unicode spaces and "
-            "\\x1c-\\x1f, not \\ufeff)")
+            f"\\x1c-\\x1f, not \\ufeff){half}")
 
 
 def _class_ranges(rx: str, start: int) -> tuple[list[tuple[int, int]], set[str], int]:
@@ -101,9 +103,12 @@ def check(rx: str, engine: str) -> list[str]:
     after_weight, groups = 0, 0  # the group just closed (0: the last token was not a group); groups so far
     if rx.startswith("(?i)"):
         if engine == JS:
-            refuse("(?i)", "JavaScript reads no flags inside a pattern")
-        notes.add("(?i) folds a few letters differently in Java: [A-Z] matches the Kelvin sign K in Python, "
-                  "not in Java")
+            refuse("(?i)", "JavaScript reads no flags inside a pattern; write both cases, as [Ss]ave")
+        if any(ord(ch) > 127 and ch.isalpha() for ch in rx):  # ß, ẞ, ı, İ and more fold another way in Java
+            refuse("(?i) with a letter outside ASCII", "Java folds some of those letters another way; write the "
+                   "cases you mean, as [éÉ]")
+        notes.add("(?i) folds some letters outside ASCII another way in Java: [A-Z] matches the Kelvin sign and "
+                  "\\u0130 in Python, not in Java")
         i = 4
     begin = i
     in_class: dict[str, str] = {}  # the open class's shorthand letters, and their notes (merged at its end)
@@ -128,12 +133,12 @@ def check(rx: str, engine: str) -> list[str]:
             if e in "dDwWsS" and cls is None:
                 notes.add(_shorthand_note(e, engine))
             elif e in "dDwWsS":
-                in_class[e] = _shorthand_note(e, engine)
+                in_class[e] = _shorthand_note(e, engine, in_class=True)
                 if e in "DWS" and engine == JS:
                     class_half.add(_HALF.format(what=f"[...\\{e}...] class"))
             elif e in ("b", "B") and cls is None:
                 notes.add(f"\\{e} knows only ASCII letters and digits in "
-                          f"{'Java 19 and later' if engine == JAVA else JS} (Python: every language)"
+                          f"{engine} (Python: every language" + ("; more text from Java 19)" if engine == JAVA else ")")
                           + (", and \\B matches an empty text" if e == "B" else ""))
             elif e in _CONTROL or (e and not e.isalnum() and ord(e) < 128):
                 pass  # a control escape, or an escaped ASCII punctuation mark or space
@@ -172,8 +177,8 @@ def check(rx: str, engine: str) -> list[str]:
         elif c == "(":
             if rx.startswith("(?", i) and not rx.startswith("(?:", i):
                 k = rx[i + 2:i + 3]
-                refuse(f"the group {rx[i:i + 3]}...", _GROUP_HINTS.get(k, "inline flags cannot be sent; for (?s) "
-                       "write [\\s\\S] in place of . to cross line breaks"))
+                refuse(f"the group {rx[i:i + 3]}...", _GROUP_HINTS.get(k, "inline flags cannot be sent: for (?s) "
+                       "write [\\s\\S] in place of . to cross line breaks; for (?i) write both cases, as [Ss]ave"))
             depth, groups = depth + 1, groups + 1
             if depth > _MAX_DEPTH or groups > _MAX_GROUPS:
                 refuse(f"more than {_MAX_GROUPS} groups, or groups nested more than {_MAX_DEPTH} deep",

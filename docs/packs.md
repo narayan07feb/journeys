@@ -321,7 +321,7 @@ The subset:
   `\xHH` and `\uHHHH` (not a `\uD800`-`\uDFFF` half);
 - `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b` and `\B`, noted: `\d` and `\w` know only ASCII in Java and
   JavaScript; `\s` knows only ASCII spaces in Java, and another set in JavaScript (with `\ufeff`;
-  Python has `\x1c`-`\x1f`); `\b` is ASCII in JavaScript and Java 19 and later; `\B` matches an empty
+  Python has `\x1c`-`\x1f`); `\b` differs on text outside ASCII in JavaScript and every Java (more from Java 19); `\B` matches an empty
   text;
 - a `[...]` class, with `^` first, ranges (a `-` first or last is the character itself, and can start
   a range, as in `[--/]`) and the escapes above; no `]` first, no `[` or `&&` inside, no `\b` or digit
@@ -332,15 +332,16 @@ The subset:
 - `( )`, `(?: )` and `|`;
 - `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms; a
   group with a `|` or an optional part inside (`?`, `*`, `+`, `{n,m}`), repeated without a small limit, is
-  noted for Java: it can overflow Java's stack on a text of a few thousand characters (Java 11, 17 and 25
-  at about 8,000). For single characters write a class: `[ab]*`, not `(?:a|b)*`;
+  noted for Java: it can overflow Java's stack on a text of a few thousand characters (about 2,800 to
+  4,000 with the default thread stack, measured on Java 11, 17 and 25). For single characters write a class: `[ab]*`, not `(?:a|b)*`;
 - `^` at the start of the pattern or of a top-level branch, and `$` at the end of the pattern or of a
   top-level branch (anywhere else they are refused: a pattern matches the whole text anyway);
 - `.`, noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
   in JavaScript;
 - `[\s\S]*`, with no note (every character, any number, in all three; `[\s\S]` alone is a class);
-- `(?i)` at the very start, for Maestro only, noted: `[A-Z]` matches the Kelvin sign K in Python, not in
-  Java.
+- `(?i)` at the very start, for Maestro only, when the pattern has only ASCII letters (Java folds
+  `ß`, `ı`, `İ` and more another way), noted: `[A-Z]` matches the Kelvin sign and `İ` in Python, not in
+  Java. For the Appium export write both cases: `[Ss]ave`.
 
 Outside it, and so refused: more than 100 groups, groups nested more than 10 deep, and a count above
 100 on a group (times the counts of the groups inside it, so `(?:(?:ab){10}){10}` passes and

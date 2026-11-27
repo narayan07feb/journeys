@@ -86,7 +86,8 @@ CASES = {
     "a{4294967295}": {JAVA: ("refuse", []), JS: ("refuse", [])},
     "\\s": {JAVA: ("note", ["\x1c"]), JS: ("note", ["\ufeff"])},
     "(?i)[A-Z]": {JAVA: ("note", ["\u212a"]), JS: ("refuse", ["\u212a"])},  # the Kelvin sign
-    "(?i)é": {JAVA: ("note", []), JS: ("refuse", ["É"])},  # Maestro folds é and É as Python does
+    "(?i)é": {JAVA: (DENY, []), JS: ("refuse", ["É"])},  # round 8: (?i) with a non-ASCII letter is refused
+    "(?i)ß": {JAVA: ("refuse", ["\u1e9e"]), JS: ("refuse", ["\u1e9e"])},
     # refused, with a text the engine reads another way
     "a{b": {JAVA: ("refuse", ["a{b"]), JS: (DENY, [])},
     "(?P<n>a)": {JAVA: ("refuse", ["a"]), JS: ("refuse", ["a"])},
@@ -338,17 +339,25 @@ def test_export_notes_name_each_difference_once():
 def test_the_notes_name_what_differs():
     assert check("x\\B", JS) == [
         "\\B knows only ASCII letters and digits in JavaScript (Python: every language), and \\B matches an empty text"]
-    assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java 19 and later (Python: every language)"]
+    assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java (Python: every language; more "
+                                   "text from Java 19)"]
+    assert check("\\D", JS) == ["\\D knows only ASCII digits in JavaScript (Python: every language), and matches "
+                                "only half of an emoji in JavaScript"]
+    with pytest.raises(ActionError, match="write both cases, as \\[Ss\\]ave"):
+        check("(?i)save", JS)
+    for rx, hint in (("(?#c)a", "comments cannot be sent"), ("(?>a)", "atomic groups"), ("(?i:a)", "\\[Ss\\]ave")):
+        with pytest.raises(ActionError, match=hint):
+            check(rx, JAVA)
     assert check("\\s", JAVA) == ["\\s knows only ASCII spaces in Java (Python: Unicode spaces, and \\x1c-\\x1f)"]
     assert check("\\s", JS) == ["\\s knows another set of spaces in JavaScript, such as \\ufeff (Python: Unicode "
                                 "spaces and \\x1c-\\x1f, not \\ufeff)"]
     assert check("a$", JAVA) == check("(a$)", JS) == check("a$|b", JS) == []
-    assert check("(?i)a", JAVA) == ["(?i) folds a few letters differently in Java: [A-Z] matches the Kelvin sign "
-                                    "\u212a in Python, not in Java"]
+    assert check("(?i)a", JAVA) == ["(?i) folds some letters outside ASCII another way in Java: [A-Z] matches the "
+                                    "Kelvin sign and \\u0130 in Python, not in Java"]
     stack = ("a repeated group with a | or an optional part inside can overflow Java's stack on a text of a few "
              "thousand characters (Python: fine); for single characters use a class, such as [ab]* for (?:a|b)*")
     for rx in ("(?:a|b)*", "x(?:(?:a|b)c)+", "(?:a|b){2,}", "(?:ab?)*", "(?:a{1,2})*", "(?:[ab]c?)+", "(ab*)*"):
-        assert check(rx, JAVA) == [stack], rx  # each overflows Java 11, 17 and 25 at about 8,000 characters
+        assert check(rx, JAVA) == [stack], rx  # each overflows Java 11, 17 and 25 (a few thousand characters)
     for rx in ("(?:a|b){2,3}", "(?:ab)*", "(?:a{2})*", "(?:ab?){1,50}", "[ab]*", "[0-9]{999}"):
         assert check(rx, JAVA) == [], rx  # these repeat without recursion, or only a few times
     assert check("(?:a|b)*", JS) == []
