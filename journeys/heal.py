@@ -200,25 +200,36 @@ def _edit_line(path: Path, line: int, pattern: str, repl: str) -> None:
     path.write_text("".join(lines))
 
 
+_UNREADABLE = (yaml.YAMLError, ValueError, TypeError, RecursionError)  # bad syntax, a bad date, a self alias
+
+
 def _appended(path: Path, top_key: str, items) -> str:
     """The file's text with the entries appended under its top key, as text, so comments and the rest stay.
     The new entries take the indent of the key's first entry (2 when it has none). The result must load as
-    the old file with only those entries added; else PromoteError, and nothing is written."""
-    old = path.read_text() if path.exists() else ""
+    the old file with only those entries added; else PromoteError, and nothing is written. A BOM and CRLF
+    line ends stay."""
+    raw = path.read_bytes().decode("utf-8") if path.exists() else ""  # read_text would turn CRLF into LF
 
     def refuse(why: str) -> PromoteError:
         return PromoteError(f"{path}: {why}; add the {top_key} entry by hand")
+    bom = "\ufeff" if raw.startswith("\ufeff") else ""
+    old = raw[len(bom):].replace("\r\n", "\n")
     try:
         before = yaml.safe_load(old) or {}
-    except yaml.YAMLError:
+    except _UNREADABLE:
         raise refuse("not valid YAML") from None
     if not isinstance(before, dict) or not isinstance(before.get(top_key) or type(items)(), type(items)):
         raise refuse(f"its {top_key} is not a {'list' if isinstance(items, list) else 'map'}")
+    if isinstance(items, dict) and (taken := sorted(set(items) & set(before.get(top_key) or {}))):
+        raise refuse(f"it has {', '.join(taken)} already")
+    key = rf"""(?m)^(["']?){top_key}\1:"""  # edges: or "edges":
+    if len(re.findall(key, old)) > 1:
+        raise refuse(f"it names {top_key} twice")
     # an empty inline value ("edges: []", "screens: {}  # none yet") cannot take block entries after it
-    text = re.sub(rf"(?m)^{top_key}:[ \t]*(?:\[\s*\]|\{{\s*\}})([ \t]*#.*)?$", rf"{top_key}:\1", old)
-    if not re.search(rf"(?m)^{top_key}:", text):
+    text = re.sub(rf"""(?m)^((["']?){top_key}\2:)[ \t]*(?:\[\s*\]|\{{\s*\}})([ \t]*(?:#.*)?)$""", r"\1\3", old)
+    if not re.search(key, text):
         text += ("" if not text or text.endswith("\n") else "\n") + f"{top_key}:\n"
-    after_key = text[re.search(rf"(?m)^{top_key}:.*$", text).end():]
+    after_key = text[re.search(key + ".*$", text).end():]
     first = next((ln for ln in after_key.split("\n") if ln.strip() and not ln.lstrip().startswith("#")), None)
     indent = " " * (len(first) - len(first.lstrip())) if first is not None else "  "
     body = dump(items, default_flow_style=False)
@@ -227,12 +238,12 @@ def _appended(path: Path, top_key: str, items) -> str:
     want = {**before, top_key: (before.get(top_key) or []) + items if isinstance(items, list)
             else {**(before.get(top_key) or {}), **items}}
     try:
-        got = yaml.safe_load(out)
-    except yaml.YAMLError:
-        got = None
-    if got != want:
+        same = yaml.safe_load(out) == want
+    except _UNREADABLE:
+        same = False
+    if not same:
         raise refuse(f"appending to its {top_key} as text would change the file (is {top_key} its last block?)")
-    return out
+    return bom + (out.replace("\n", "\r\n") if "\r\n" in raw else out)
 
 
 def _edge_line(pack: Pack, src: str, dst: str) -> int:
@@ -268,17 +279,19 @@ def apply(pack: Pack, change: dict) -> str:
                 return f"edge {change['src']} -> {change['old']} now goes to {change['new']}"
         raise PromoteError(f"could not find `to: {change['old']}` near {edges_file}:{start}")
     if kind == "new-edge":
-        edges_file.write_text(_appended(edges_file, "edges", [{"from": change["src"], "to": change["dst"],
-                                                               "do": _neutral(change["do"])}]))
+        edges_file.write_bytes(_appended(edges_file, "edges", [{"from": change["src"], "to": change["dst"],
+                                                                "do": _neutral(change["do"])}]).encode("utf-8"))
         return f"edge {change['src']} -> {change['dst']} added"
     if kind == "new-screen":
         if change["name"] in pack.map.screens:
             raise PromoteError(f"screen {change['name']} already exists: rename it in the proposal")
+        if change["name"] == yamlio.LINE:  # the pack loader keeps each map's line under this key
+            raise PromoteError(f"screen name {yamlio.LINE} is reserved: rename it in the proposal")
         texts = {screens_file: _appended(screens_file, "screens", {change["name"]: {"match": change["match"]}})}
         if change.get("edges"):  # both files checked before either is written
             texts[edges_file] = _appended(edges_file, "edges", [{**e, "do": _neutral(e["do"])} for e in change["edges"]])
         for f, text in texts.items():
-            f.write_text(text)
+            f.write_bytes(text.encode("utf-8"))
         return f"screen {change['name']} added with {len(change.get('edges') or [])} edges"
     raise PromoteError(f"unknown proposal kind {kind}")
 

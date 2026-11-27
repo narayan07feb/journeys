@@ -294,8 +294,11 @@ APPENDED = {  # file text before -> the new entry's first line as it must be wri
     "# only comments\n": "  - from: X",
     "edges:\n- from: A\n  to: B\n  note: |+\n    x\n\n": "- from: X",  # a |+ text keeps its blank line
     "edges:\n  # first a comment\n- from: A\n  to: B\n": "- from: X",
+    '"edges":\n  - {from: A, to: B}\n': "  - from: X",                # a quoted key
+    "edges: [ ]  \n": "  - from: X",                                  # spaces after the empty list
 }
 REFUSED = ["edges:\n- from: A\n  to: B\nother: 1\n",  # not the last block
+           "edges: []  # placeholder\nedges:\n- {from: A, to: B}\n",  # named twice
            "edges: [{from: A, to: B}]\n", "edges: {a: 1}\n", "edges: [\n", "edges:\n- from: A\n...\n", "- a\n"]
 
 
@@ -305,9 +308,8 @@ def test_a_proposal_is_appended_with_the_files_own_indent(before, tmp_path):
     f = tmp_path / "edges.yaml"
     f.write_text(before)
     out = _appended(f, "edges", EDGE)
-    lines = out.split("\n")
-    kept = [ln for ln in before.split("\n") if ln and "[]" not in ln]  # every old line stays, in order
-    assert [ln for ln in lines if ln in kept] == kept and APPENDED[before] in lines
+    assert out.startswith(before.replace("edges: []", "edges:").replace("edges: [ ]  ", "edges:  ")) and \
+        APPENDED[before] in out.split("\n")
     old = yaml.safe_load(before) or {}
     assert yaml.safe_load(out) == {**old, "edges": (old.get("edges") or []) + EDGE}
     assert f.read_text() == before  # _appended only builds the text
@@ -369,9 +371,52 @@ def test_promote_into_an_unindented_edge_list(h):
     assert [(e.src, e.dst) for e in pack.map.edges if e.do == [{"tap": "Screen"}]] == [("SETTINGS-HOME", "SETTINGS-DISPLAY")]
 
 
-def test_an_unreadable_map_file_is_named_as_such(tmp_path):
+@pytest.mark.parametrize("before, says", [("edges: [\n", "not valid YAML"), ("meta: 2026-02-30\nedges:\n", "not valid YAML"),
+                                         ("meta: &r [*r]\nedges:\n", "would change the file")])  # a self alias
+def test_a_map_file_that_does_not_load_or_compare_is_refused_by_name(before, says, tmp_path):
     from journeys.heal import _appended
     f = tmp_path / "edges.yaml"
-    f.write_text("edges: [\n")
-    with pytest.raises(PromoteError, match="edges.yaml: not valid YAML; add the edges entry by hand"):
+    f.write_text(before)
+    with pytest.raises(PromoteError, match=f"edges.yaml: .*{says}.*add the edges entry by hand"):
         _appended(f, "edges", EDGE)
+    assert f.read_text() == before
+
+
+def test_a_bom_and_crlf_line_ends_stay(tmp_path):
+    from journeys.heal import _appended
+    bom, crlf = chr(0xFEFF), chr(13) + chr(10)
+    f = tmp_path / "edges.yaml"
+    f.write_bytes(f"{bom}# keep{crlf}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode("utf-8"))
+    out = _appended(f, "edges", EDGE)
+    assert out.startswith(f"{bom}# keep{crlf}edges:{crlf}  - {{from: A, to: B}}{crlf}  - from: X{crlf}")
+    assert chr(10) not in out.replace(crlf, "")
+
+
+def test_a_screen_name_the_file_or_the_loader_already_uses_is_refused(h):
+    from journeys.heal import _appended, apply
+    pack_dir, _, _, _ = h
+    screens = pack_dir / "map" / "screens.yaml"
+    with pytest.raises(PromoteError, match="reserved"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "__line__", "match": {"all": [{"text": "Hi"}]}})
+    f = pack_dir / "bad.yaml"
+    f.write_text("screens:\n  NEW: {match: bad}\n")  # a definition the pack could not load
+    with pytest.raises(PromoteError, match="it has NEW already"):
+        _appended(f, "screens", {"NEW": {"match": {"all": [{"text": "Hi"}]}}})
+    assert "__line__" not in screens.read_text()
+
+
+def test_promote_into_an_unindented_list_closes_the_proposal_and_a_refusal_leaves_it_open(h):
+    pack_dir, _, store, _ = h
+    edges = pack_dir / "map" / "edges.yaml"
+    edges.write_text(yaml.safe_dump(yaml.safe_load(edges.read_text()), sort_keys=False))  # "edges:\n- from"
+    ok = store.add_proposal({"summary": "s", "change": {"kind": "new-edge", "src": "SETTINGS-HOME",
+                                                       "dst": "SETTINGS-DISPLAY", "do": [{"tap": "Screen"}]}})
+    promote(Pack.load(pack_dir), store, ok)
+    assert store.proposal(ok)["status"] == "promoted" and Pack.load(pack_dir).errors == []
+    edges.write_text(edges.read_text() + "other: 1\n")
+    before = edges.read_text()
+    no = store.add_proposal({"summary": "s", "change": {"kind": "new-edge", "src": "SETTINGS-HOME",
+                                                       "dst": "SETTINGS-DISPLAY", "do": [{"tap": "Again"}]}})
+    with pytest.raises(PromoteError, match="edges.yaml"):
+        promote(Pack.load(pack_dir), store, no)
+    assert store.proposal(no)["status"] == "proposed" and edges.read_text() == before
