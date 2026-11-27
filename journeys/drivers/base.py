@@ -150,7 +150,7 @@ def id_matches(want: str, have: str) -> bool:
     if not have or not want:
         return False
     (w_pkg, w_name), (h_pkg, h_name) = _id_parts(want), _id_parts(have)
-    return bool(w_name) and w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
+    return bool(id_tail(w_name)) and w_name == h_name and (not w_pkg or not h_pkg or w_pkg == h_pkg)
 
 
 def find(elements: list[Element], sel) -> int | None:

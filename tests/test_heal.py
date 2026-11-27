@@ -242,3 +242,26 @@ def test_an_id_with_an_empty_name_is_no_id():
                                            {"attributes": {"text": "Next", "resource-id": "com.x:id/next"}}]}
     assert [e.text for e in parse_hierarchy(tree).elements] == ["Next"]
     assert not id_matches("another/", "group/") and not id_matches("com.x:id/", "com.x:id/")
+
+
+def test_round_2_deny_and_identity_keep_their_meaning():
+    from journeys.appmap import Rule
+    from journeys.heal import denied, fingerprint, new_denied, selector, tap_targets
+    from journeys.explore import _actions
+    nested = _screen(("Button", "Manage", "com.x:id/settings/delete_account"))
+    assert denied(nested.elements[0], [Rule.parse({"id": "delete_account"})])  # as when drivers cut the id
+    base = _screen(("Button", "Manage", "safe.pkg:id/action"))
+    after = _screen(("Button", "Manage", "danger.pkg:id/action"))
+    assert new_denied(base, after, [Rule.parse({"id": "danger.pkg:id/action"})])  # a package change, newly denied
+    a = _screen(("Button", "Open", "com.x:id/inbox/open"))
+    b = _screen(("Button", "Open", "com.x:id/archive/open"))
+    assert fingerprint(a) != fingerprint(b) and _actions(a) != _actions(b)  # the path in the name stays identity
+    v = _screen(("Button", "Open", "com.x:id/${NEXT}"))
+    assert selector(v.elements[0], v) == "Open"  # Maestro refuses ${ in an id
+    g = _screen(("Button", "Blocked", "group/"), ("Button", "Open", ""), ("Button", "Fine", "com.x:id/ok"))
+    assert [e.text for e in tap_targets(g, [Rule.parse({"text": "Blocked"})], 10)] == ["Open", "Fine"]
+
+
+def test_an_id_whose_name_ends_in_a_slash_matches_nothing():
+    from journeys.drivers.base import id_matches
+    assert not id_matches("com.x:id/group/", "com.x:id/group/") and not id_matches("group/", "group/")

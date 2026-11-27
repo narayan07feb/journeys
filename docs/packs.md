@@ -151,7 +151,10 @@ in `look` (Speedrun: as `speedrun look` prints it), and map rules check a packag
 Selectors Journeys writes (proposals, `tap-all`) use the name, so they stay right in a build whose
 package differs; use the index when two packages share a name. They use no id when Maestro would read
 it as other views too (a name with a `/`, or another id that ends in `/name`): the text, then. An id
-whose name is empty (`group/`) is no id, and it matches nothing.
+whose name is empty or ends in `/` (`group/`, `pkg:id/group/`) is no id, and it matches nothing.
+A name that holds a `/` (`pkg:id/inbox/open`) matches only that whole name, on every driver but
+Maestro: `{id: open}` no longer picks it on Appium; write `{id: inbox/open}` there. Maestro still
+matches `{id: open}` on it (it reads the part after the last `/`).
 
 `goto` takes the shortest path of edges.
 

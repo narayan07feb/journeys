@@ -362,7 +362,7 @@ def test_the_specs_id_match_is_the_drivers_on_node():
     from journeys.formats.appium import _HELPERS
     js = re.search(r"function idParts.*?\n}\nfunction idMatch.*?\n}\n", _HELPERS, re.S).group(0)
     ids = ["next", "com.x:id/next", "com.y:id/next", "g/next", ":id/next", "a:id/b:id/next", "a:id/b", "nexts",
-           "com.x:id/g/next", "Next", "", "group/", "another/", "com.x:id/"]
+           "com.x:id/g/next", "Next", "", "group/", "another/", "com.x:id/", "com.x:id/group/", "com.x:id/inbox/open"]
     pairs = [[w, h] for w in ids for h in ids]
     out = subprocess.run([shutil.which("node"), "-e", js + "const p = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
                           "console.log(JSON.stringify(p.map(([w, h]) => idMatch(w, h))));"],

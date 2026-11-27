@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 
 from .actions import from_command, from_commands
-from .drivers.base import Driver, DriverError, Screen, changes_allowed, id_tail
+from .drivers.base import Driver, DriverError, Screen, changes_allowed, id_name
 from .heal import fingerprint, heading, left_app, new_denied, same_screen, screen_name, selector, tap_targets
 from .pack import Pack
 from .results import Run, Store, mask, write_json
@@ -188,7 +188,7 @@ class TapAll:
 
 def _actions(screen: Screen) -> list:
     """What a screen offers to tap: a brand header shared by every screen ("MyBank") is not identity."""
-    return sorted((e.kind, e.text, id_tail(e.id)) for e in screen.elements if e.kind != "Text")
+    return sorted((e.kind, e.text, id_name(e.id)) for e in screen.elements if e.kind != "Text")
 
 
 def dka_allowed(pack: Pack, driver: Driver, serial: str | None) -> bool:

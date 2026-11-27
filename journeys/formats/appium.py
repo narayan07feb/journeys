@@ -85,7 +85,7 @@ function idParts(rid) {
 function idMatch(want, have) {
   if (!want || !have) return false;
   const [wp, wn] = idParts(want), [hp, hn] = idParts(have);
-  return wn !== "" && wn === hn && (!wp || !hp || wp === hp);
+  return wn.split("/").pop() !== "" && wn === hn && (!wp || !hp || wp === hp);
 }
 
 function hit(sel, els) {
