@@ -200,7 +200,7 @@ def _edit_line(path: Path, line: int, pattern: str, repl: str) -> None:
     path.write_text("".join(lines))
 
 
-_UNREADABLE = (yaml.YAMLError, ValueError, TypeError, RecursionError)  # bad syntax, a bad date, a self alias
+_UNREADABLE = (yaml.YAMLError, ValueError, TypeError, KeyError, RecursionError)  # syntax, a date, a tag, an alias
 
 
 def _appended(path: Path, top_key: str, items) -> str:
@@ -216,8 +216,10 @@ def _appended(path: Path, top_key: str, items) -> str:
         raise refuse("not UTF-8 text") from None
     bom = "\ufeff" if raw.startswith("\ufeff") else ""
     old = raw[len(bom):].replace("\r\n", "\n")
-    if "\r\n" in raw and "\n" in raw.replace("\r\n", ""):
-        raise refuse("it mixes CRLF and LF line ends")
+    if "\r" in raw.replace("\r\n", "") or ("\r\n" in raw and "\n" in raw.replace("\r\n", "")):
+        raise refuse("its line ends are not all LF or all CRLF")
+    if "\ufeff" in old:
+        raise refuse("it holds a second byte order mark")
     try:
         before = yaml.safe_load(old) or {}
         root = yaml.compose(old, Loader=yaml.SafeLoader)  # every top-level key, before duplicates collapse
@@ -228,10 +230,11 @@ def _appended(path: Path, top_key: str, items) -> str:
     if isinstance(items, dict) and (taken := sorted(set(items) & set(before.get(top_key) or {}))):
         raise refuse(f"it has {', '.join(taken)} already")
     key = rf"""(?m)^(["']?){top_key}\1:"""  # edges: or "edges":
-    names = [k.value for k, _ in root.value] if isinstance(root, yaml.MappingNode) else []
-    if names.count(top_key) > 1:
+    keys = [k for k, _ in root.value if k.value == top_key] if isinstance(root, yaml.MappingNode) else []
+    if len(keys) > 1:
         raise refuse(f"it names {top_key} twice")
-    if names.count(top_key) != len(re.findall(key, old)):  # "edges :" or a key written another way
+    lines = [old.count("\n", 0, m.start()) for m in re.finditer(key, old)]  # where the text match sees the key
+    if lines != [k.start_mark.line for k in keys]:  # "edges :", or a quoted text that looks like the key
         raise refuse(f"its {top_key} key is written in a form Journeys cannot append to")
     # an empty inline value ("edges: []", "screens: {}  # none yet") cannot take block entries after it
     text = re.sub(rf"""(?m)^((["']?){top_key}\2:)[ \t]*(?:\[[ \t]*\]|\{{[ \t]*\}})([ \t]*(?:#.*)?)$""",
@@ -246,13 +249,14 @@ def _appended(path: Path, top_key: str, items) -> str:
     out = text + ("" if text.endswith("\n") else "\n") + body  # blank lines at the end stay: a |+ text keeps them
     want = {**before, top_key: (before.get(top_key) or []) + items if isinstance(items, list)
             else {**(before.get(top_key) or {}), **items}}
+    final = bom + (out.replace("\n", "\r\n") if "\r\n" in raw else out)
     try:
-        same = yaml.safe_load(out) == want
+        same = yaml.safe_load(final) == want  # the exact text to write, BOM and line ends too
     except _UNREADABLE:
         same = False
     if not same:
         raise refuse(f"appending to its {top_key} as text would change the file (is {top_key} its last block?)")
-    return bom + (out.replace("\n", "\r\n") if "\r\n" in raw else out)
+    return final
 
 
 def _edge_line(pack: Pack, src: str, dst: str) -> int:
@@ -299,6 +303,8 @@ def apply(pack: Pack, change: dict) -> str:
             raise PromoteError(f"screen name {yamlio.LINE} is reserved: rename it in the proposal")
         texts = {screens_file: _appended(screens_file, "screens", {change["name"]: {"match": change["match"]}})}
         if change.get("edges"):  # both files checked before either is written
+            if screens_file.resolve() == edges_file.resolve():
+                raise PromoteError(f"{screens_file} and {edges_file} are one file: add the screen and edges by hand")
             texts[edges_file] = _appended(edges_file, "edges", [{**e, "do": _neutral(e["do"])} for e in change["edges"]])
         for f, text in texts.items():
             f.parent.mkdir(parents=True, exist_ok=True)

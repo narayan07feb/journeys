@@ -340,7 +340,7 @@ def test_a_file_that_text_append_would_change_is_refused_untouched(before, tmp_p
     assert f.read_text() == before
 
 
-def test_the_bytes_match_the_old_append_where_it_worked(tmp_path):
+def test_the_bytes_match_the_old_append_for_the_shared_lf_cases(tmp_path):
     """Main's _append: 2-space indent, trailing newlines trimmed. A file ending in one newline is unchanged."""
     from journeys.actions import dump
     from journeys.heal import _appended
@@ -432,7 +432,12 @@ def test_mixed_line_ends_and_text_that_is_not_utf8_are_refused_by_name(tmp_path)
     from journeys.heal import _appended
     f = tmp_path / "edges.yaml"
     lf, crlf = chr(10), chr(13) + chr(10)
-    for data, says in ((f"# keep this LF{lf}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode(), "mixes CRLF and LF"),
+    cr, bom = chr(13), chr(0xFEFF)
+    for data, says in ((f"# keep this LF{lf}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode(), "not all LF or all CRLF"),
+                       (f"edges:{cr}  - {{from: A, to: B}}{cr}".encode(), "not all LF or all CRLF"),  # CR only
+                       (f"{bom}{bom}# map{lf}edges:{lf}".encode(), "second byte order mark"),
+                       (b"meta: !!bool maybe\nedges: []\n", "not valid YAML"),
+                       (b'meta: "start\nedges: []\n  end"\nmeta: keep\n? "edges"\n:\n  - {from: A, to: B}\n', "cannot append to"),
                        (b"edges: []\n# \xff\n", "not UTF-8")):
         f.write_bytes(data)
         with pytest.raises(PromoteError, match=f"edges.yaml: .*{says}.*add the edges entry by hand"):
@@ -453,4 +458,23 @@ def test_a_pack_with_no_map_folder_gets_one_on_promote(h):
 
 def test_the_pack_names_a_map_file_with_a_value_yaml_cannot_build(pack_dir):
     (pack_dir / "map" / "edges.yaml").write_text("meta: 2026-02-30\nedges: []\n")
+    assert any("edges.yaml: cannot read" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_a_new_screen_refuses_when_both_map_files_are_one_file(h):
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    screens, edges = pack_dir / "map" / "screens.yaml", pack_dir / "map" / "edges.yaml"
+    screens.write_text("screens:\n  HOME: {match: {all: [{text: Home}]}}\n")
+    edges.unlink()
+    edges.symlink_to(screens)
+    before = screens.read_text()
+    with pytest.raises(PromoteError, match="are one file"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                    "edges": [{"from": "NEW", "to": "HOME", "do": [{"tap": "Hi"}]}]})
+    assert screens.read_text() == before
+
+
+def test_the_pack_names_a_map_file_with_a_malformed_tag(pack_dir):
+    (pack_dir / "map" / "edges.yaml").write_text("meta: !!bool maybe\nedges: []\n")
     assert any("edges.yaml: cannot read" in e for e in Pack.load(pack_dir).errors)

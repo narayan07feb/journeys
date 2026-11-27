@@ -26,8 +26,10 @@ list, a file that is not valid YAML), the promote fails, names the file, and wri
 not the other file of a new screen with edges; the proposal stays open. Blank lines at the file's end
 stay (a `|+` text keeps them), and so do a BOM and CRLF line ends. Also refused: a file that names the
 key twice (in any spelling), a key written in a form other than `edges:` or `"edges":` (`edges :`),
-an empty list that spans lines, mixed CRLF and LF line ends, text that is not UTF-8, a new screen
-whose name the file already has, and the screen name `__line__`. A missing `map/` folder is created.
+an empty list that spans lines, line ends that are not all LF or all CRLF, a second byte order
+mark, text that is not UTF-8, a new screen whose name the file already has, the screen name `__line__`,
+and a new screen with edges when `screens.yaml` and `edges.yaml` are one file. A missing `map/`
+folder is created. The check reads the exact text to be written.
 
 A run of a set with `before:`/`after:` hooks records each hook's result in the run (`hooks`); a
 failed one fails the run and shows in `run_status` as its `error`. In Droid Lite the set's case shows
