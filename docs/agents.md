@@ -25,7 +25,9 @@ entry added. When it would not (the key is not the file's last block, a `...` en
 list, a file that is not valid YAML), the promote fails, names the file, and writes nothing, also
 not the other file of a new screen with edges; the proposal stays open. Blank lines at the file's end
 stay (a `|+` text keeps them), and so do a BOM and CRLF line ends. Also refused: a file that names the
-key twice, a new screen whose name the file already has, and the screen name `__line__`.
+key twice (in any spelling), a key written in a form other than `edges:` or `"edges":` (`edges :`),
+an empty list that spans lines, mixed CRLF and LF line ends, text that is not UTF-8, a new screen
+whose name the file already has, and the screen name `__line__`. A missing `map/` folder is created.
 
 A run of a set with `before:`/`after:` hooks records each hook's result in the run (`hooks`); a
 failed one fails the run and shows in `run_status` as its `error`. In Droid Lite the set's case shows

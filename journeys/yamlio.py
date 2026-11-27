@@ -29,7 +29,7 @@ def load_map(path: Path, errors: list[str]) -> dict:
         mark = getattr(e, "problem_mark", None)
         errors.append(f"{path}:{mark.line + 1 if mark else 1}: not valid YAML: {getattr(e, 'problem', None) or e}")
         return {}
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, UnicodeDecodeError, ValueError) as e:  # ValueError: a value YAML cannot build (2026-02-30)
         errors.append(f"{path}: cannot read: {e}")
         return {}
     if raw is not None and not isinstance(raw, dict):

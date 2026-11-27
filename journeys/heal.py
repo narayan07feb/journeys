@@ -208,14 +208,19 @@ def _appended(path: Path, top_key: str, items) -> str:
     The new entries take the indent of the key's first entry (2 when it has none). The result must load as
     the old file with only those entries added; else PromoteError, and nothing is written. A BOM and CRLF
     line ends stay."""
-    raw = path.read_bytes().decode("utf-8") if path.exists() else ""  # read_text would turn CRLF into LF
-
     def refuse(why: str) -> PromoteError:
         return PromoteError(f"{path}: {why}; add the {top_key} entry by hand")
+    try:
+        raw = path.read_bytes().decode("utf-8") if path.exists() else ""  # read_text would turn CRLF into LF
+    except UnicodeDecodeError:
+        raise refuse("not UTF-8 text") from None
     bom = "\ufeff" if raw.startswith("\ufeff") else ""
     old = raw[len(bom):].replace("\r\n", "\n")
+    if "\r\n" in raw and "\n" in raw.replace("\r\n", ""):
+        raise refuse("it mixes CRLF and LF line ends")
     try:
         before = yaml.safe_load(old) or {}
+        root = yaml.compose(old, Loader=yaml.SafeLoader)  # every top-level key, before duplicates collapse
     except _UNREADABLE:
         raise refuse("not valid YAML") from None
     if not isinstance(before, dict) or not isinstance(before.get(top_key) or type(items)(), type(items)):
@@ -223,10 +228,14 @@ def _appended(path: Path, top_key: str, items) -> str:
     if isinstance(items, dict) and (taken := sorted(set(items) & set(before.get(top_key) or {}))):
         raise refuse(f"it has {', '.join(taken)} already")
     key = rf"""(?m)^(["']?){top_key}\1:"""  # edges: or "edges":
-    if len(re.findall(key, old)) > 1:
+    names = [k.value for k, _ in root.value] if isinstance(root, yaml.MappingNode) else []
+    if names.count(top_key) > 1:
         raise refuse(f"it names {top_key} twice")
+    if names.count(top_key) != len(re.findall(key, old)):  # "edges :" or a key written another way
+        raise refuse(f"its {top_key} key is written in a form Journeys cannot append to")
     # an empty inline value ("edges: []", "screens: {}  # none yet") cannot take block entries after it
-    text = re.sub(rf"""(?m)^((["']?){top_key}\2:)[ \t]*(?:\[\s*\]|\{{\s*\}})([ \t]*(?:#.*)?)$""", r"\1\3", old)
+    text = re.sub(rf"""(?m)^((["']?){top_key}\2:)[ \t]*(?:\[[ \t]*\]|\{{[ \t]*\}})([ \t]*(?:#.*)?)$""",
+                  lambda m: m[1] + (m[3] if "#" in m[3] else ""), old)  # one line only; a comment stays
     if not re.search(key, text):
         text += ("" if not text or text.endswith("\n") else "\n") + f"{top_key}:\n"
     after_key = text[re.search(key + ".*$", text).end():]
@@ -279,8 +288,9 @@ def apply(pack: Pack, change: dict) -> str:
                 return f"edge {change['src']} -> {change['old']} now goes to {change['new']}"
         raise PromoteError(f"could not find `to: {change['old']}` near {edges_file}:{start}")
     if kind == "new-edge":
-        edges_file.write_bytes(_appended(edges_file, "edges", [{"from": change["src"], "to": change["dst"],
-                                                                "do": _neutral(change["do"])}]).encode("utf-8"))
+        text = _appended(edges_file, "edges", [{"from": change["src"], "to": change["dst"], "do": _neutral(change["do"])}])
+        edges_file.parent.mkdir(parents=True, exist_ok=True)
+        edges_file.write_bytes(text.encode("utf-8"))
         return f"edge {change['src']} -> {change['dst']} added"
     if kind == "new-screen":
         if change["name"] in pack.map.screens:
@@ -291,6 +301,7 @@ def apply(pack: Pack, change: dict) -> str:
         if change.get("edges"):  # both files checked before either is written
             texts[edges_file] = _appended(edges_file, "edges", [{**e, "do": _neutral(e["do"])} for e in change["edges"]])
         for f, text in texts.items():
+            f.parent.mkdir(parents=True, exist_ok=True)
             f.write_bytes(text.encode("utf-8"))
         return f"screen {change['name']} added with {len(change.get('edges') or [])} edges"
     raise PromoteError(f"unknown proposal kind {kind}")
