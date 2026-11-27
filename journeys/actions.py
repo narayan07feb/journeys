@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import re
 
+import yaml
+
 _META = re.compile(r"([.^$*+?{}\[\]\\|()])")
 KEYS = {"enter": "Enter", "back": "Back", "home": "Home", "tab": "Tab", "delete": "Backspace",
         "backspace": "Backspace", "search": "Search"}
@@ -41,6 +43,19 @@ class ActionError(ValueError):
 def escape(text: str) -> str:
     """Escape only regex characters (re.escape also escapes spaces, which some engines refuse)."""
     return _META.sub(r"\\\1", text)
+
+
+class _Dumper(yaml.SafeDumper):
+    """PyYAML writes U+0085 (NEL) raw and reads it back as a line break: quote such a text (it becomes \\N)."""
+
+
+_Dumper.add_representer(str, lambda d, v: d.represent_scalar("tag:yaml.org,2002:str", v,
+                                                             style='"' if "\x85" in v else None))
+
+
+def dump(data, **kw) -> str:
+    """YAML Journeys writes (flows, drafts, map proposals), with every text read back unchanged."""
+    return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, **kw)
 
 
 def join_pairs(t: str) -> str:

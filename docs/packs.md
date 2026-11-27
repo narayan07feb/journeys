@@ -256,12 +256,18 @@ The Maestro export (and the maestro driver) also:
 - sends an id as plain text (`a.b` goes as `a\.b`). Maestro reads an id as a pattern and matches it
   against the whole resource-id and against the part after its last `/`. So `{id: name}` goes as the
   name and matches that name in any package; `{id: pkg:id/name}` goes whole and matches only that
-  package. One gap: `{id: pkg:id/name}` does not find a view whose resource-id is only `name` (a
-  Compose test tag, for example); the step fails, so write `{id: name}` for such a view. An id whose
-  name is empty or holds a `/`, or an id with a `${NAME}` (Maestro would read its value as a pattern),
-  is refused. Import reads an escaped id back as plain text; an id that Maestro reads as another
-  pattern is left out, and a `.` in an older flow's id gets a note.
-- quotes a text that holds U+0085 (next line), so the flow reads it back unchanged.
+  package. Only these two shapes go: an id with an empty part (`:id/next`), a `/` in a part
+  (`x/y`, `p/q:id/next`, `pkg:id/a/b`) or a `${NAME}` (Maestro would read its value as a pattern) is
+  refused. Two gaps stay: `{id: pkg:id/name}` does not find a view whose resource-id is only `name` (a
+  Compose test tag, for example; the step fails, so write `{id: name}` for such a view), and `{id: name}`
+  also matches a resource-id that ends in `/name` after another `/` (not a valid Android resource
+  name). Import reads an escaped id back as plain text; an id that Maestro reads as another pattern is
+  left out, an id that would read as a `${NAME}` is left out, and an older flow's id with a `.` or a
+  `/` gets a note.
+- The maestro and Appium drivers read a screen's ids as bare names, so a map rule `{id: pkg:id/name}`
+  and the Appium driver's `{id: pkg:id/name}` do not check the package.
+- Every YAML file Journeys writes (flows, drafts, map proposals) quotes a text that holds U+0085 (next
+  line), so it reads back unchanged.
 - refuses `press: search` (Maestro has no Search key).
 - checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 

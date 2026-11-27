@@ -686,3 +686,9 @@ def test_round_9_env_values_reach_neither_flows_nor_state_nor_drafts(synced, mon
     for p in [*(synced / "flows").rglob("*"), *(synced / "drafts").rglob("*"), synced / "sync-state.json"]:
         if p.is_file():
             assert "topsecret99" not in p.read_text(), p
+
+
+def test_a_next_line_character_in_a_flow_survives_the_synced_draft(framework):
+    (framework / "flows" / "nel.yaml").write_text(flow("nel", 'tapOn: {id: "a\\Nb"}'))  # \N: U+0085 in YAML
+    sync(Pack.load(framework))
+    assert [st.arg for st in Pack.load(framework).drafts["nel"].steps][-1] == [{"tap": {"id": "a" + chr(0x85) + "b"}}]

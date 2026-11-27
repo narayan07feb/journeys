@@ -710,7 +710,7 @@ def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
 
 
 @pytest.mark.parametrize("want, sent", [("next", "next"), ("com.x:id/next", "com\\.x:id/next"), ("a.b", "a\\.b"),
-                                        ("com.x:id/a{b", "com\\.x:id/a\\{b"), ("x/y", "y"),
+                                        ("com.x:id/a{b", "com\\.x:id/a\\{b"),
                                         ("(?P<n>a)", "\\(\\?P<n>a\\)")])
 def test_an_id_goes_to_maestro_as_plain_text(want, sent):
     """Maestro matches an id pattern against the whole resource-id and the part after its last / (Filters.idMatches,
@@ -722,7 +722,9 @@ def test_an_id_goes_to_maestro_as_plain_text(want, sent):
 
 
 @pytest.mark.parametrize("want, says", [("com.x:id/", "Maestro can match only"), ("com.x:id/a/b", "Maestro can match only"),
-                                        ("x/", "Maestro can match only"), ("${ID}", "variable's value as a pattern"),
+                                        ("x/", "Maestro can match only"), ("x/y", "Maestro can match only"),
+                                        (":id/next", "Maestro can match only"), ("p/q:id/next", "Maestro can match only"),
+                                        ("${ID}", "variable's value as a pattern"),
                                         ("com.x:id/${ID}", "variable's value as a pattern")])
 def test_an_id_maestro_cannot_match_as_journeys_does_is_refused(want, says):
     from journeys.actions import ActionError
@@ -754,21 +756,28 @@ def test_an_id_flow_that_matches_other_views_than_its_text_is_refused_or_noted(p
     assert any("is a pattern; Journeys ids match exactly; left out" in n for n in import_flow(f, "com.android.settings")[1])
     f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)a.b'}\n")  # also axb in Maestro
     draft, notes = import_flow(f, "com.android.settings")
-    assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}]}] and any("read its . as any character" in n for n in notes)
+    assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}]}] and any("read it as a pattern" in n for n in notes)
+    for old in ("com.x.app:id/next", "x/y"):  # an older flow: comXx.app:id/next, and only the whole id x/y
+        f.write_text(f"appId: com.android.settings\n---\n- tapOn: {{id: '(?-ims){old}'}}\n")
+        assert any("read it as a pattern" in n for n in import_flow(f, "com.android.settings")[1]), old
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)\\$\\{TARGET\\}'}\n")
+    assert any("would read as a Journeys variable" in n for n in import_flow(f, "com.android.settings")[1])
     (pack_dir / "journeys" / "v.yaml").write_text("name: v\nsteps:\n  - do: [{tap: {id: \"{{save}}\"}}]\n")
     pack = Pack.load(pack_dir)
     f.write_text(export(pack, pack.journeys["v"])[0])
     assert import_flow(f)[0]["steps"] == [{"do": [{"tap": {"id": "{{save}}"}}]}]  # escaped: no Maestro variable
 
 
-def test_a_next_line_character_survives_the_flow_file(pack_dir, tmp_path):
+def test_a_next_line_character_survives_the_flow_file_and_the_written_draft(pack_dir, tmp_path, capsys):
     from journeys.formats.maestro import export, import_flow
     (pack_dir / "journeys" / "n.yaml").write_text(
         "name: n\nsteps:\n  - do: [{tap: {id: \"a\\x85b\"}}, {tap: \"c\\x85d\"}]\n")
     pack = Pack.load(pack_dir)
-    f = tmp_path / "n.yaml"
+    f = tmp_path / "n2.yaml"
     f.write_text(export(pack, pack.journeys["n"])[0])
-    assert import_flow(f)[0]["steps"] == [{"do": [{"tap": {"id": "a\x85b"}}, {"tap": "c\x85d"}]}]
+    steps = [{"do": [{"tap": {"id": "a\x85b"}}, {"tap": "c\x85d"}]}]
+    assert import_flow(f)[0]["steps"] == steps
+    assert cli(pack_dir, "import", "maestro", str(f)) == 0 and [st.arg for st in Pack.load(pack_dir).drafts["n2"].steps] == [steps[0]["do"]]
 
 
 def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generated_one(tmp_path):

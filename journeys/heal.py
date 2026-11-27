@@ -13,10 +13,9 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-import yaml
 
 from . import yamlio
-from .actions import ActionError, escape, from_command, from_commands, to_commands
+from .actions import ActionError, dump, escape, from_command, from_commands, to_commands
 from .appmap import KINDS, AppMap
 from .drivers.base import Driver, DriverError, Screen, find, id_matches
 from .pack import Pack
@@ -200,7 +199,7 @@ def _append(path: Path, top_key: str, items) -> None:
         path.write_text(f"{top_key}:\n")
     # an empty inline value ("edges: []", "screens: {}") cannot take block items after it
     text = re.sub(rf"(?m)^{top_key}:\s*(\[\s*\]|\{{\s*\}})\s*$", f"{top_key}:", path.read_text())
-    body = yaml.safe_dump(items, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    body = dump(items, default_flow_style=False)
     body = "".join(f"  {ln}\n" for ln in body.splitlines())
     path.write_text(text.rstrip("\n") + "\n" + body)
 

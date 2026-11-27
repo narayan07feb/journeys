@@ -12,9 +12,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import yaml
 
-from ..actions import ActionError, escape
+from ..actions import ActionError, dump, escape
 from ..regex_parity import JAVA, check
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, kind_of
@@ -58,27 +57,14 @@ def _maestro_id(want: str) -> str:
     matches it against the whole resource-id and against the part after its last "/" (Filters.idMatches,
     maestro cli-2.12.1). So a bare name goes alone (any package's view with that name), and pkg:id/name goes
     whole (only that resource-id: the part after the last "/" never holds ":id/")."""
-    name = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
-    if not name or "/" in name:
-        raise ActionError(f"id {want!r}: Maestro can match only an id whose name (after :id/) has no / and "
-                          "is not empty")
+    pkg, sep, name = want.rpartition(":id/")
+    if not name or "/" in name or "/" in pkg or (sep and not pkg):
+        raise ActionError(f"id {want!r}: Maestro can match only name or pkg:id/name, each part not empty and "
+                          "with no /")
     if "${" in want:
         raise ActionError(f"id {want!r}: Maestro would read the variable's value as a pattern; write the id "
                           "in the journey, or set it in the flow by hand")
-    return SAME + escape(want if ":id/" in want else name)
-
-
-class _Dumper(yaml.SafeDumper):
-    """PyYAML writes U+0085 (NEL) raw and reads it back as a line break: quote such a text (it becomes \\N)."""
-
-
-_Dumper.add_representer(str, lambda d, v: d.represent_scalar("tag:yaml.org,2002:str", v,
-                                                             style='"' if "\x85" in v else None))
-
-
-def dump(data) -> str:
-    """YAML for a flow, with every text read back unchanged."""
-    return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True)
+    return SAME + escape(want)
 
 
 def _maestro_sel(sel):

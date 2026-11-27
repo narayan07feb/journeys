@@ -138,7 +138,8 @@ def _as_maestro_matches(cmd, elements=()):
     no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims).
     A selector with an id is resolved here as Maestro does: the id pattern matches the whole resource-id or
     the part after its last "/" (Filters.idMatches), one that does not compile is escaped (toRegexSafe), then
-    the text and the index pick among those views; the result is the "@N" of the view (or of none)."""
+    the text and the index pick among those views; the result is the "@N" of the view (or of none). Python's re
+    decides what compiles, so this models only the escaped ids the maestro driver writes, not every Java form."""
     def one(v):
         return v[len("(?-ims)"):] if v.startswith("(?-ims)") else f"(?ims:{v})"
 

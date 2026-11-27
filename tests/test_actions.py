@@ -55,3 +55,15 @@ def test_an_id_joins_the_two_halves_of_a_character():
     from journeys.actions import to_selector
     halves = chr(0xD83D) + chr(0xDE00)
     assert to_selector({"id": halves}) == {"id": chr(0x1F600)} and to_selector({"id": "a"}) == {"id": "a"}
+
+
+def test_yaml_journeys_writes_reads_a_next_line_character_back(tmp_path):
+    """PyYAML writes U+0085 raw and reads it back as a line break; dump quotes it (flows, drafts, proposals)."""
+    import yaml
+    from journeys.actions import dump
+    from journeys.heal import _append
+    nel = "a" + chr(0x85) + "b"
+    assert yaml.safe_load(dump([{"id": nel}, "x"])) == [{"id": nel}, "x"]
+    f = tmp_path / "screens.yaml"
+    _append(f, "screens", {"S": {"all": [{"text": nel}]}})
+    assert yaml.safe_load(f.read_text()) == {"screens": {"S": {"all": [{"text": nel}]}}}

@@ -571,12 +571,14 @@ ID_NAMES = ["next", "a.b", "a$b", "x(y)", "q?", "[n]", "a\\b", "a|b", "{1}", "a 
 def test_maestro_matches_an_id_on_java_as_journeys_does():
     """Maestro full-matches an id pattern against the whole resource-id or the part after its last /
     (Filters.idMatches, cli-2.12.1). The maestro driver's id must pick the views id_matches picks, on real
-    Java, except one known gap: pkg:id/name cannot match a view whose resource-id is the bare name."""
+    Java, except two known gaps (docs/packs.md): pkg:id/name cannot match a view whose resource-id is the bare
+    name, and a bare name also matches the last part of a resource-id whose name holds a / (not a valid Android
+    resource name)."""
     from journeys.drivers.base import id_matches
     from journeys.drivers.maestro import SAME, _maestro_id
     wants = [w for n in ID_NAMES for w in (n, f"com.x:id/{n}")]
     haves = [h for n in ID_NAMES for h in (n, f"com.x:id/{n}", f"android:id/{n}", n.upper(), f"x{n}", f"{n}x")] + \
-        ["axb", "a.bc", "com.x:id/axb", "comxx:id/next"]
+        ["axb", "a.bc", "com.x:id/axb", "comxx:id/next", "com.x:id/g/next", "g/next"]
     runs, pairs = [], []
     for w in wants:
         p = _maestro_id(w)[len(SAME):]  # Match.java adds SAME itself
@@ -586,4 +588,6 @@ def test_maestro_matches_an_id_on_java_as_journeys_does():
     got = _java(runs)
     differ = {(w, h) for k, (w, h) in enumerate(pairs) if ("true" in got[2 * k:2 * k + 2]) != id_matches(w, h)}
     gap = {(w, h) for w, h in pairs if ":id/" in w and ":id/" not in h and id_matches(w, h)}
-    assert gap and differ == gap
+    slash = {(w, h) for w, h in pairs if ":id/" not in w and "/" in h.rpartition(":id/")[2] and ":id/" in h
+             and w == h.rsplit("/", 1)[-1]}
+    assert gap and slash and differ == gap | slash

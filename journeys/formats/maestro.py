@@ -63,6 +63,8 @@ def _neutral_sel(arg, notes=None, where=""):
     arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
     if literal:  # an id Journeys wrote (_maestro_id): plain text again, no Maestro variable in it
         arg["id"] = re.sub(r"\\(.)", r"\1", arg["id"])
+        if "${" in arg["id"]:
+            raise ActionError(f"id {arg['id']!r} would read as a Journeys variable; write it in the journey by hand")
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
@@ -71,9 +73,10 @@ def _neutral_sel(arg, notes=None, where=""):
         rid = arg["id"] if literal else _plain(arg["id"], "id") if "id" in arg else ""
         if rid and not literal and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
             raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
-        if rid and not literal and "." in rid.rpartition(":id/")[2] and notes is not None:
-            notes.append(f"{where}id {rid!r}: Maestro read its . as any character; the draft matches the exact "
-                         "name: check it")
+        if rid and not literal and notes is not None and ("." in rid or "/" in rid.rpartition(":id/")[2]
+                                                          or "/" in rid.rpartition(":id/")[0]):
+            notes.append(f"{where}id {rid!r}: Maestro read it as a pattern (a . is any character, and only the "
+                         "whole id or its last part matched); the draft matches it as Journeys ids match: check it")
         return from_selector(arg)
     raise ActionError(f"selector {arg!r} has keys with no neutral form")
 
