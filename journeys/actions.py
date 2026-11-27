@@ -19,7 +19,8 @@ import re
 
 import yaml
 
-_META = re.compile(r"([.^$*+?{}\[\]\\|()])")
+META = r".^$*+?{}\[\]\\|()"  # the characters escape() escapes, inside a [...] class
+_META = re.compile(f"([{META}])")
 KEYS = {"enter": "Enter", "back": "Back", "home": "Home", "tab": "Tab", "delete": "Backspace",
         "backspace": "Backspace", "search": "Search"}
 BARE = {"back": "back", "stop": "stopApp", "hide_keyboard": "hideKeyboard", "wait_idle": "waitForAnimationToEnd",

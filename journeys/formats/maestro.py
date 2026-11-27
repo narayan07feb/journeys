@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from ..actions import KEYS, ActionError, from_selector, one_line, to_command, to_selector
+from ..actions import KEYS, META, ActionError, from_selector, one_line, to_command, to_selector
 from ..drivers.maestro import SAME, dump, to_maestro
 from ..journey import Journey
 from ..pack import Pack
@@ -32,8 +32,8 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
 
 
 _FLOW_VAR = re.compile(r"\$\{|\{\{")
-_REGEX_CHARS = re.compile(r"[.^$*+?{}\[\]\\|()]")
-_PART = r"(?:\\[.^$*+?{}\[\]\\|()]|[^.^$*+?{}\[\]\\|()/])+"  # escaped text with no /
+_REGEX_CHARS = re.compile(f"[{META}]")
+_PART = rf"(?:\\[{META}]|[^{META}/])+"  # text as escape() writes it, with no /
 _ESCAPED = re.compile(re.escape(SAME) + f"(?:{_PART}:id/)?{_PART}")  # what _maestro_id writes
 
 

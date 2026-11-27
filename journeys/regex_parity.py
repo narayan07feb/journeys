@@ -231,8 +231,7 @@ def check(rx: str, engine: str) -> list[str]:
 
 
 def _selector_texts(cmd) -> list[str]:
-    """The text patterns of a shared command's selector (an id goes as plain text: both exports match it by
-    its name)."""
+    """The text patterns of a shared command's selector (an id goes as plain text in both exports)."""
     if not isinstance(cmd, dict) or len(cmd) != 1:
         return []
     (name, arg), = cmd.items()

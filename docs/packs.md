@@ -383,7 +383,7 @@ or `(^Save)?Cancel`, stays, and is refused. YAML reads `"\uD83D\uDE00"` as two h
 selectors and map rules join them into the character when the pack loads. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
 plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
 journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. An id is never a pattern: both exports
-match it as plain text by its name. The maestro driver runs noted patterns without a note. Write the letters
+match it as plain text (the Maestro export keeps its package; see above). The maestro driver runs noted patterns without a note. Write the letters
 you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets
