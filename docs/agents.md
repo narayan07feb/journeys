@@ -17,6 +17,21 @@ A heal, for an agent: read `failure(id)`. Its `options` list each tap on the fai
 where it led; `proposal` names the fix it suggests. Promote it when it is the step the journey
 means; else reject it with the reason and edit the pack by hand.
 
+Promoting a new screen or edge adds it as text at the end of `map/screens.yaml` or `map/edges.yaml`,
+so comments and the rest of the file stay. The new entry takes the indent of the key's first entry
+(`edges:` then `- from:` stays unindented; 2 spaces when the key has no entry yet), and a missing file
+or key is created. Before anything is written, the new text must load as the old file with only that
+entry added. When it would not (the key is not the file's last block, a `...` end, a non-empty inline
+list, a file that is not valid YAML), the promote fails, names the file, and writes nothing, also
+not the other file of a new screen with edges; the proposal stays open. Blank lines at the file's end
+stay (a `|+` text keeps them), and so do a BOM and CRLF line ends. Also refused: a file that names the
+key twice (in any spelling), a key written in a form other than `edges:`, `"edges":` or `'edges':`
+(`edges :`),
+an empty list that spans lines, CR and LF line ends that are not all LF or all CRLF (a U+2028 in a
+text is fine), a second byte order mark at the start, text that is not UTF-8, a new screen whose name the file already has, the screen name `__line__`,
+and a new screen with edges when `screens.yaml` and `edges.yaml` are one file. A missing `map/`
+folder is created. The check reads the exact text to be written.
+
 A run of a set with `before:`/`after:` hooks records each hook's result in the run (`hooks`); a
 failed one fails the run and shows in `run_status` as its `error`. In Droid Lite the set's case shows
 the failed hook, and after a failed `before:` each journey shows "not run".

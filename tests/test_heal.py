@@ -1,3 +1,5 @@
+import re
+
 import pytest
 import yaml
 
@@ -283,3 +285,234 @@ def test_a_deny_rule_with_a_package_still_denies_a_nested_name_in_that_package()
     rule = [Rule.parse({"id": "bank:id/delete_account"})]
     assert denied(_screen(("Button", "Manage", "bank:id/settings/delete_account")).elements[0], rule)
     assert not denied(_screen(("Button", "Manage", "other:id/settings/delete_account")).elements[0], rule)
+
+
+EDGE = [{"from": "X", "to": "Y", "do": [{"tap": "Go"}]}]
+APPENDED = {  # file text before -> the new entry's first line as it must be written (comments and old lines kept)
+    "edges:\n  - from: A\n    to: B\n": "  - from: X",
+    "edges:\n- from: A\n  to: B\n": "- from: X",                      # an unindented list
+    "edges:\n    - from: A\n      to: B\n": "    - from: X",          # a 4-space indent
+    "# map\nedges: []  # none yet\n": "  - from: X",
+    "# only comments\n": "  - from: X",
+    "edges:\n- from: A\n  to: B\n  note: |+\n    x\n\n": "- from: X",  # a |+ text keeps its blank line
+    "edges:\n  # first a comment\n- from: A\n  to: B\n": "- from: X",
+    '"edges":\n  - {from: A, to: B}\n': "  - from: X",                # a quoted key
+    "edges: [ ]  \n": "  - from: X",                                  # spaces after the empty list
+}
+REFUSED = ["edges:\n- from: A\n  to: B\nother: 1\n",  # not the last block
+           "edges: []  # placeholder\nedges:\n- {from: A, to: B}\n",  # named twice
+           "edges : []\nedges:\n  - {from: A, to: B}\n",  # twice, in two spellings
+           "edges : []\nmeta: 1\n",                       # a spelling the text match does not see
+           "edges: [\n\n  ] # placeholder\n",             # an empty list over more lines
+           "edges: [{from: A, to: B}]\n", "edges: {a: 1}\n", "edges: [\n", "edges:\n- from: A\n...\n", "- a\n"]
+
+
+@pytest.mark.parametrize("before", list(APPENDED))
+def test_a_proposal_is_appended_with_the_files_own_indent(before, tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    f.write_text(before)
+    out = _appended(f, "edges", EDGE)
+    assert out.startswith(before.replace("edges: []", "edges:").replace("edges: [ ]  ", "edges:")) and \
+        APPENDED[before] in out.split("\n")
+    old = yaml.safe_load(before) or {}
+    assert yaml.safe_load(out) == {**old, "edges": (old.get("edges") or []) + EDGE}
+    assert f.read_text() == before  # _appended only builds the text
+
+
+def test_a_missing_file_gets_the_key_and_a_4_space_map_keeps_its_indent(tmp_path):
+    from journeys.heal import _appended
+    assert _appended(tmp_path / "none.yaml", "edges", EDGE) == "edges:\n  - from: X\n    to: Y\n    do:\n    - tap: Go\n"
+    assert not (tmp_path / "none.yaml").exists()
+    f = tmp_path / "screens.yaml"
+    f.write_text("screens:\n    HOME:\n        match: {}\n")
+    out = _appended(f, "screens", {"NEW": {"match": {"all": [{"text": "Hi"}]}}})
+    assert "    NEW:" in out.split("\n") and yaml.safe_load(out)["screens"]["NEW"] == {"match": {"all": [{"text": "Hi"}]}}
+
+
+@pytest.mark.parametrize("before", REFUSED)
+def test_a_file_that_text_append_would_change_is_refused_untouched(before, tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    f.write_text(before)
+    with pytest.raises(PromoteError, match=r"edges.yaml: .*add the edges entry by hand"):
+        _appended(f, "edges", EDGE)
+    assert f.read_text() == before
+
+
+def test_the_bytes_match_the_old_append_for_the_shared_lf_cases(tmp_path):
+    """Main's _append: 2-space indent, trailing newlines trimmed. A file ending in one newline is unchanged."""
+    from journeys.actions import dump
+    from journeys.heal import _appended
+    body = "".join(f"  {ln}\n" for ln in dump(EDGE, default_flow_style=False).rstrip("\n").split("\n"))
+    f = tmp_path / "edges.yaml"
+    for before in ("# map\nedges:\n  - from: A\n    to: B\n", "edges: []  \n", "edges: []\n", "screens: {}\nedges:\n"):
+        f.write_text(before)
+        main = re.sub(r"(?m)^edges:\s*(\[\s*\]|\{\s*\})\s*$", "edges:", before)  # main's _append
+        assert _appended(f, "edges", EDGE) == main.rstrip("\n") + "\n" + body, before
+
+
+def test_a_new_screen_writes_neither_file_when_one_is_refused(h):
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    screens, edges = pack_dir / "map" / "screens.yaml", pack_dir / "map" / "edges.yaml"
+    edges.write_text(edges.read_text() + "other: 1\n")  # edges is not the last block now
+    s0, e0 = screens.read_text(), edges.read_text()
+    with pytest.raises(PromoteError, match="edges.yaml"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                    "edges": [{"from": "NEW", "to": "SETTINGS-HOME", "do": [{"tap": "Back"}]}]})
+    assert (screens.read_text(), edges.read_text()) == (s0, e0)
+
+
+def test_promote_into_an_unindented_edge_list(h):
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    edges = pack_dir / "map" / "edges.yaml"
+    raw = yaml.safe_load(edges.read_text())
+    edges.write_text("# hand-written, no indent\n" + yaml.safe_dump(raw, sort_keys=False))  # PyYAML: "edges:\n- from"
+    assert "\n- from:" in edges.read_text() and Pack.load(pack_dir).errors == []
+    apply(Pack.load(pack_dir), {"kind": "new-edge", "src": "SETTINGS-HOME", "dst": "SETTINGS-DISPLAY", "do": [{"tap": "Screen"}]})
+    pack = Pack.load(pack_dir)
+    assert pack.errors == [] and edges.read_text().startswith("# hand-written, no indent\n")
+    assert [(e.src, e.dst) for e in pack.map.edges if e.do == [{"tap": "Screen"}]] == [("SETTINGS-HOME", "SETTINGS-DISPLAY")]
+
+
+@pytest.mark.parametrize("before, says", [("edges: [\n", "not valid YAML"), ("meta: 2026-02-30\nedges:\n", "not valid YAML"),
+                                         ("meta: &r [*r]\nedges:\n", "would change the file")])  # a self alias
+def test_a_map_file_that_does_not_load_or_compare_is_refused_by_name(before, says, tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    f.write_text(before)
+    with pytest.raises(PromoteError, match=f"edges.yaml: .*{says}.*add the edges entry by hand"):
+        _appended(f, "edges", EDGE)
+    assert f.read_text() == before
+
+
+def test_a_bom_and_crlf_line_ends_stay(tmp_path):
+    from journeys.heal import _appended
+    bom, crlf = chr(0xFEFF), chr(13) + chr(10)
+    f = tmp_path / "edges.yaml"
+    f.write_bytes(f"{bom}# keep{crlf}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode("utf-8"))
+    out = _appended(f, "edges", EDGE)
+    assert out.startswith(f"{bom}# keep{crlf}edges:{crlf}  - {{from: A, to: B}}{crlf}  - from: X{crlf}")
+    assert chr(10) not in out.replace(crlf, "")
+
+
+def test_a_screen_name_the_file_or_the_loader_already_uses_is_refused(h):
+    from journeys.heal import _appended, apply
+    pack_dir, _, _, _ = h
+    screens = pack_dir / "map" / "screens.yaml"
+    with pytest.raises(PromoteError, match="reserved"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "__line__", "match": {"all": [{"text": "Hi"}]}})
+    f = pack_dir / "bad.yaml"
+    f.write_text("screens:\n  NEW: {match: bad}\n")  # a definition the pack could not load
+    with pytest.raises(PromoteError, match="it has NEW already"):
+        _appended(f, "screens", {"NEW": {"match": {"all": [{"text": "Hi"}]}}})
+    assert "__line__" not in screens.read_text()
+
+
+def test_promote_into_an_unindented_list_closes_the_proposal_and_a_refusal_leaves_it_open(h):
+    pack_dir, _, store, _ = h
+    edges = pack_dir / "map" / "edges.yaml"
+    edges.write_text(yaml.safe_dump(yaml.safe_load(edges.read_text()), sort_keys=False))  # "edges:\n- from"
+    ok = store.add_proposal({"summary": "s", "change": {"kind": "new-edge", "src": "SETTINGS-HOME",
+                                                       "dst": "SETTINGS-DISPLAY", "do": [{"tap": "Screen"}]}})
+    promote(Pack.load(pack_dir), store, ok)
+    assert store.proposal(ok)["status"] == "promoted" and Pack.load(pack_dir).errors == []
+    edges.write_text(edges.read_text() + "other: 1\n")
+    before = edges.read_text()
+    no = store.add_proposal({"summary": "s", "change": {"kind": "new-edge", "src": "SETTINGS-HOME",
+                                                       "dst": "SETTINGS-DISPLAY", "do": [{"tap": "Again"}]}})
+    with pytest.raises(PromoteError, match="edges.yaml"):
+        promote(Pack.load(pack_dir), store, no)
+    assert store.proposal(no)["status"] == "proposed" and edges.read_text() == before
+
+
+def test_mixed_line_ends_and_text_that_is_not_utf8_are_refused_by_name(tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    lf, crlf = chr(10), chr(13) + chr(10)
+    cr, bom = chr(13), chr(0xFEFF)
+    for data, says in ((f"# keep this LF{lf}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode(), "not all LF or all CRLF"),
+                       (f"edges:{cr}  - {{from: A, to: B}}{cr}".encode(), "not all LF or all CRLF"),  # CR only
+                       (f"{bom}{bom}# map{lf}edges:{lf}".encode(), "second byte order mark"),
+                       (b"meta: !!bool maybe\nedges: []\n", "not valid YAML"),
+                       (b'meta: "start\nedges: []\n  end"\nmeta: keep\n? "edges"\n:\n  - {from: A, to: B}\n', "cannot append to"),
+                       (b"edges: []\n# \xff\n", "not UTF-8")):
+        f.write_bytes(data)
+        with pytest.raises(PromoteError, match=f"edges.yaml: .*{says}.*add the edges entry by hand"):
+            _appended(f, "edges", EDGE)
+        assert f.read_bytes() == data
+
+
+def test_a_pack_with_no_map_folder_gets_one_on_promote(h):
+    import shutil
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    shutil.rmtree(pack_dir / "map")
+    apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                "edges": [{"from": "NEW", "to": "NEW", "do": [{"tap": "Hi"}]}]})
+    assert yaml.safe_load((pack_dir / "map" / "screens.yaml").read_text()) == {"screens": {"NEW": {"match": {"all": [{"text": "Hi"}]}}}}
+    assert yaml.safe_load((pack_dir / "map" / "edges.yaml").read_text())["edges"][0]["from"] == "NEW"
+
+
+def test_the_pack_names_a_map_file_with_a_value_yaml_cannot_build(pack_dir):
+    (pack_dir / "map" / "edges.yaml").write_text("meta: 2026-02-30\nedges: []\n")
+    assert any("edges.yaml: cannot read" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_a_new_screen_refuses_when_both_map_files_are_one_file(h):
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    screens, edges = pack_dir / "map" / "screens.yaml", pack_dir / "map" / "edges.yaml"
+    screens.write_text("screens:\n  HOME: {match: {all: [{text: Home}]}}\n")
+    edges.unlink()
+    edges.symlink_to(screens)
+    before = screens.read_text()
+    with pytest.raises(PromoteError, match="are one file"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                    "edges": [{"from": "NEW", "to": "HOME", "do": [{"tap": "Hi"}]}]})
+    assert screens.read_text() == before
+
+
+def test_the_pack_names_a_map_file_with_a_malformed_tag(pack_dir):
+    (pack_dir / "map" / "edges.yaml").write_text("meta: !!bool maybe\nedges: []\n")
+    assert any("edges.yaml: cannot read" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_a_hard_link_behind_both_map_files_is_one_file(h):
+    import os
+    from journeys.heal import apply
+    pack_dir, _, _, _ = h
+    screens, edges = pack_dir / "map" / "screens.yaml", pack_dir / "map" / "edges.yaml"
+    screens.write_text("screens:\n  HOME: {match: {all: [{text: Home}]}}\n")
+    edges.unlink()
+    os.link(screens, edges)
+    with pytest.raises(PromoteError, match="are one file"):
+        apply(Pack.load(pack_dir), {"kind": "new-screen", "name": "NEW", "match": {"all": [{"text": "Hi"}]},
+                                    "edges": [{"from": "NEW", "to": "HOME", "do": [{"tap": "Hi"}]}]})
+
+
+def test_line_separators_and_a_bom_inside_a_text_are_fine(tmp_path):
+    from journeys.heal import _appended
+    f = tmp_path / "edges.yaml"
+    for before in ("# one" + chr(0x2028) + "# two\nedges: []\n", 'meta: "a' + chr(0xFEFF) + 'b"\nedges: []\n'):
+        f.write_text(before)
+        out = _appended(f, "edges", EDGE)
+        assert yaml.safe_load(out)["edges"] == EDGE, before
+    decoy = "# a" + chr(0x2028) * 4 + '\nedges :\n  - from: A\n    meta: "start\nedges: []\n  end"\n    meta: keep\n'
+    f.write_text(decoy)
+    with pytest.raises(PromoteError, match="cannot append to"):
+        _appended(f, "edges", EDGE)
+
+
+def test_the_check_loads_the_exact_text_to_be_written(tmp_path, monkeypatch):
+    import journeys.heal as heal
+    seen = []
+    real = heal.yaml.safe_load
+    monkeypatch.setattr(heal.yaml, "safe_load", lambda t: seen.append(t) or real(t))
+    bom, crlf = chr(0xFEFF), chr(13) + chr(10)
+    f = tmp_path / "edges.yaml"
+    f.write_bytes(f"{bom}edges:{crlf}  - {{from: A, to: B}}{crlf}".encode("utf-8"))
+    out = heal._appended(f, "edges", EDGE)
+    assert seen[-1] == out and out.startswith(bom) and crlf in out

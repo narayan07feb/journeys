@@ -61,12 +61,12 @@ def test_yaml_journeys_writes_reads_a_next_line_character_back(tmp_path):
     """PyYAML writes U+0085 raw and reads it back as a line break; dump quotes it (flows, drafts, proposals)."""
     import yaml
     from journeys.actions import dump
-    from journeys.heal import _append
+    from journeys.heal import _appended
     nel = "a" + chr(0x85) + "b"
     assert yaml.safe_load(dump([{"id": nel}, "x"])) == [{"id": nel}, "x"]
     f = tmp_path / "screens.yaml"
     seps = [nel, "a" + chr(0x2028) + "b", "a" + chr(0x2029) + "b", "a\n\nb"]
-    _append(f, "screens", {"S": {"all": [{"text": t} for t in seps]}})
+    f.write_text(_appended(f, "screens", {"S": {"all": [{"text": t} for t in seps]}}))
     assert yaml.safe_load(f.read_text()) == {"screens": {"S": {"all": [{"text": t} for t in seps]}}}
 
 
