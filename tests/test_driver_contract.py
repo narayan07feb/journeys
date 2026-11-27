@@ -201,7 +201,7 @@ def test_a_bare_id_counts_an_index_over_every_package_on_every_driver(kind, tmp_
     assert d.do(["back", {"tapOn": {"id": "next"}}]).ok and texts(d) == ["Other page"]
 
 
-@pytest.mark.parametrize("kind", ["fake", "maestro"])
+@pytest.mark.parametrize("kind", ["fake", "speedrun", "maestro"])
 def test_a_next_line_character_in_an_id_reaches_the_driver(kind, tmp_path):
     app = {"app": "com.example.app", "start": "HOME", "screens": {
         "HOME": {"elements": [{"kind": "Button", "text": "Go", "id": "a\x85b", "to": "NEXT"}]},

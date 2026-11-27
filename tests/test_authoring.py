@@ -757,9 +757,9 @@ def test_an_id_flow_that_matches_other_views_than_its_text_is_refused_or_noted(p
     f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)a.b'}\n")  # also axb in Maestro
     draft, notes = import_flow(f, "com.android.settings")
     assert draft["steps"] == [{"do": [{"tap": {"id": "a.b"}}]}] and any("read it as a pattern" in n for n in notes)
-    for old in ("com.x.app:id/next", "x/y"):  # an older flow: comXx.app:id/next, and only the whole id x/y
+    for old, noted in (("x/y", True), ("com.x:id/a.b", True), ("com.x.app:id/next", False)):  # a package's dot: no note
         f.write_text(f"appId: com.android.settings\n---\n- tapOn: {{id: '(?-ims){old}'}}\n")
-        assert any("read it as a pattern" in n for n in import_flow(f, "com.android.settings")[1]), old
+        assert any("read it as a pattern" in n for n in import_flow(f, "com.android.settings")[1]) == noted, old
     f.write_text("appId: com.android.settings\n---\n- tapOn: {id: '(?-ims)\\$\\{TARGET\\}'}\n")
     assert any("would read as a Journeys variable" in n for n in import_flow(f, "com.android.settings")[1])
     (pack_dir / "journeys" / "v.yaml").write_text("name: v\nsteps:\n  - do: [{tap: {id: \"{{save}}\"}}]\n")

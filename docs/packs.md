@@ -263,7 +263,8 @@ The Maestro export (and the maestro driver) also:
   also matches a resource-id that ends in `/name` after another `/` (not a valid Android resource
   name). Import reads an escaped id back as plain text; an id that Maestro reads as another pattern is
   left out, an id that would read as a `${NAME}` is left out, and an older flow's id with a `.` or a
-  `/` gets a note.
+  `/` in its name gets a note (a `.` in the package does not: it matched any character, nearly
+  always harmless).
 - The maestro and Appium drivers read a screen's ids as bare names, so a map rule `{id: pkg:id/name}`
   and the Appium driver's `{id: pkg:id/name}` do not check the package.
 - Every YAML file Journeys writes (flows, drafts, map proposals) quotes a text that holds U+0085 (next

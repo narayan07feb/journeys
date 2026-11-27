@@ -73,8 +73,8 @@ def _neutral_sel(arg, notes=None, where=""):
         rid = arg["id"] if literal else _plain(arg["id"], "id") if "id" in arg else ""
         if rid and not literal and not re.fullmatch(r"[\w.:/-]+", rid) and _REGEX_CHARS.search(rid):  # "pkg:id/name" is fine
             raise ActionError(f"id {arg['id']!r} is a pattern; Journeys ids match exactly")
-        if rid and not literal and notes is not None and ("." in rid or "/" in rid.rpartition(":id/")[2]
-                                                          or "/" in rid.rpartition(":id/")[0]):
+        name = rid.rpartition(":id/")[2]  # a . in the package is the package's own: no note
+        if rid and not literal and notes is not None and ("." in name or "/" in name):
             notes.append(f"{where}id {rid!r}: Maestro read it as a pattern (a . is any character, and only the "
                          "whole id or its last part matched); the draft matches it as Journeys ids match: check it")
         return from_selector(arg)
