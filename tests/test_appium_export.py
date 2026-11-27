@@ -57,7 +57,9 @@ def spec_of(pack_dir, body):
 def test_example_journey_runs_through_the_map(pack_dir, tmp_path):
     pack = Pack.load(pack_dir)
     spec, notes = export(pack, pack.journeys["open-display"])
-    assert any("JavaScript regexes" in n for n in notes)
+    assert [n for n in notes if "JavaScript (Python" in n] == [  # one line per difference, not per pattern
+        ". does not match \\r, \\u2028, \\u2029 or a whole emoji in JavaScript (Python: it does): "
+        "/Display.*/ and 1 more pattern(s)"]  # map rules are wrapped in [\\s\\S]*, which has no note
     calls, verdict = run(tmp_path, spec)
     assert verdict == "PASS"
     assert calls[1:3] == [["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
@@ -149,13 +151,21 @@ def test_the_spec_finds_what_the_journeys_driver_finds(pack_dir, tmp_path):
             {"text": "/M.*/", "index": 0}, "@3", "@99", "\U0001F600 ok", {"id": "caf\u00e9"}]
     for sel in sels:
         i = find(screen.elements, to_command({"tap": sel})["tapOn"])
-        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel)}}}]\n"), app=app)
+        calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - do: [{{tap: {json.dumps(sel, ensure_ascii=False)}}}]\n"), app=app)
         got = [c[2:] for c in calls if c[0] == "tap"]
         assert (got == [list(centres[i])] if i is not None else verdict.startswith("FAIL not on the screen")), sel
 
 
+def test_the_export_refuses_a_pattern_javascript_cannot_read(pack_dir):
+    for pattern in ("(?P<n>Net).*", "(?i)net.*"):
+        with pytest.raises(ActionError, match="pattern subset"):
+            spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n")
+
+
 @needs_node
-def test_a_pattern_javascript_cannot_read_stops_the_spec_at_load(pack_dir, tmp_path):
+def test_a_pattern_the_export_check_misses_still_stops_the_spec_at_load(pack_dir, tmp_path, monkeypatch):
+    import journeys.formats.appium as fa
+    monkeypatch.setattr(fa, "notes_for", lambda *a, **k: [])  # stands in for a pattern the check does not know
     for pattern in ("(?P<n>Net).*", "(?i)net.*"):
         calls, verdict = run(tmp_path, spec_of(pack_dir, f"steps:\n  - see: /{pattern}/\n"))
         assert verdict.startswith(f'FAIL the pattern "{pattern}" works in Journeys but not in JavaScript')
@@ -265,7 +275,7 @@ def test_the_spec_file_holds_no_raw_line_separators(pack_dir):
 def test_an_anchor_javascript_reads_as_a_letter_is_refused(pack_dir):
     for pattern in ("/Total\\Z/", "/\\ATotal/"):
         pack, j = journey(pack_dir, f"steps:\n  - see: '{pattern}'\n")
-        with pytest.raises(ActionError, match="uses .A or .Z"):
+        with pytest.raises(ActionError, match="the escape .[AZ]"):
             export(pack, j)
     pack, j = journey(pack_dir, "steps:\n  - see: '/a\\\\Z/'\n")  # an escaped backslash, then a plain Z
     assert export(pack, j)
@@ -309,6 +319,8 @@ def test_variables_in_any_selector_are_refused_and_accounts_map_to_their_env_var
         pack, j = journey(pack_dir, f"steps:\n  - see: {sel}\n")
         with pytest.raises(ActionError, match="cannot put a variable in a selector"):
             export(pack, j)
+    pack, j = journey(pack_dir, 'steps:\n  - see: "Total ${before tax}"\n')  # not a variable name: plain text
+    assert "Total \\\\$\\\\{before tax\\\\}" in export(pack, j)[0]
     y = pack_dir / "pack.yaml"
     y.write_text(y.read_text() + "accounts:\n  demo: {user: DEMO_USER}\n")
     pack, j = journey(pack_dir, 'steps:\n  - input: "${demo.user}/${DEMO_USER}"\n')

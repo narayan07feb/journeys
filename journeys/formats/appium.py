@@ -16,7 +16,8 @@ from ..drivers.appium import KEYCODES
 from ..drivers.base import command_name, shown
 from ..journey import Journey
 from ..pack import _VAR, Pack
-from . import journey_commands
+from ..regex_parity import JS, notes_for
+from . import MapText, journey_commands
 
 SCROLL_MS = 20_000  # as the Appium driver: scroll_to looks for 20 s
 WAIT_MS = 5_000  # as the Appium driver: an element gets 5 s to come or go
@@ -79,7 +80,7 @@ async function screen() {
 function hit(sel, els) {
   if (sel.text === null && sel.id === null) return null;
   const hits = els.filter((e) => (sel.id === null || (sel.id !== "" && e.id === sel.id))
-    && (sel.text === null || e.text === sel.text || (sel.rx !== false && sel.rx.test(e.text))));
+    && (sel.text === null || (sel.exact !== false && e.text === sel.text) || (sel.rx !== false && sel.rx.test(e.text))));
   return hits[sel.index] ?? null;
 }
 
@@ -198,26 +199,20 @@ async function type(text) {
 """
 
 
-def _no_vars(value: str, what: str) -> str:
-    if _VAR.search(value) or "\\$\\{" in value:
+_ESCAPED_VAR = re.compile(r"\\\$\\\{([A-Za-z_](?:[A-Za-z0-9_]|\\\.)*)\\\}")  # ${NAME} after escape()
+
+
+def _no_vars(value: str, what: str, declared: set[str]) -> str:
+    """Refuse ${NAME} in a selector. A plain text's ${NAME} reaches here escaped (\\$\\{NAME\\}); a pattern
+    can hold that spelling on purpose for the literal text, so the escaped one counts only for a name the
+    pack declares (Journeys substitutes those; validate refuses an undeclared one in a plain text)."""
+    if _VAR.search(value) or any(m[1].replace("\\.", ".") in declared for m in _ESCAPED_VAR.finditer(value)):
         raise ActionError(f"{what} {shown(value)!r} uses ${{NAME}}: the Appium export cannot put a variable "
                           "in a selector; write the value, or run this journey with Journeys")
     return value
 
 
-def _anchor(pattern: str) -> bool:
-    """Whether the pattern has a \\A or \\Z escape (a "\\\\" before the letter is an escaped backslash)."""
-    i = 0
-    while i < len(pattern) - 1:
-        if pattern[i] == "\\":
-            if pattern[i + 1] in "AZ":
-                return True
-            i += 1
-        i += 1
-    return False
-
-
-def _sel(sel, sels: list[str]) -> str:
+def _sel(sel, sels: list[str], declared: set[str]) -> str:
     """A shared-form selector -> SEL[n], an S({...}) made when the spec loads, matched as
     journeys.drivers.base.find does."""
     show = shown(sel)
@@ -229,18 +224,18 @@ def _sel(sel, sels: list[str]) -> str:
         raise ActionError(f"index {sel.get('index')!r} is not a number") from None
     out = {"text": None, "rx": False, "id": None, "index": index, "show": show}
     if "id" in sel:
-        want = _no_vars(str(sel["id"]), "id")  # the driver reports bare names, so only the name counts
+        want = _no_vars(str(sel["id"]), "id", declared)  # the driver reports bare names, so only the name counts
         out["id"] = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
     if "text" in sel:
-        out["text"] = _no_vars(str(sel["text"]), "text")
+        from_map = isinstance(sel["text"], MapText)  # a map rule: never a variable, only a pattern
+        out["text"] = str(sel["text"]) if from_map else _no_vars(str(sel["text"]), "text", declared)
         try:
             re.compile(out["text"])
             out["rx"] = True
         except re.error:
             pass  # Journeys then matches the exact text only
-        if out["rx"] and _anchor(out["text"]):
-            raise ActionError(f"pattern {show!r} uses \\A or \\Z, which JavaScript reads as the letters A and Z; "
-                              "leave them out (a pattern always matches the whole text)")
+        if from_map:
+            out["exact"] = False
     sels.append(f"S({json.dumps(out)})")
     return f"SEL[{len(sels) - 1}]"
 
@@ -290,15 +285,15 @@ def _js(pack: Pack, cmd, sels: list[str]) -> str:
     if name == "scroll":
         return "await swipe(true);"
     if name == "tapOn":
-        return f"await tap({_sel(arg, sels)});"
+        return f"await tap({_sel(arg, sels, pack.declared())});"
     if name == "assertVisible":
-        return f"await find({_sel(arg, sels)});"
+        return f"await find({_sel(arg, sels, pack.declared())});"
     if name == "assertNotVisible":
-        return f"await gone({_sel(arg, sels)});"
+        return f"await gone({_sel(arg, sels, pack.declared())});"
     if name == "scrollUntilVisible":
         opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
         up = str(opts.get("direction", "DOWN")).upper() != "UP"
-        return f"await scrollTo({_sel(opts['element'], sels)}, {'true' if up else 'false'});"
+        return f"await scrollTo({_sel(opts['element'], sels, pack.declared())}, {'true' if up else 'false'});"
     if name == "inputText":
         return f"await type({_text(pack, str(arg))});"
     if name == "eraseText":
@@ -320,9 +315,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     erased = sum(_count(command_name(c)[1]) for c in cmds if command_name(c)[0] == "eraseText")
     # mocha's own 60 s is too short for a journey; erase is one call per character
     timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls + 200 * erased
-    notes.append("patterns run as JavaScript regexes (Journeys reads them as Python's); one JavaScript "
-                 "cannot read stops the spec when it loads; \\w and \\d match only ASCII letters and digits there "
-                 "(Python's match any language), and . does not match \\r")
+    notes += notes_for(cmds, JS, keys=("text",))  # refuses or notes; ids match by name, not as a pattern
     head = (f"// Exported from Journeys: journey {json.dumps(j.name)}, pack {json.dumps(pack.name)}.\n"
             "// Runs with WebdriverIO (mocha) and Appium UiAutomator2; your wdio.conf picks the server and "
             "the device.\n"

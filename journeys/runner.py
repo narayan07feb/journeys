@@ -362,7 +362,10 @@ class Runner:
             return
         if not self.pack.tap_allowed:
             return
-        options = explore(self.driver, self.pack.map, self.pack.owns, self.pack.deny)
+        try:
+            options = explore(self.driver, self.pack.map, self.pack.owns, self.pack.deny)
+        except ActionError:  # a tap the driver cannot send (a label outside its pattern subset): no options
+            return
         failure = self.store.update_failure(fid, options=options)  # the store masks what it writes
         target = step.arg if step.kind in ("expect", "goto") else None
         here = failure.get("screen")

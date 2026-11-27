@@ -254,11 +254,7 @@ The Maestro export (and the maestro driver) also:
   matches what the journey matches. Import drops it again, and a flow written without it gets a
   note: Maestro matched its texts and ids without case, the draft matches them with case.
 - refuses `press: search` (Maestro has no Search key).
-- refuses patterns Maestro's Java regex cannot read: a `{` that is not a count (write `\{`), and
-  `(?P<n>...)` groups, `(?#...)` comments and `(?(1)a|b)` choices (write `(?:...)`). The check is
-  not complete: other patterns read differently in Java, for example `[a[b]]` and `[a&&b]` (union
-  and intersection), `\d` (ASCII only) and `\Z` (end before a final line break). Keep Maestro
-  patterns plain.
+- checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 
 What both exports do:
 
@@ -281,12 +277,9 @@ Appium (a WebdriverIO mocha spec):
   entirely outside the window, counts an `index` in page order, and taps the centre of the visible
   part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
   regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
-- Patterns run as JavaScript regexes; Journeys reads them as Python's. Most read the same. A
-  pattern JavaScript cannot read, such as `(?P<n>...)` or `(?i)`, stops the spec when it loads,
-  before it touches the device. `\A` and `\Z` are refused at export (JavaScript reads them as
-  letters). Some patterns read but match differently: in JavaScript `\w` and `\d` match only ASCII
-  letters and digits (`/\w+/` does not match "Café"), and `.` does not match `\r`. Write such
-  patterns with the letters you mean, or run those journeys with Journeys.
+- Text patterns run as JavaScript regexes; the export checks each one as JavaScript reads it ("Patterns
+  in Java and JavaScript" below). A pattern JavaScript cannot read that the check does not know still
+  stops the spec when it loads, before it touches the device.
 - Checks and taps wait 5 s for the element; `scroll_to` swipes (a slow drag) for up to 20 s until
   all of the element is on the screen; `wait_idle` waits up to 3 s for the screen to stop changing;
   `launch` (`mobile: terminateApp`, `mobile: activateApp`) waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
@@ -304,6 +297,73 @@ Appium (a WebdriverIO mocha spec):
   `outputDir` in `wdio.conf`) can hold them, as with the Journeys Appium driver.
 - The spec is tested against a pretend WebdriverIO (`tests/wdio_sim.js`), not yet against a real
   WebdriverIO and Appium server. Run it once on your setup before you trust it.
+
+### Patterns in Java and JavaScript
+
+Journeys reads every pattern as Python's `re` does. Maestro (the maestro driver and a Maestro export)
+reads it as Java: a Kotlin `Regex` with ignore-case, dot-all and multiline on (Kotlin also turns on
+Unicode case), and `(?-ims)` in front. The Appium export reads it as JavaScript (`new RegExp` with no
+flags). The two disagree with Python in many corners, so Journeys gives them only a shared subset.
+
+The contract: a pattern in the subset with no note matches the same texts in Python, Java and
+JavaScript. A note names a difference that shows only on some texts. Anything outside the subset is
+refused, with a hint, even where one engine happens to read it the same: Journeys never sends a pattern
+it has not proven. `tests/test_regex_parity.py` checks it on Java 11, 17 and 25 and node 22 and 23: a
+table with every rule and each case a review found, and a sampled fuzz of the subset's grammar (about
+80,000 pattern and text pairs per engine with `JOURNEYS_FUZZ=20000`, none differing). A fuzz samples:
+it is strong evidence, not a proof.
+
+The subset:
+- any character, except a lone `\uD800`-`\uDFFF` half, and for JavaScript an emoji (above U+FFFF)
+  before a quantifier or inside a `[...]` class (two units there: write `(?:😀){2}`, or `(?:a|b)` for a
+  choice);
+- an escaped ASCII punctuation mark or space (`\.`, `\$`, `\(`, `\ `, ...), `\t`, `\n`, `\r`, `\f`,
+  `\xHH` and `\uHHHH` (not a `\uD800`-`\uDFFF` half);
+- `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `\b` and `\B`, noted: `\d` and `\w` know only ASCII in Java and
+  JavaScript; `\s` knows only ASCII spaces in Java, and another set in JavaScript (with `\ufeff`;
+  Python has `\x1c`-`\x1f`); `\b` differs on text outside ASCII in JavaScript and every Java (more from Java 19); `\B` matches an empty
+  text;
+- a `[...]` class, with `^` first, ranges (a `-` first or last is the character itself, and can start
+  a range, as in `[--/]`) and the escapes above; no `]` first, no `[` or `&&` inside, no `\b` or digit
+  escapes inside; for JavaScript no range across U+D800-U+DFFF (it would match halves of emoji: stop at
+  `\ud7ff` and start again at `\ue000`); a `[^...]` class, or one with `\D`, `\W` or `\S` inside, is
+  noted for JavaScript (it can match half an emoji); a class with both halves of a pair, such as
+  `[\s\S]`, holds every character and gets no `\s`, `\d` or `\w` note;
+- `( )`, `(?: )` and `|`;
+- `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms; a
+  group with a `|` or an optional part inside (`?`, `*`, `+`, `{n,m}`), repeated without a small limit, is
+  noted for Java: it can overflow Java's stack on a text of a few thousand characters (about 2,800 to
+  4,000 with the default thread stack, measured on Java 11, 17 and 25). For single characters write a class: `[ab]*`, not `(?:a|b)*`;
+- `^` at the start of the pattern or of a top-level branch, and `$` at the end of the pattern or of a
+  top-level branch (anywhere else they are refused: a pattern matches the whole text anyway);
+- `.`, noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
+  in JavaScript;
+- `[\s\S]*`, with no note (every character, any number, in all three; `[\s\S]` alone is a class);
+- `(?i)` at the very start, for Maestro only, when the pattern has only ASCII letters (Java folds
+  `ß`, `ı`, `İ` and more another way), noted: `[A-Z]` matches the Kelvin sign and `İ` in Python, not in
+  Java. For the Appium export write both cases: `[Ss]ave`.
+
+Outside it, and so refused: more than 100 groups, groups nested more than 10 deep, and a count above
+100 on a group (times the counts of the groups inside it, so `(?:(?:ab){10}){10}` passes and
+`(?:ab){101}` does not): Java and JavaScript recurse on groups and can overflow their stack, while
+counts on single characters cost nothing (`[0-9]{999}` passes); patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
+back-references (`\1`), named groups, comments, conditionals and atomic groups; every other inline flag
+(`(?s)`: write `[\s\S]` in place of `.` to cross lines; `(?x)`, `(?i:...)`, `(?-i:...)`); possessive
+quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...}`); `\a`, `\v`,
+`\U...`; a `{` that is not a count; and `{,n}` and `{,}` (write `{0,n}` and `{0,}`).
+
+A map rule may match part of a text. The exports send each top-level branch of it as
+`[\s\S]*(?:branch)[\s\S]*`, so it also matches a text with line breaks. A branch's own leading `^`
+(after any opening groups that run once) drops the left `[\s\S]*`, and its trailing `$` (before any
+closing groups)
+becomes `\n?` (Python's `$` also matches before a final line break): `^Save|^Cancel` and `(Total$)`
+export as they search. A `^` or `$` inside a group that also has a `|` or a quantifier, as in `(^a|b)c`
+or `(^Save)?Cancel`, stays, and is refused. YAML reads `"\uD83D\uDE00"` as two halves of one character:
+selectors and map rules join them into the character when the pack loads. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
+plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
+journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. A dot in an id (`com.example:id/title`) gets no
+note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters
+you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets
 
