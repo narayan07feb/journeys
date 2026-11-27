@@ -349,7 +349,7 @@ def test_the_notes_name_what_differs():
              "thousand characters (Python: fine); for single characters use a class, such as [ab]* for (?:a|b)*")
     for rx in ("(?:a|b)*", "x(?:(?:a|b)c)+", "(?:a|b){2,}", "(?:ab?)*", "(?:a{1,2})*", "(?:[ab]c?)+", "(ab*)*"):
         assert check(rx, JAVA) == [stack], rx  # each overflows Java 11, 17 and 25 at about 8,000 characters
-    for rx in ("(?:a|b){2,3}", "(?:ab)*", "(?:a{2})*", "(?:ab?){1,500}", "[ab]*"):
+    for rx in ("(?:a|b){2,3}", "(?:ab)*", "(?:a{2})*", "(?:ab?){1,50}", "[ab]*", "[0-9]{999}"):
         assert check(rx, JAVA) == [], rx  # these repeat without recursion, or only a few times
     assert check("(?:a|b)*", JS) == []
     assert check("[\\S]", JS) == sorted([_halves("[...\\S...] class"), "\\S knows another set of spaces in "
@@ -513,8 +513,15 @@ def test_round_7_anchor_lifting_size_pairs_and_counts(pack_dir):
         with pytest.raises(ActionError, match="a \\^ inside the pattern .* only at the start"):
             check(_part(rule, "S"), JAVA)
     assert _part("(^Save)Cancel", "S") == "(?:(Save)Cancel)[\\s\\S]*"  # a group that runs once carries it out
-    with pytest.raises(ActionError, match="over 1000 characters or 100 groups"):
+    with pytest.raises(ActionError, match="more than 100 groups, or groups nested more than 10 deep"):
         check("(a)" * 400, JS)
+    for rx in ("(?:((((((((((((((((a|b))))))))))))))))){999}", "(" * 11 + "a" + ")" * 11):  # round 8: depth
+        with pytest.raises(ActionError, match="nested more than 10 deep"):
+            check(rx, JAVA)
+    for rx in ("(?:ab){101}", "(?:(?:a|b){100}){100}", "(?:(?:ab){10}){11}", "(?:ab?){1,500}"):  # Java overflows
+        with pytest.raises(ActionError, match="a count on a group above 100"):
+            check(rx, JAVA)
+    assert check("(?:(?:ab){10}){10}", JAVA) == check(escape("x(" * 600), JAVA) == check("a{999}", JS) == []
     with pytest.raises(ActionError, match="list in a \\[\\^...\\] class only the characters"):
         check("[^\\ud7ff-\\ue000]{2}", JS)
     (pack_dir / "journeys" / "e.yaml").write_text('name: e\nsteps:\n  - see: "Save \\uD83D\\uDE00"\n')
@@ -529,3 +536,23 @@ def test_round_7_anchor_lifting_size_pairs_and_counts(pack_dir):
     f.write_text(base)
     (pack_dir / "journeys" / "e.yaml").write_text("name: e\nsteps:\n  - see: '/a{" + "0" * 4500 + "1}/'\n")
     assert any("bad regex" in e for e in Pack.load(pack_dir).errors)  # Python's int length limit: an error
+
+
+def test_explore_survives_a_tap_the_driver_cannot_send(tappable_pack_dir, tmp_path, monkeypatch):
+    """A screen's label can fall outside the pattern subset (Maestro refuses it): exploring just stops."""
+    import journeys.runner as runner_mod
+    from journeys.journey import Step
+    from journeys.pack import Pack
+    from journeys.results import Store
+    from phone_sim import Phone, hooked
+    import yaml
+    pack = Pack.load(tappable_pack_dir)
+    d = hooked("fake", Phone(yaml.safe_load((tappable_pack_dir / "fake" / "app.yaml").read_text())), tmp_path)
+    d.start(pack.app, "emulator-5554")
+    store = Store(tmp_path / "state")
+    r = runner_mod.Runner(pack, d, store, store.new_run(), heal=True)
+    def refuse(*a, **k):
+        raise ActionError("a label outside the subset")
+    monkeypatch.setattr(runner_mod, "explore", refuse)
+    monkeypatch.setattr(r, "_alive", lambda: True)
+    r._explore_failure("F-1", Step("see", "x"))  # no exception

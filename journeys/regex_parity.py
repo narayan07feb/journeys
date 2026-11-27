@@ -17,7 +17,9 @@ from .actions import ActionError
 JAVA, JS = "Java", "JavaScript"
 _COUNT = re.compile(r"\{([0-9]+)(,([0-9]*))?\}")  # ASCII digits: Python reads {٢} as text
 _MAX_COUNT = 2**31 - 1  # Java refuses a larger count
-_MAX_LEN, _MAX_GROUPS = 1000, 100  # longer patterns, or more groups, can overflow Java's and JavaScript's stack
+# Java and JavaScript recurse on groups: more groups, deeper nesting, or a large count on a group (times the
+# counts of the groups inside it) can overflow their stack. Plain characters cost nothing: [0-9]{999} is fine.
+_MAX_GROUPS, _MAX_DEPTH, _MAX_GROUP_COUNT = 100, 10, 100
 _HEX = re.compile(r"x[0-9a-fA-F]{2}|u(?![dD][89a-fA-F])[0-9a-fA-F]{4}")  # \xHH, \uHHHH (not half a character)
 _SHORTHAND = {"d": "digits", "D": "digits", "w": "letters and digits", "W": "letters and digits"}
 _CONTROL = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}
@@ -85,9 +87,6 @@ def check(rx: str, engine: str) -> list[str]:
         raise ActionError(f"/{shown(rx)}/: {what} is not in the pattern subset Journeys can give {engine} "
                           f"unchanged (docs/packs.md, Patterns in Java and JavaScript)" + (f"; {hint}" if hint else ""))
 
-    if len(rx) > _MAX_LEN or rx.count("(") > _MAX_GROUPS:
-        refuse(f"a pattern over {_MAX_LEN} characters or {_MAX_GROUPS} groups",
-               "Java and JavaScript can overflow their stack on it; split the check into shorter patterns")
     try:
         re.compile(rx)
     except (re.error, OverflowError, RecursionError, ValueError) as e:
@@ -98,6 +97,8 @@ def check(rx: str, engine: str) -> list[str]:
     i, n, quant, cls, depth = 0, len(rx), False, None, 0  # quant: the last token was a quantifier
     choice = [False]  # per open group (and the top): a | or a variable-count quantifier inside it
     after_choice = False  # the group just closed has one
+    weight = [1]  # per open group: the largest product of group counts inside it
+    after_weight, groups = 0, 0  # the group just closed (0: the last token was not a group); groups so far
     if rx.startswith("(?i)"):
         if engine == JS:
             refuse("(?i)", "JavaScript reads no flags inside a pattern")
@@ -117,6 +118,8 @@ def check(rx: str, engine: str) -> list[str]:
                       "for (?:a|b)*")
         if not (c in "*+?{" and after_choice):
             after_choice = False
+        if not (c in "*+?{" and after_weight):
+            after_weight = 0
         if cls is None and rx.startswith(ANY + "*", i):  # every character, any number, in all three: no note
             i, quant = i + len(ANY) + 1, True
             continue
@@ -171,14 +174,20 @@ def check(rx: str, engine: str) -> list[str]:
                 k = rx[i + 2:i + 3]
                 refuse(f"the group {rx[i:i + 3]}...", _GROUP_HINTS.get(k, "inline flags cannot be sent; for (?s) "
                        "write [\\s\\S] in place of . to cross line breaks"))
-            depth += 1
+            depth, groups = depth + 1, groups + 1
+            if depth > _MAX_DEPTH or groups > _MAX_GROUPS:
+                refuse(f"more than {_MAX_GROUPS} groups, or groups nested more than {_MAX_DEPTH} deep",
+                       "Java and JavaScript can overflow their stack on it; split the check into simpler patterns")
             choice.append(False)
+            weight.append(1)
             i, quant = i + (3 if rx.startswith("(?:", i) else 1), False
             continue
         elif c == ")":
             depth -= 1
             after_choice = choice.pop()
             choice[-1] |= after_choice
+            after_weight = weight.pop()
+            weight[-1] = max(weight[-1], after_weight)
         elif c == "|":
             choice[-1] = True
         elif c == "^" and not (i == begin or (depth == 0 and rx[i - 1] == "|")):
@@ -196,6 +205,12 @@ def check(rx: str, engine: str) -> list[str]:
             if max(int(x) for x in (m[1], m[3]) if x) > _MAX_COUNT:
                 refuse("a count above 2147483647")
             choice[-1] |= m[2] is not None and m[1] != m[3]  # {n,} or {n,m}: a choice; {n} and {n,n}: none
+            if after_weight and int(m[3] or m[1]) * after_weight > _MAX_GROUP_COUNT:
+                refuse(f"a count on a group above {_MAX_GROUP_COUNT} (with the counts of the groups inside it)",
+                       "Java can overflow its stack on it; repeat a single character or class instead, or a "
+                       "smaller count")
+            if after_weight:
+                weight[-1] = max(weight[-1], int(m[3] or m[1]) * after_weight)
             i, quant = m.end(), True
             continue
         elif c in "*+?":

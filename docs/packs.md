@@ -342,8 +342,10 @@ The subset:
 - `(?i)` at the very start, for Maestro only, noted: `[A-Z]` matches the Kelvin sign K in Python, not in
   Java.
 
-Outside it, and so refused: patterns over 1000 characters or 100 groups (Java and JavaScript can
-overflow their stack on them); patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
+Outside it, and so refused: more than 100 groups, groups nested more than 10 deep, and a count above
+100 on a group (times the counts of the groups inside it, so `(?:(?:ab){10}){10}` passes and
+`(?:ab){101}` does not): Java and JavaScript recurse on groups and can overflow their stack, while
+counts on single characters cost nothing (`[0-9]{999}` passes); patterns Python cannot read; lookarounds (`(?=`, `(?!`, `(?<=`, `(?<!`),
 back-references (`\1`), named groups, comments, conditionals and atomic groups; every other inline flag
 (`(?s)`: write `[\s\S]` in place of `.` to cross lines; `(?x)`, `(?i:...)`, `(?-i:...)`); possessive
 quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...}`); `\a`, `\v`,
