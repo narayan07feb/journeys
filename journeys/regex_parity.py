@@ -15,6 +15,8 @@ JAVA, JS = "Java", "JavaScript"
 _COUNT = re.compile(r"\{\d+(,\d*)?\}")
 _PY_ONLY_COUNT = re.compile(r"\{,\d*\}")  # Python reads {,3} as {0,3}
 _NAMED = re.compile(r"\\N\{[^}]*\}")
+# Python reads \0101 as \010 then "1" (Java: \0101 is "A"), and \101 as "A" (Java: group 1, then "01")
+_OCTAL3 = re.compile(r"\\(0[0-7]{3}|[1-3][0-7]{2})")
 _FLAGS = re.compile(r"\(\?([aiLmsux]*)(-[imsx]*)?[:)]")  # (?i) (?s:...) (?-i:...)
 
 
@@ -25,21 +27,33 @@ def check(rx: str, engine: str) -> list[str]:
 
     notes: set[str] = set()
     i, n, quant, cls = 0, len(rx), False, None  # cls: index where the open [...] class started
+    groups, behind = [], False  # open groups (True = a lookbehind); `behind`: a lookbehind just closed
+    if engine == JS and any(ord(ch) > 0xFFFF for ch in rx):
+        notes.add("a character above U+FFFF (an emoji) is two units in JavaScript: a class or a quantifier on it "
+                  "does not match it (Python: one character)")
     while i < n:
         c = rx[i]
+        if behind and engine == JS and (c in "*+?" or _COUNT.match(rx, i)):
+            refuse("a quantifier on a lookbehind (an error in JavaScript)", "leave the quantifier out")
+        behind = False
         if c == "\\" and i + 1 < n:
             e = rx[i + 1]
-            if e in "AZ" and (engine == JS or e == "Z"):
+            if e in "AZz" and (engine == JS or e == "Z"):
                 refuse(f"\\{e}", "leave it out: a pattern always matches the whole text")
-            if e == "0" and i + 2 < n and rx[i + 2].isdigit() and engine == JAVA:
-                refuse("an octal escape \\0NN", "write the character as \\xNN")
+            if engine == JAVA and (_OCTAL3.match(rx, i) or (e == "0" and rx[i + 2:i + 3] not in tuple("01234567"))):
+                refuse("an octal escape such as \\0 or \\101", "write the character as \\xNN")
+            if e == "b" and cls is not None and engine == JAVA:
+                refuse("[\\b] (an error in Java; a backspace in Python)", "write \\x08")
             if e == "U" or (e == "N" and engine == JS) or (e == "a" and engine == JS):
                 refuse(f"\\{e}", "write the character itself, or \\xNN / \\uNNNN")
             if e == "v" and engine == JAVA:
                 refuse("\\v (any vertical space in Java, the vertical tab in Python)", "write \\x0b")
-            if e in "dDwW" or (e in "bB" and cls is None and engine == JS):
+            if e in "dDwW":
                 notes.add(f"\\{e} knows only ASCII {'digits' if e in 'dD' else 'letters and digits'} in {engine} "
                           "(Python: every language)")
+            if e in "bB" and cls is None:
+                notes.add(f"\\{e} knows only ASCII letters and digits in {'Java 19 and later' if engine == JAVA else JS}"
+                          " (Python: every language)" + (", and \\B matches an empty text" if e == "B" else ""))
             if e in "sS":
                 notes.add(f"\\{e} knows {'only ASCII' if engine == JAVA else 'another set of'} space characters "
                           f"in {engine} (Python: every Unicode space)")
@@ -49,6 +63,8 @@ def check(rx: str, engine: str) -> list[str]:
         if cls is not None:  # inside [...]
             if c == "]" and i > cls + 1 + (rx[cls + 1:cls + 2] == "^"):
                 cls = None
+            elif c == "^" and i == cls + 1 and engine == JS:
+                notes.add("a [^...] class matches half of an emoji in JavaScript (Python: the whole one)")
             elif c == "[" and engine == JAVA:
                 refuse("[ inside a [...] class (a union in Java)", "escape it as \\[")
             elif c == "&" and rx.startswith("&&", i) and engine == JAVA:
@@ -59,7 +75,14 @@ def check(rx: str, engine: str) -> list[str]:
             continue
         if c == "[":
             cls, quant = i, False
-        elif c == "(" and rx.startswith("(?", i):
+        elif c == "(":
+            groups.append(rx.startswith(("(?<=", "(?<!"), i))
+        elif c == ")":
+            behind = bool(groups) and groups.pop()
+        elif c == "$" and engine == JS and rx[i + 1:].strip(")"):
+            notes.add("a $ before more of the pattern matches only at the very end in JavaScript "
+                      "(Python: also before a final line break)")
+        if c == "(" and rx.startswith("(?", i):
             k, flags = rx[i + 2:i + 3], _FLAGS.match(rx, i)
             if k and k in "P(#":
                 refuse(f"(?{k}", "use (?:...) in place of a named group, comment or (?(1)...) choice")
@@ -70,8 +93,12 @@ def check(rx: str, engine: str) -> list[str]:
                 refuse("(?i)-style flags (JavaScript has none inside a pattern)", "leave them out")
             if flags and "a" in flags.group(1):  # (?L) is for bytes patterns only: never a selector
                 refuse("(?a)", "leave it out")
-            if flags and "i" in flags.group(1):
+            if flags and "x" in flags.group(1):
+                refuse("(?x) (Java also skips spaces and # inside a [...] class)", "leave it out")
+            if flags and "i" in flags.group(1) and "u" not in flags.group(1):
                 notes.add(f"(?i) folds only ASCII case in {engine} (Python: every language)")
+            if flags and "m" in flags.group(1):
+                notes.add("(?m) ^ and $ also break lines at \\r, \\x85, \\u2028 and \\u2029 in Java (Python: only \\n)")
             i, quant = i + 2, False
             continue
         elif c == "{":
@@ -88,7 +115,8 @@ def check(rx: str, engine: str) -> list[str]:
             i += 1
             continue
         elif c == ".":
-            notes.add(f". does not match \\r in {engine} (Python: it does)")
+            notes.add(f". does not match \\r, \\x85, \\u2028 or \\u2029 in {engine} (Python: it does)" if engine == JAVA else
+                      ". does not match \\r, \\u2028, \\u2029 or a whole emoji in JavaScript (Python: it does)")
         quant = False
         i += 1
     return sorted(notes)

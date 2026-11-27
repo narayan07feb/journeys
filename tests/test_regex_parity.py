@@ -47,10 +47,25 @@ CASES = {
     "\\d": {JAVA: ("note", "٣"), JS: ("note", "٣")},
     "\\w": {JAVA: ("note", "é"), JS: ("note", "é")},
     "\\s": {JAVA: ("note", "\x1c"), JS: ("note", "\x1c")},
-    "é\\b": {JAVA: (SAME, ["é"]), JS: ("note", "é")},
+    "é\\b": {JAVA: ("note", "é"), JS: ("note", "é")},  # Java 11/17 read it as Python, Java 19+ do not: VARIES
+    "\\B": {JAVA: ("note", ""), JS: ("note", "")},
+    "\\101": {JAVA: ("refuse", "A"), JS: (SAME, ["A"])},
+    "\\0": {JAVA: ("refuse", "\x00"), JS: (SAME, ["\x00"])},
+    "\\08": {JAVA: ("refuse", "\x008"), JS: (SAME, ["\x008"])},
+    "[\\b]": {JAVA: ("refuse", "\b"), JS: (SAME, ["\b"])},
+    "(?<=a)?b": {JAVA: (SAME, ["b"]), JS: ("refuse", "b")},
+    "a$\n": {JAVA: (SAME, ["a\n"]), JS: ("note", "a\n")},
+    "(?iu)é": {JAVA: (SAME, ["É", "é"]), JS: ("refuse", "É")},
+    "(?x)[a b]": {JAVA: ("refuse", " "), JS: ("refuse", " ")},
+    "(?m)a$\r?b": {JAVA: ("note", "a\rb"), JS: ("refuse", "a\rb")},
+    "[^a]": {JAVA: (SAME, ["\U0001F600", "b"]), JS: ("note", "\U0001F600")},
+    "\U0001F600+": {JAVA: (SAME, ["\U0001F600\U0001F600"]), JS: ("note", "\U0001F600\U0001F600")},
+    "x.y": {JAVA: ("note", "x\x85y"), JS: ("note", "x\U0001F600y")},
     "a.b": {JAVA: ("note", "a\rb"), JS: ("note", "a\rb")},
 }
-for _p, _texts in {"a{2}": ["aa", "a{2}"], "\\{x\\}": ["{x}"], "[{]x": ["{x"], "x}": ["x}"], "(?:a)b": ["ab"],
+VARIES = {("é\\b", JAVA)}  # the engine test accepts both results; the note is shown either way
+for _p, _texts in {"\\012": ["\n"], "\\00": ["\x00"], "(?<=a)b?": ["", "b"], "a$": ["a", "a\n"],
+                   "(a$)": ["a", "a\n"], "a{2}": ["aa", "a{2}"], "\\{x\\}": ["{x}"], "[{]x": ["{x"], "x}": ["x}"], "(?:a)b": ["ab"],
                    "(?=a)a": ["a"], "Café": ["Café", "cafe"], "[\\]]x": ["]x"], "a+?": ["aa"], "(a)\\1": ["aa"],
                    "\\x41": ["A"], "[a-]": ["-"], "[.]": [".", "a"], "\\\\Z": ["\\Z"]}.items():
     CASES[_p] = {JAVA: (SAME, _texts), JS: (SAME, _texts)}
@@ -108,7 +123,8 @@ def test_each_case_reads_on_the_real_engine_as_the_table_says(engine, run, tool)
     wrong = []
     for (p, s), g in zip(runs, got):
         kind, py = CASES[p][engine][0], str(_python(p, s)).lower()
-        ok = {SAME: g == py, "note": g not in (py, "ERROR"), "refuse": g != py}[kind]
+        ok = {SAME: g == py, "note": g not in (py, "ERROR"), "refuse": g != py}[kind] or \
+            ((p, engine) in VARIES and g == py)
         if not ok:
             wrong.append((p, s, kind, f"{engine} {g}, Python {py}"))
     assert not wrong
@@ -119,7 +135,7 @@ def test_export_notes_name_each_difference_once():
             {"scrollUntilVisible": {"element": "x\\wy"}}, {"tapOn": "Plain"}, "back"]
     assert notes_for(cmds, JAVA) == [
         "\\d knows only ASCII digits in Java (Python: every language): /\\d+ items/ and 1 more pattern(s)",
-        ". does not match \\r in Java (Python: it does): /a.b/",
+        ". does not match \\r, \\x85, \\u2028 or \\u2029 in Java (Python: it does): /a.b/",
         "\\w knows only ASCII letters and digits in Java (Python: every language): /x\\wy/"]
     assert [n for n in notes_for(cmds, JS, keys=("text",)) if "does not match" in n] == []  # ids left out
 
@@ -148,3 +164,16 @@ def test_an_id_is_a_pattern_in_maestro_and_a_plain_name_in_the_appium_export(pac
         maestro.export(pack, pack.journeys["i"])
     spec, notes = appium.export(pack, pack.journeys["i"])
     assert '"id": "a\\\\Z"' in spec and not [n for n in notes if "JavaScript" in n]
+
+
+def test_python_3_14_end_of_text_is_refused_for_javascript():
+    """Python 3.14 reads \\z as the end (3.12 refuses it, so it is not in the table); JavaScript reads the letter z."""
+    with pytest.raises(ActionError, match="JavaScript reads .z"):
+        check("a\\z", JS)
+    assert check("a\\z", JAVA) == []  # Java's \\z is the end of the text too
+
+
+def test_the_b_notes_name_what_differs():
+    assert check("x\\B", JS) == [
+        "\\B knows only ASCII letters and digits in JavaScript (Python: every language), and \\B matches an empty text"]
+    assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java 19 and later (Python: every language)"]

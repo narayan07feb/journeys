@@ -58,7 +58,8 @@ def test_example_journey_runs_through_the_map(pack_dir, tmp_path):
     pack = Pack.load(pack_dir)
     spec, notes = export(pack, pack.journeys["open-display"])
     assert [n for n in notes if "JavaScript (Python" in n] == [  # one line per difference, not per pattern
-        ". does not match \\r in JavaScript (Python: it does): /.*(?:^Network & internet).*/ and 3 more pattern(s)"]
+        ". does not match \\r, \\u2028, \\u2029 or a whole emoji in JavaScript (Python: it does): "
+        "/.*(?:^Network & internet).*/ and 3 more pattern(s)"]
     calls, verdict = run(tmp_path, spec)
     assert verdict == "PASS"
     assert calls[1:3] == [["terminate", "com.android.settings"], ["activate", "com.android.settings"]]
