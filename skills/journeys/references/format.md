@@ -77,7 +77,7 @@ edges:
 | `{tap: SEL}` | Tap the element (waits a moment for it). |
 | `{type: "text"}` | Type into the focused field. |
 | `{erase: 10}` | Delete 10 characters in the focused field (1 to 1000). |
-| `{press: enter}` | A key: enter, back, home, tab, delete, search. |
+| `{press: enter}` | A key: enter, back, home, tab, delete, search (Maestro has no search key). |
 | `{scroll_to: SEL}` | Scroll down until the element shows. Up: `{scroll_to: {element: SEL, direction: up}}`. |
 | `scroll` | Scroll down once. |
 | `{see: SEL}` / `{not_see: SEL}` | Check the element is / is not on screen. |

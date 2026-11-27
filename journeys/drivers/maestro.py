@@ -14,6 +14,7 @@ from pathlib import Path
 
 import yaml
 
+from ..actions import ActionError
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, kind_of
 
@@ -40,9 +41,29 @@ def parse_hierarchy(data: dict) -> Screen:
     return Screen(out, header=f"{len(out)} elements")
 
 
+# Maestro compiles text and id selectors with IGNORE_CASE, DOT_MATCHES_ALL and MULTILINE (Orchestra.kt
+# REGEX_OPTIONS, maestro cli-2.12.1). This inline flag turns all three off again, so Maestro matches a
+# selector exactly as the other drivers do: case-sensitive, `.` not across a line break, ^ and $ at the ends.
+SAME = "(?-ims)"
+
+
+# Python reads these, Java (Maestro) does not: (?P<n>...) groups, (?#...) comments, (?(1)a|b) choices
+# and a "{" that is not a count.
+_NOT_JAVA = re.compile(r"\(\?[P#(]|\{(?!\d+(,\d*)?\})")
+_LITERAL = re.compile(r"\\.|\[\^?\]?(\\.|[^\]])*\]")  # escapes and [...] classes: not checked (most read the same; docs/packs.md lists the ones that do not)
+
+
+def _java(rx: str) -> str:
+    if _NOT_JAVA.search(_LITERAL.sub("_", rx)):
+        raise ActionError(f"/{rx}/: Maestro (Java regex) cannot read this pattern; escape a {{ that is not a "
+                          "count as \\{, and use (?:...) in place of a named group, comment or (?(1)...) choice")
+    return SAME + rx
+
+
 def _maestro_sel(sel):
-    """The drivers' selector -> Maestro's (text is a whole-text regex in both)."""
-    return {"text": sel} if isinstance(sel, str) else dict(sel)
+    """The drivers' selector -> Maestro's (text is a whole-text regex in both; SAME keeps the case)."""
+    out = {"text": sel} if isinstance(sel, str) else dict(sel)
+    return {k: _java(v) if k in ("text", "id") and isinstance(v, str) else v for k, v in out.items()}
 
 
 def to_maestro(cmd):
@@ -50,8 +71,12 @@ def to_maestro(cmd):
     if isinstance(cmd, str):
         return cmd
     (name, arg), = cmd.items()
+    if name == "pressKey" and arg == "Search":
+        raise ActionError("press search: Maestro has no Search key (its KeyCode list); use another driver, "
+                          "or type and press enter")
     if name in ("tapOn", "assertVisible", "assertNotVisible"):
-        return {name: arg if isinstance(arg, str) else _maestro_sel(arg)}
+        sel = _maestro_sel(arg)
+        return {name: sel["text"] if isinstance(arg, str) else sel}
     if name == "scrollUntilVisible":
         opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
         return {name: {"element": _maestro_sel(opts["element"]), "direction": opts.get("direction", "DOWN")}}

@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
-from ..drivers.maestro import to_maestro
+from ..drivers.maestro import SAME, to_maestro
 from ..journey import Journey
 from ..pack import Pack
 from . import journey_commands
@@ -21,8 +21,6 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     """A Maestro flow for the journey, and what could not be exported."""
     notes: list[str] = []
     cmds = [to_maestro(c) for c in journey_commands(pack, j, "Maestro", notes)]
-    if any(isinstance(c, dict) and c.get("pressKey") in ("Search", "Tab") for c in cmds):
-        notes.append("press search/tab: check that your Maestro version has this key")
     if "${" in yaml.safe_dump(cmds):
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")
@@ -43,7 +41,20 @@ def _plain(value, what: str) -> str:
     return str(value)
 
 
-def _neutral_sel(arg):
+def _unsame(v):
+    """A flow Journeys wrote carries SAME in front of its selectors: drop it again."""
+    return v[len(SAME):] if isinstance(v, str) and v.startswith(SAME) else v
+
+
+_CASE = "Maestro matched this flow's texts and ids without case; the draft matches them with case: check them"
+
+
+def _neutral_sel(arg, notes=None, where=""):
+    had = [v for v in ([arg] if isinstance(arg, str) else [arg.get("text"), arg.get("id")] if isinstance(arg, dict)
+                       else []) if isinstance(v, str)]
+    if notes is not None and any(not v.startswith(SAME) for v in had) and f"{where}{_CASE}" not in notes:
+        notes.append(f"{where}{_CASE}")
+    arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
     if isinstance(arg, dict) and set(arg) <= {"text", "id", "index"}:
@@ -108,9 +119,9 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                     actions.append("stop" if name == "stopApp" else {"launch": {"clear_state": True}} if clear else "launch")
             elif name in ("assertVisible", "assertNotVisible"):
                 flush()
-                steps.append({"see" if name == "assertVisible" else "not_see": _neutral_sel(arg)})
+                steps.append({"see" if name == "assertVisible" else "not_see": _neutral_sel(arg, notes, f"{path.name}: ")})
             elif name == "tapOn":
-                actions.append({"tap": _neutral_sel(arg)})
+                actions.append({"tap": _neutral_sel(arg, notes, f"{path.name}: ")})
             elif name == "inputText":
                 actions.append({"type": _plain(arg, "inputText")})
                 notes.append(f"{path.name} command {i + 1}: typed text copied into the draft; if it is a password "
@@ -128,7 +139,7 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                                       "have no neutral form")
                 el = arg.get("element") if isinstance(arg, dict) else arg
                 up = isinstance(arg, dict) and str(arg.get("direction", "DOWN")).upper() == "UP"
-                sel = _neutral_sel(el)
+                sel = _neutral_sel(el, notes, f"{path.name}: ")
                 actions.append({"scroll_to": {"element": sel, "direction": "up"} if up else sel})
             elif name in ("back", "hideKeyboard", "scroll", "waitForAnimationToEnd") and arg is None:
                 actions.append({"back": "back", "hideKeyboard": "hide_keyboard", "scroll": "scroll",

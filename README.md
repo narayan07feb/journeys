@@ -8,7 +8,7 @@ with the tool it already uses:
 |---|---|---|
 | `maestro` | `maestro` on PATH | Each step runs as a Maestro flow. |
 | `speedrun` | `journeys setup` | Upstream [Speedrun](https://github.com/hubastard/speedrun); fast; changes some device state (docs/packs.md). |
-| `appium` | the team's Appium server (UiAutomator2) | Journeys talks W3C WebDriver to it (`JOURNEYS_APPIUM_URL`, default `http://127.0.0.1:4723`; add the server's base path, e.g. `/wd/hub`, if it has one); starts only on a device the pack allows to change, since Appium sets up its helper apps there. |
+| `appium` | the team's Appium server (UiAutomator2) | Journeys talks W3C WebDriver to it (`JOURNEYS_APPIUM_URL`, default `http://127.0.0.1:4723`; add the server's base path, e.g. `/wd/hub`, if it has one); starts only on a device the pack allows to change: a session installs Appium's helper apps, sets the hidden API policy (Android 9+), on a phone allows mock location for its settings app (left on after the session) and unlocks the device. |
 | `fake` | nothing | A small model of the app, for tests without a device. |
 
 Journeys has no device driver of its own: every feature (journeys, detours, explore, tap-all,
@@ -17,9 +17,12 @@ pack's `driver:` is the team's answer; `--driver` overrides it. Journeys never a
 `init` and every device command (`run`, `tap-all`, `look`) ask the user when neither names one, and
 fail with the question when there is no terminal to ask in. The project's tests are shown as a hint
 only, never taken as the answer. The driver tests run each driver against a simulated phone:
-they check how Journeys calls the tool, not that your installed version accepts every key
-(`Search`, `Tab`); check those on your device. Maestro flows import into drafts, and a journey exports
-as a Maestro flow or a WebdriverIO spec for Appium, so a team keeps its tools (docs/packs.md, Export).
+they check how Journeys calls the tool, not that your installed version accepts every key; check
+those on your device. Maestro has no `Search` key: `press: search` is refused with the maestro driver
+and in a Maestro export. Maestro matches selectors without case by default; Journeys' maestro driver
+and export add `(?-ims)` in front of each text and id, so they match exactly as with the other drivers.
+Maestro flows import into drafts, and a journey exports as a Maestro flow or a WebdriverIO spec
+for Appium, so a team keeps its tools (docs/packs.md, Export).
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).
 - **Journeys**: named paths through the map with checks (`expect` a screen, `see` a text, an

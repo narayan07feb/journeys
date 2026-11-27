@@ -137,8 +137,10 @@ class AppiumDriver(AdbDriver):
     def start(self, app_id: str, serial: str | None = None) -> None:
         self.app, self.serial = app_id, serial
         if not changes_allowed(self.allow_changes, self, serial):
-            raise DriverError("Appium sets up its helper apps on the device at session start; pack.yaml "
-                              "devices.allow_settings_changes does not allow that on this device")
+            raise DriverError("an Appium session changes the device: it installs its helper apps, sets the "
+                              "hidden API policy (Android 9+), on a phone allows mock location for its settings "
+                              "app (left on) and unlocks it; pack.yaml devices.allow_settings_changes does not "
+                              "allow that on this device")
         caps = {"platformName": "Android", "appium:automationName": "UiAutomator2", "appium:noReset": True,
                 "appium:appPackage": app_id, "appium:autoLaunch": False,
                 # a hook step may run for 300 s with no Appium call: the session must outlive it
@@ -290,9 +292,10 @@ class AppiumDriver(AdbDriver):
                     if old.error not in ("unknown command", "unknown method"):
                         raise
                     self._mobile("hideKeyboard")
-            except AppiumError as e:  # Appium says no keyboard is up: nothing to hide
-                if e.fatal or "keyboard" not in e.detail.lower():  # the server's words, not the route's
-                    raise  # a dead session or any other error still fails
+            except AppiumError as e:  # an older Appium says no keyboard is up: nothing to hide
+                d = e.detail.lower()  # the server's words, not the route's
+                if e.fatal or not re.search(r"keyboard.*(not present|not shown)|no keyboard", d):
+                    raise  # a dead session, a keyboard that stays up, or any other error still fails
         elif name == "scroll":
             self._swipe(up=True)
         elif name == "scrollUntilVisible":

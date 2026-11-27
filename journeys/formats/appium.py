@@ -176,7 +176,8 @@ async function key(keycode) {
   await driver.execute("mobile: pressKey", { keycode });
 }
 
-// As the Journeys driver: the old route, else the mobile: command; "no keyboard" is nothing to hide.
+// As the Journeys driver: the old route, else the mobile: command; "no keyboard" is nothing to hide,
+// a keyboard that "cannot be hidden" fails.
 async function hideKeyboard() {
   try {
     try {
@@ -186,7 +187,7 @@ async function hideKeyboard() {
       await driver.execute("mobile: hideKeyboard", {});
     }
   } catch (e) {
-    if (fatal(e) || !/keyboard/i.test(e.message)) throw e;
+    if (fatal(e) || !/keyboard.*(not present|not shown)|no keyboard/i.test(e.message)) throw e;
   }
 }
 

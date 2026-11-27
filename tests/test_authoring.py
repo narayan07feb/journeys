@@ -52,10 +52,10 @@ def test_export_to_maestro_and_import_back(pack_dir, tmp_path, capsys):
     assert flow[0] == {"appId": "com.android.settings"}
     cmds = flow[1]
     assert cmds[0] == "launchApp"
-    assert {"assertVisible": {"text": ".*(?:^Network & internet).*"}} in cmds  # expect SETTINGS-HOME
-    assert {"tapOn": "Display.*"} in cmds                            # goto via the map's edges
+    assert {"assertVisible": {"text": "(?-ims).*(?:^Network & internet).*"}} in cmds  # expect SETTINGS-HOME
+    assert {"tapOn": "(?-ims)Display.*"} in cmds                            # goto via the map's edges
     assert "back" not in cmds  # the last goto follows a `do`: the screen is unknown, so it is left out
-    assert {"scrollUntilVisible": {"element": {"text": "Dark theme.*"}, "direction": "DOWN"}} in cmds
+    assert {"scrollUntilVisible": {"element": {"text": "(?-ims)Dark theme.*"}, "direction": "DOWN"}} in cmds
     assert cli(pack_dir, "export", "maestro", "android-version") == 0
     assert "hook steps run only in Journeys" in capsys.readouterr().err
 
@@ -260,7 +260,9 @@ def test_init_export_import_and_shapes_are_strict(pack_dir, tmp_path, capsys):
                  "- eraseText: -5\n- eraseText: 0\n- launchApp: {clearState: 'false'}\n- assertVisible: {id: null}\n"
                  "- tapOn: Ok\n")
     draft, notes = import_flow(f, "com.android.settings")
-    assert draft["steps"] == [{"do": [{"tap": "Ok"}]}] and len(notes) == 6, notes
+    assert draft["steps"] == [{"do": [{"tap": "Ok"}]}] and len(notes) == 7, notes
+    assert notes.count("f.yaml: Maestro matched this flow's texts and ids without case; the draft matches them "
+                       "with case: check them") == 1, notes  # one case note per flow, not one per selector
     (d / "shapes.yaml").write_text("name: shapes\nstart: {clear_state: \"no\"}\nsteps: 5\n")
     (d / "acts.yaml").write_text("name: acts\nsteps:\n  - do: [{launch: {clear_state: \"no\"}}]\n"
                                  "  - do: [{tap: {id: null}}]\n  - do: [{scroll_to: {element: x, foo: 1}}]\n")
@@ -320,10 +322,14 @@ def test_names_variables_empty_do_and_import_header(pack_dir, tmp_path, capsys):
         {"do": [{"tap": {"id": "com.android.settings:id/search_action_bar"}}, "stop"]}]
     assert any("header onFlowStart" in n for n in notes) and any("header env" in n for n in notes)
     assert any("command 4" in n and "clearState" not in n.split(":", 1)[1].split("only")[1] for n in notes)
+    from journeys.actions import ActionError
     from journeys.formats.maestro import export
     (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: search}]\n")
-    _, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
-    assert any("search/tab" in n for n in notes)
+    with pytest.raises(ActionError, match="Maestro has no Search key"):  # cli-2.12.1 KeyCode has no Search
+        export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
+    (pack_dir / "journeys" / "k.yaml").write_text("name: k\nsteps:\n  - do: [{press: tab}]\n")
+    flow, notes = export(Pack.load(pack_dir), Pack.load(pack_dir).journeys["k"])
+    assert "pressKey: Tab" in flow and not notes  # Tab is a Maestro key
 
 
 def test_edge_variables_get_their_value(pack_dir, monkeypatch):
@@ -674,3 +680,47 @@ def test_import_warns_that_typed_text_may_be_a_secret(tmp_path):
     f.write_text("appId: com.x.y\n---\n- launchApp\n- inputText: hunter2\n")
     draft, notes = import_flow(f)
     assert any("move it to env:" in n for n in notes) and not any("hunter2" in n for n in notes)
+
+
+def test_an_exported_flow_imports_back_without_the_case_flag(pack_dir, tmp_path):
+    from journeys.formats.maestro import export, import_flow
+    pack = Pack.load(pack_dir)
+    flow, _ = export(pack, pack.journeys["open-display"])
+    assert "(?-ims)" in flow
+    (tmp_path / "f.yaml").write_text(flow)
+    draft, _ = import_flow(tmp_path / "f.yaml", pack.app)
+    assert "(?-ims)" not in str(draft) and "Dark theme.*" in str(draft)
+
+
+@pytest.mark.parametrize("rx", ["a{b", "(?P<n>a)b", "x(?P=n)", "\\\\{", "(?#c)a", "(a)?(?(1)b|c)", "a{2[x]}"])
+@pytest.mark.parametrize("shape", ["tap", "tap id", "see", "scroll"])
+def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
+    from journeys.actions import ActionError
+    from journeys.drivers.maestro import to_maestro
+    cmd = {"tap": {"tapOn": rx}, "tap id": {"tapOn": {"id": rx}}, "see": {"assertVisible": {"text": rx}},
+           "scroll": {"scrollUntilVisible": {"element": rx}}}[shape]
+    with pytest.raises(ActionError, match="Java regex"):  # java.util.regex (Java 17) throws on each of these
+        to_maestro(cmd)
+
+
+@pytest.mark.parametrize("rx", ["a{2}", "a{2,}", "a{2,3}", "\\{x\\}", "[{]x", "[^]{]x", "a\\(?P", "x}"])
+def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
+    from journeys.drivers.maestro import SAME, to_maestro
+    assert to_maestro({"tapOn": {"text": rx}}) == {"tapOn": {"text": SAME + rx}}
+
+
+def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generated_one(tmp_path):
+    from journeys.formats.maestro import import_flow
+    case = "Maestro matched this flow's texts and ids without case"
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- tapOn: Ok\n- assertVisible: {id: a}\n"
+                 "- scrollUntilVisible: {element: Done}\n")
+    _, notes = import_flow(f, "com.android.settings")
+    assert [n for n in notes if case in n] == [f"f.yaml: {case}; the draft matches them with case: check them"]
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {index: '1'}\n")
+    assert not [n for n in import_flow(f, "com.android.settings")[1] if case in n]  # no text or id: no note
+    f.write_text("appId: com.android.settings\n---\n- scrollUntilVisible: {element: Done}\n")
+    assert any(case in n for n in import_flow(f, "com.android.settings")[1])  # a scroll's element too
+    f.write_text("appId: com.android.settings\n---\n- tapOn: '(?-ims)Ok'\n- assertVisible: {id: '(?-ims)a'}\n")
+    draft, notes = import_flow(f, "com.android.settings")
+    assert not [n for n in notes if case in n] and draft["steps"] == [{"do": [{"tap": "Ok"}]}, {"see": {"id": "a"}}]

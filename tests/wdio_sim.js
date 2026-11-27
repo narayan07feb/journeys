@@ -85,7 +85,11 @@ const MOBILE = {
 const field = strict("element", { addValue: async (t) => { log("type", t); } });
 globalThis.$ = async (ref) => { if (!ref || ref[REF] !== "focused") throw new Error("$ wants the active element"); return field; };
 // app.json old_routes: false = a server without the /appium/device/hide_keyboard route
+// app.json stuck_keyboard: true = the keyboard will not go away (appium-adb's "cannot be hidden" error)
+// app.json keyboard_error: "<text>" = any other keyboard error while the keyboard is up
 function hide() {
+  if (app.stuck_keyboard && keyboard) throw wderr("unknown error", "The software keyboard cannot be hidden");
+  if (app.keyboard_error && keyboard) throw wderr("unknown error", app.keyboard_error);
   if (!keyboard) throw wderr("unknown error", "Soft keyboard not present, cannot hide keyboard");
   log("hideKeyboard");
   keyboard = false;
