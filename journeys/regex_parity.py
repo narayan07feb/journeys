@@ -33,6 +33,16 @@ def shown(rx: str) -> str:
                   lambda m: f"\\x{ord(m[0]):02x}" if ord(m[0]) < 256 else f"\\u{ord(m[0]):04x}", rx)
 
 
+def _shorthand_note(e: str, engine: str) -> str:
+    """The note for \\d \\D \\w \\W \\s \\S."""
+    if e in _SHORTHAND:
+        return f"\\{e} knows only ASCII {_SHORTHAND[e]} in {engine} (Python: every language)"
+    if engine == JAVA:
+        return f"\\{e} knows only ASCII spaces in Java (Python: Unicode spaces, and \\x1c-\\x1f)"
+    return (f"\\{e} knows another set of spaces in JavaScript, such as \\ufeff (Python: Unicode spaces and "
+            "\\x1c-\\x1f, not \\ufeff)")
+
+
 def _class_ranges(rx: str, start: int) -> tuple[list[tuple[int, int]], set[str], int]:
     """The [...] class at `start`: its (low, high) code point ranges, its shorthand escapes, and its end."""
     i = start + 1 + (rx[start + 1:start + 2] == "^")
@@ -53,18 +63,18 @@ def _class_ranges(rx: str, start: int) -> tuple[list[tuple[int, int]], set[str],
                 singles.append(ord(_CONTROL.get(e, e)))
             i += 2
         else:
-            singles.append(ord(rx[i]) if rx[i] != "-" else -1)
+            singles.append(-1 if rx[i] == "-" else ord(rx[i]))  # -1: an unescaped -, a range or a literal
             i += 1
     ranges, k = [], 0
     while k < len(singles):
-        if k + 2 < len(singles) and singles[k + 1] == -1 and None not in (singles[k], singles[k + 2]) \
-                and singles[k] != -1 and singles[k + 2] != -1:
-            ranges.append((singles[k], singles[k + 2]))
+        lo = 0x2D if singles[k] == -1 else singles[k]  # a - where no range can start is the character -
+        if k + 2 < len(singles) and singles[k + 1] == -1 and lo is not None and singles[k + 2] is not None:
+            ranges.append((lo, 0x2D if singles[k + 2] == -1 else singles[k + 2]))
             k += 3
-        else:
-            if singles[k] is not None and singles[k] != -1:
-                ranges.append((singles[k], singles[k]))
-            k += 1
+            continue
+        if lo is not None:
+            ranges.append((lo, lo))
+        k += 1
     return ranges, shorts, i
 
 
@@ -82,8 +92,8 @@ def check(rx: str, engine: str) -> list[str]:
         refuse("a lone \\uD800-\\uDFFF half of a character", "write the whole character")
     notes: set[str] = set()
     i, n, quant, cls, depth = 0, len(rx), False, None, 0  # quant: the last token was a quantifier
-    alts = [False]  # per open group (and the top): a | inside it; after_alt: the group just closed had one
-    after_alt = False
+    choice = [False]  # per open group (and the top): a | or a variable-count quantifier inside it
+    after_choice = False  # the group just closed has one
     if rx.startswith("(?i)"):
         if engine == JS:
             refuse("(?i)", "JavaScript reads no flags inside a pattern")
@@ -91,31 +101,28 @@ def check(rx: str, engine: str) -> list[str]:
                   "not in Java")
         i = 4
     begin = i
+    in_class: dict[str, str] = {}  # the open class's shorthand letters, and their notes (merged at its end)
     while i < n:
         c = rx[i]
         count = _COUNT.match(rx, i) if c == "{" else None
-        if after_alt and engine == JAVA and (c in "*+" or (count and (count[2] == "," or int(count[3] or count[1])
-                                                                        >= 1000))):
-            notes.add("a repeated group with | can overflow Java's stack on a text of a few thousand characters "
-                      "(Python: fine); for single characters use a class, such as [ab]* for (?:a|b)*")
-        if not (c in "*+?{" and after_alt):
-            after_alt = False
+        if after_choice and engine == JAVA and (c in "*+" or (count and (count[2] == "," or int(count[3] or count[1])
+                                                                           >= 1000))):
+            notes.add("a repeated group with a | or an optional part inside can overflow Java's stack on a text of "
+                      "a few thousand characters (Python: fine); for single characters use a class, such as [ab]* "
+                      "for (?:a|b)*")
+        if not (c in "*+?{" and after_choice):
+            after_choice = False
         if cls is None and rx.startswith(ANY + "*", i):  # every character, any number, in all three: no note
             i, quant = i + len(ANY) + 1, True
             continue
         if c == "\\":
             e = rx[i + 1:i + 2]
-            if e in _SHORTHAND:
-                notes.add(f"\\{e} knows only ASCII {_SHORTHAND[e]} in {engine} (Python: every language)")
-                if cls is not None and e.isupper() and engine == JS:
+            if e in "dDwWsS" and cls is None:
+                notes.add(_shorthand_note(e, engine))
+            elif e in "dDwWsS":
+                in_class[e] = _shorthand_note(e, engine)
+                if e in "DWS" and engine == JS:
                     notes.add(_HALF.format(what=f"[...\\{e}...] class"))
-            elif e in ("s", "S"):
-                notes.add(f"\\{e} knows only ASCII spaces in Java (Python: Unicode spaces, and \\x1c-\\x1f)"
-                          if engine == JAVA else
-                          f"\\{e} knows another set of spaces in JavaScript, such as \\ufeff (Python: Unicode spaces "
-                          "and \\x1c-\\x1f, not \\ufeff)")
-                if cls is not None and e == "S" and engine == JS:
-                    notes.add(_HALF.format(what="[...\\S...] class"))
             elif e in ("b", "B") and cls is None:
                 notes.add(f"\\{e} knows only ASCII letters and digits in "
                           f"{'Java 19 and later' if engine == JAVA else JS} (Python: every language)"
@@ -133,6 +140,8 @@ def check(rx: str, engine: str) -> list[str]:
                 refuse("a ] first in a [...] class", "escape it as \\]")
             if c == "]":
                 cls = None
+                notes |= {t for x, t in in_class.items() if x.swapcase() not in in_class}  # [\s\S]: all, no note
+                in_class = {}
             elif c == "[":
                 refuse("a [ inside a [...] class", "escape it as \\[")
             elif c == "&" and rx.startswith("&&", i):
@@ -155,15 +164,15 @@ def check(rx: str, engine: str) -> list[str]:
                 refuse(f"the group {rx[i:i + 3]}...", _GROUP_HINTS.get(k, "inline flags cannot be sent; for (?s) "
                        "write [\\s\\S] in place of . to cross line breaks"))
             depth += 1
-            alts.append(False)
+            choice.append(False)
             i, quant = i + (3 if rx.startswith("(?:", i) else 1), False
             continue
         elif c == ")":
             depth -= 1
-            after_alt = alts.pop()
-            alts[-1] |= after_alt
+            after_choice = choice.pop()
+            choice[-1] |= after_choice
         elif c == "|":
-            alts[-1] = True
+            choice[-1] = True
         elif c == "^" and not (i == begin or (depth == 0 and rx[i - 1] == "|")):
             refuse("a ^ inside the pattern", "leave it out: a pattern always matches the whole text")
         elif c == "$" and not (rx[i + 1:].strip(")") == "" or (depth == 0 and rx[i + 1:i + 2] == "|")):
@@ -174,16 +183,18 @@ def check(rx: str, engine: str) -> list[str]:
         elif c == "{":
             m = _COUNT.match(rx, i)
             if not m:
-                refuse("a { that is not a count", "write {0,n} for up to n" if re.match(r"\{,[0-9]", rx[i:])
+                refuse("a { that is not a count", "write {0,n} for up to n, or {0,} for any number" if re.match(r"\{,[0-9]*\}", rx[i:])
                        else "escape it as \\{")
             if max(int(x) for x in (m[1], m[3]) if x) > _MAX_COUNT:
                 refuse("a count above 2147483647")
+            choice[-1] |= m[2] is not None and m[1] != m[3]  # {n,} or {n,m}: a choice; {n} and {n,n}: none
             i, quant = m.end(), True
             continue
         elif c in "*+?":
             if quant and c == "+":
                 refuse("a possessive quantifier (*+, ++, ?+)", "leave out the second +")
             quant = True  # a lazy ? after it is fine; Python refuses a third
+            choice[-1] = True
             i += 1
             continue
         quant = False

@@ -9,9 +9,9 @@ from ..pack import Pack
 from ..regex_parity import ANY
 
 
-def _top_level_or(rx: str) -> bool:
-    """Whether the pattern has a | outside every group and class."""
-    depth, cls, i = 0, False, 0
+def _scan(rx: str) -> tuple[list[int], list[tuple[int, int, bool]]]:
+    """The top-level | positions, and each group's (start, end, has a | directly inside)."""
+    top, groups, stack, cls, i = [], [], [], False, 0
     while i < len(rx):
         c = rx[i]
         if c == "\\":
@@ -21,12 +21,34 @@ def _top_level_or(rx: str) -> bool:
             cls = c != "]"
         elif c == "[":
             cls = True
-        elif c in "()":
-            depth += 1 if c == "(" else -1
-        elif c == "|" and depth == 0:
-            return True
+        elif c == "(":
+            stack.append([i, False])
+        elif c == ")" and stack:
+            start, alt = stack.pop()
+            groups.append((start, i, alt))
+        elif c == "|" and stack:
+            stack[-1][1] = True
+        elif c == "|":
+            top.append(i)
         i += 1
-    return False
+    return top, groups
+
+
+def _branch(b: str) -> str:
+    """One top-level branch of a map rule, padded to match a whole text. Its own leading ^ (after any
+    opening groups) and trailing $ (before any closing ones) mark the start and end of the text, so they
+    replace the padding there, unless a group around them has a | (then they stay, and check() refuses)."""
+    left = right = f"{ANY}*"
+    _, groups = _scan(b)
+    lead = re.match(r"(?:\((?:\?:)?)*", b).end()
+    if b[lead:lead + 1] == "^" and not any(alt for start, _, alt in groups if start < lead):
+        b, left = b[:lead] + b[lead + 1:], ""
+    core = b.rstrip(")")
+    tail = len(b) - len(core)
+    escaped = (len(core) - 1 - len(core[:-1].rstrip("\\"))) % 2  # an odd run of \ before the $
+    if core.endswith("$") and not escaped and not any(alt for _, end, alt in groups if end >= len(core)):
+        b, right = core[:-1] + ")" * tail, "\\n?"  # Python's $ also matches before a final line break
+    return f"{left}(?:{b}){right}"
 
 
 class MapText(str):
@@ -34,22 +56,18 @@ class MapText(str):
 
 
 def _part(rx: str, screen: str) -> str:
-    """A map rule's pattern, which may match part of a text, as one that matches all of it: [\\s\\S]* on both
-    sides (every character, line breaks too, in Python, Java and JavaScript). A leading (?i) stays at the
-    start, where Python reads flags. The result must compile: a broken one is an error, never plain text."""
+    """A map rule's pattern, which may match part of a text, as one that matches all of it: each top-level
+    branch gets [\\s\\S]* on both sides (every character, line breaks too, in Python, Java and JavaScript).
+    A leading (?i) stays at the start, where Python reads flags. The result must compile: a broken one is
+    an error, never plain text."""
     flags = "(?i)" if rx.startswith("(?i)") else ""
     inner = rx[len(flags):]
-    left = right = f"{ANY}*"
-    if not _top_level_or(inner):  # a rule's own ^ or $ is the start or end of the text: no padding there
-        if inner.startswith("^"):
-            inner, left = inner[1:], ""
-        body = inner[:-1]
-        if inner.endswith("$") and (len(body) - len(body.rstrip("\\"))) % 2 == 0:  # not an escaped \$
-            inner, right = body, "\\n?"  # Python's $ also matches before a final line break
-    out = f"{flags}{left}(?:{inner}){right}"
+    cuts = _scan(inner)[0]
+    branches = [inner[a + 1:b] for a, b in zip([-1, *cuts], [*cuts, len(inner)])]
+    out = flags + "|".join(_branch(b) for b in branches)
     try:
         re.compile(out)
-    except re.error as e:
+    except (re.error, OverflowError, RecursionError) as e:
         raise ActionError(f"screen {screen}: rule /{rx}/ cannot be exported as a whole-text pattern ({e})") from None
     return out
 

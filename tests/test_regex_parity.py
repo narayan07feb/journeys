@@ -73,8 +73,13 @@ CASES = {
     # round 5 witnesses
     "(?:^|a){2}": {JAVA: ("refuse", ["a"]), JS: (DENY, [])},
     "(?:^|a){2}?": {JAVA: ("refuse", ["a"]), JS: (DENY, [])},
-    "[\\s\\S]": {JAVA: ("note", []), JS: ("note", [E])},
-    "[\\s\\S]{2}": {JAVA: ("note", []), JS: ("note", [E])},
+    "[\\s\\S]": {JAVA: (SAME, [E, "\x1c", "\ufeff"]), JS: ("note", [E])},  # \s and \S together: every character
+    "[\\s\\S]{2}": {JAVA: (SAME, [E, "ab"]), JS: ("note", [E])},
+    # round 6 witnesses
+    "[--\\ue000]{2}": {JAVA: (SAME, [E, "--"]), JS: ("refuse", [E])},  # the range starts at a literal -
+    "^Save$|^Cancel$": {JAVA: (SAME, ["Save", "Cancel", "Save\n"]), JS: (SAME, ["Save", "Cancel", "Save\n"])},
+    "(?:Save)[\\s\\S]*|(?:Cancel)[\\s\\S]*": {JAVA: (SAME, ["Save draft", "Auto Save"]), JS: (SAME, ["Save draft", "Auto Save"])},
+    "[\\s\\S]*(?:(Total))\\n?": {JAVA: (SAME, ["x Total\n", "Total x"]), JS: (SAME, ["x Total\n", "Total x"])},
     "[\\u0000-\\uffff]+": {JAVA: (SAME, [E, "ab"]), JS: ("refuse", [E])},
     "\ud83d\ude00": {JAVA: ("refuse", []), JS: ("refuse", [])},  # lone halves, as YAML "\uD83D\uDE00" loads
     "[": {JAVA: ("refuse", []), JS: ("refuse", [])},  # Python cannot read it either
@@ -229,7 +234,7 @@ _LIT = ["a", "b", "Z", "é", "1", "-", " ", ",", "/", "\u00a0", "\u0663", "\r", 
 _ESC = ["\\.", "\\$", "\\(", "\\)", "\\[", "\\]", "\\{", "\\}", "\\|", "\\*", "\\+", "\\?", "\\\\", "\\-",
         "\\ ", "\\t", "\\n", "\\x41", "\\u00e9", "\\/", "\\,", "\\#"]
 _CLASS = ["[ab]", "[a-z]", "[^a]", "[-a]", "[a-]", "[\\]a]", "[.]", "[é1]", "[A-Z0-9]", "[^\\n]", "[\\-\\]]",
-          "[\\s\\S]", "[\\u0000-\\uffff]", "[\\S]", "[^ ]", "[\\w\\-]"]
+          "[\\s\\S]", "[\\u0000-\\uffff]", "[\\S]", "[^ ]", "[\\w\\-]", "[--/]", "[\\s\\S\\d]"]
 _SHORT = ["\\d", "\\w", "\\s", "\\D", "\\W", "\\S"]
 _POOL = _LIT + ["A", "{", "}", "(", ")", "[", "]", ".", "$", "\\", "|", "*", "+", "?", "\t", "\u2028", "\x1c",
                 "_", "#", ","]
@@ -335,10 +340,13 @@ def test_the_notes_name_what_differs():
     assert check("a$", JAVA) == check("(a$)", JS) == check("a$|b", JS) == []
     assert check("(?i)a", JAVA) == ["(?i) folds a few letters differently in Java: [A-Z] matches the Kelvin sign "
                                     "\u212a in Python, not in Java"]
-    stack = ("a repeated group with | can overflow Java's stack on a text of a few thousand characters (Python: "
-             "fine); for single characters use a class, such as [ab]* for (?:a|b)*")
-    assert check("(?:a|b)*", JAVA) == check("x(?:(?:a|b)c)+", JAVA) == check("(?:a|b){2,}", JAVA) == [stack]
-    assert check("(?:a|b){2,3}", JAVA) == check("(?:ab)*", JAVA) == check("(?:a|b)*", JS) == []
+    stack = ("a repeated group with a | or an optional part inside can overflow Java's stack on a text of a few "
+             "thousand characters (Python: fine); for single characters use a class, such as [ab]* for (?:a|b)*")
+    for rx in ("(?:a|b)*", "x(?:(?:a|b)c)+", "(?:a|b){2,}", "(?:ab?)*", "(?:a{1,2})*", "(?:[ab]c?)+", "(ab*)*"):
+        assert check(rx, JAVA) == [stack], rx  # each overflows Java 11, 17 and 25 at about 8,000 characters
+    for rx in ("(?:a|b){2,3}", "(?:ab)*", "(?:a{2})*", "(?:ab?){1,500}", "[ab]*"):
+        assert check(rx, JAVA) == [], rx  # these repeat without recursion, or only a few times
+    assert check("(?:a|b)*", JS) == []
     assert check("[\\S]", JS) == sorted([_halves("[...\\S...] class"), "\\S knows another set of spaces in "
                                          "JavaScript, such as \\ufeff (Python: Unicode spaces and \\x1c-\\x1f, not \\ufeff)"])
 
@@ -350,8 +358,10 @@ def _halves(what):
 def test_a_refusal_names_the_subset_and_a_hint():
     with pytest.raises(ActionError, match=r"the group \(\?=\.\.\. is not in the pattern subset .* lookarounds cannot"):
         check("a(?=b)", JAVA)
-    with pytest.raises(ActionError, match=r"write \{0,n\} for up to n"):
+    with pytest.raises(ActionError, match=r"write \{0,n\} for up to n, or \{0,\} for any number"):
         check("a{,3}", JAVA)
+    with pytest.raises(ActionError, match=r"or \{0,\} for any number"):
+        check("a{,}", JS)
     with pytest.raises(ActionError, match=r"write \(\?:\U0001F642\)\{2\}"):
         check("\U0001F642{2}", JS)
     with pytest.raises(ActionError, match=r"write \[\\s\\S\] in place of \."):
@@ -436,8 +446,10 @@ def test_the_class_and_wrapper_rules_that_the_table_cannot_show():
     for c in ("\\W", "\\D"):
         assert _halves(f"[...{c}...] class") in check(f"[{c}]", JS)
     assert _part("x$", "S") == "[\\s\\S]*(?:x)\\n?"  # Python's $ also matches before a final \n
-    assert _part("^a|b", "S") == "[\\s\\S]*(?:^a|b)[\\s\\S]*"  # a | at the top: the anchors stay in the rule
+    assert _part("^a|b", "S") == "(?:a)[\\s\\S]*|[\\s\\S]*(?:b)[\\s\\S]*"  # each top-level branch on its own
     assert _part("^(a|b)", "S") == "(?:(a|b))[\\s\\S]*" and _part("^[|]", "S") == "(?:[|])[\\s\\S]*"
+    assert _part("(Total$)", "S") == "[\\s\\S]*(?:(Total))\\n?" and _part("x\\$", "S") == "[\\s\\S]*(?:x\\$)[\\s\\S]*"
+    assert _part("(^a|b)c", "S") == "[\\s\\S]*(?:(^a|b)c)[\\s\\S]*"  # a | around the ^: it stays, and check() refuses
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -459,3 +471,30 @@ def test_a_count_too_big_for_python_is_a_pack_error_not_a_crash(pack_dir):
     f = pack_dir / "map" / "screens.yaml"
     f.write_text(f.read_text().replace('all: [{text: "/^Network & internet/"}]', 'all: [{text: "/a{4294967295}/"}]'))
     assert any("SETTINGS-HOME" in e and "repetition" in e for e in Pack.load(pack_dir).errors)
+
+
+def test_map_rules_with_anchors_and_literal_placeholders_export(pack_dir):
+    from journeys.formats import appium, maestro
+    from journeys.pack import Pack
+    f = pack_dir / "map" / "screens.yaml"
+    base = f.read_text()
+    f.write_text(base.replace('all: [{text: "/^Network & internet/"}]', 'all: [{text: "/^Network|^Display$/"}]'))
+    (pack_dir / "journeys" / "s.yaml").write_text("name: s\nsteps:\n  - expect: SETTINGS-HOME\n")
+    pack = Pack.load(pack_dir)
+    for fmt in (maestro, appium):
+        assert "(?:Network)[\\s\\S]*|(?:Display)\\n?" in fmt.export(pack, pack.journeys["s"])[0].replace(
+            "\\\\", "\\")
+    (pack_dir / "journeys" / "s.yaml").write_text("name: s\nsteps:\n  - see: '/Code \\$\\{draft\\}/'\n")
+    pack = Pack.load(pack_dir)
+    assert "Code" in appium.export(pack, pack.journeys["s"])[0]  # a pattern's \$\{draft\} is the literal text
+    f.write_text(base.replace('all: [{text: "/^Network & internet/"}]', 'all: [{text: "/' + "(" * 495 + "a"
+                                                                            + ")" * 495 + '/"}]'))
+    assert any("SETTINGS-HOME" in e and "recursion" in e for e in Pack.load(pack_dir).errors)  # a load error
+
+
+def test_a_rule_that_only_breaks_once_wrapped_is_an_export_error():
+    from journeys.formats import _part
+    deep = "(" * 495 + "a" + ")" * 495  # Python 3.12 compiles it, not with one more group around it
+    with pytest.raises(ActionError, match="screen S: rule .* cannot be exported as a whole-text pattern"):
+        _part(deep, "S")
+    assert _part("(b|a$)", "S") == "[\\s\\S]*(?:(b|a$))[\\s\\S]*"  # a | around the $: it stays (check() refuses)

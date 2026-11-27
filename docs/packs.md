@@ -323,14 +323,17 @@ The subset:
   JavaScript; `\s` knows only ASCII spaces in Java, and another set in JavaScript (with `\ufeff`;
   Python has `\x1c`-`\x1f`); `\b` is ASCII in JavaScript and Java 19 and later; `\B` matches an empty
   text;
-- a `[...]` class, with `^` first, ranges and the escapes above; no `]` first, no `[` or `&&` inside, no
-  `\b` or digit escapes inside; for JavaScript no range across U+D800-U+DFFF (it would match halves
-  of emoji: stop at `\ud7ff` and start again at `\ue000`); a `[^...]` class, or one with `\D`, `\W` or
-  `\S` inside, is noted for JavaScript (it can match half an emoji);
+- a `[...]` class, with `^` first, ranges (a `-` first or last is the character itself, and can start
+  a range, as in `[--/]`) and the escapes above; no `]` first, no `[` or `&&` inside, no `\b` or digit
+  escapes inside; for JavaScript no range across U+D800-U+DFFF (it would match halves of emoji: stop at
+  `\ud7ff` and start again at `\ue000`); a `[^...]` class, or one with `\D`, `\W` or `\S` inside, is
+  noted for JavaScript (it can match half an emoji); a class with both halves of a pair, such as
+  `[\s\S]`, holds every character and gets no `\s`, `\d` or `\w` note;
 - `( )`, `(?: )` and `|`;
 - `*`, `+`, `?`, `{n}`, `{n,}` and `{n,m}` (digits 0-9, at most 2147483647), and their lazy forms; a
-  group with `|` inside repeated without a small limit is noted for Java (it can overflow Java's stack on
-  a text of a few thousand characters; for single characters write a class: `[ab]*`, not `(?:a|b)*`);
+  group with a `|` or an optional part inside (`?`, `*`, `+`, `{n,m}`), repeated without a small limit, is
+  noted for Java: it can overflow Java's stack on a text of a few thousand characters (Java 11, 17 and 25
+  at about 8,000). For single characters write a class: `[ab]*`, not `(?:a|b)*`;
 - `^` at the start of the pattern or of a top-level branch, and `$` at the end of the pattern or of a
   top-level branch (anywhere else they are refused: a pattern matches the whole text anyway);
 - `.`, noted: it does not match `\r`, `\u2028` or `\u2029` there, nor `\x85` in Java, nor a whole emoji
@@ -343,13 +346,16 @@ Outside it, and so refused: patterns Python cannot read; lookarounds (`(?=`, `(?
 back-references (`\1`), named groups, comments, conditionals and atomic groups; every other inline flag
 (`(?s)`: write `[\s\S]` in place of `.` to cross lines; `(?x)`, `(?i:...)`, `(?-i:...)`); possessive
 quantifiers; `\A`, `\Z` and `\z`; octal and named escapes (`\0`, `\101`, `\N{...}`); `\a`, `\v`,
-`\U...`; a `{` that is not a count; and `{,n}` (write `{0,n}`).
+`\U...`; a `{` that is not a count; and `{,n}` and `{,}` (write `{0,n}` and `{0,}`).
 
-A map rule may match part of a text. The exports send it as `[\s\S]*(?:rule)[\s\S]*`, so it also
-matches a text with line breaks. A rule's own leading `^` drops the left `[\s\S]*`, and its trailing
-`$` becomes `\n?` (Python's `$` also matches before a final line break). A leading `(?i)` stays at the
-very start. A rule that does not fit is an export error, never plain text, and the Appium spec matches
-it only as a pattern. Map rules never hold `${NAME}`. A dot in an id (`com.example:id/title`) gets no
+A map rule may match part of a text. The exports send each top-level branch of it as
+`[\s\S]*(?:branch)[\s\S]*`, so it also matches a text with line breaks. A branch's own leading `^`
+(after any opening groups) drops the left `[\s\S]*`, and its trailing `$` (before any closing groups)
+becomes `\n?` (Python's `$` also matches before a final line break): `^Save|^Cancel` and `(Total$)`
+export as they search. A `^` or `$` inside a group that also has a `|`, as in `(^a|b)c`, stays, and is
+refused. A leading `(?i)` stays at the very start. A rule that does not fit is an export error, never
+plain text, and the Appium spec matches it only as a pattern. Map rules never hold `${NAME}`. In a
+journey's pattern, `\$\{name\}` is that literal text unless the pack declares `name`. A dot in an id (`com.example:id/title`) gets no
 note: it is the package's dot. The maestro driver runs noted patterns without a note. Write the letters
 you mean (`[0-9]`, `[A-Za-z]`) when the app shows other text.
 

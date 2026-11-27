@@ -199,17 +199,20 @@ async function type(text) {
 """
 
 
-_ESCAPED_VAR = re.compile(r"\\\$\\\{[A-Za-z_]([A-Za-z0-9_]|\\\.)*\\\}")  # ${NAME} after escape()
+_ESCAPED_VAR = re.compile(r"\\\$\\\{([A-Za-z_](?:[A-Za-z0-9_]|\\\.)*)\\\}")  # ${NAME} after escape()
 
 
-def _no_vars(value: str, what: str) -> str:
-    if _VAR.search(value) or _ESCAPED_VAR.search(value):
+def _no_vars(value: str, what: str, declared: set[str]) -> str:
+    """Refuse ${NAME} in a selector. A plain text's ${NAME} reaches here escaped (\\$\\{NAME\\}); a pattern
+    can hold that spelling on purpose for the literal text, so the escaped one counts only for a name the
+    pack declares (Journeys substitutes those; validate refuses an undeclared one in a plain text)."""
+    if _VAR.search(value) or any(m[1].replace("\\.", ".") in declared for m in _ESCAPED_VAR.finditer(value)):
         raise ActionError(f"{what} {shown(value)!r} uses ${{NAME}}: the Appium export cannot put a variable "
                           "in a selector; write the value, or run this journey with Journeys")
     return value
 
 
-def _sel(sel, sels: list[str]) -> str:
+def _sel(sel, sels: list[str], declared: set[str]) -> str:
     """A shared-form selector -> SEL[n], an S({...}) made when the spec loads, matched as
     journeys.drivers.base.find does."""
     show = shown(sel)
@@ -221,11 +224,11 @@ def _sel(sel, sels: list[str]) -> str:
         raise ActionError(f"index {sel.get('index')!r} is not a number") from None
     out = {"text": None, "rx": False, "id": None, "index": index, "show": show}
     if "id" in sel:
-        want = _no_vars(str(sel["id"]), "id")  # the driver reports bare names, so only the name counts
+        want = _no_vars(str(sel["id"]), "id", declared)  # the driver reports bare names, so only the name counts
         out["id"] = want.rpartition(":id/")[2] if ":id/" in want else want.rsplit("/", 1)[-1]
     if "text" in sel:
         from_map = isinstance(sel["text"], MapText)  # a map rule: never a variable, only a pattern
-        out["text"] = str(sel["text"]) if from_map else _no_vars(str(sel["text"]), "text")
+        out["text"] = str(sel["text"]) if from_map else _no_vars(str(sel["text"]), "text", declared)
         try:
             re.compile(out["text"])
             out["rx"] = True
@@ -282,15 +285,15 @@ def _js(pack: Pack, cmd, sels: list[str]) -> str:
     if name == "scroll":
         return "await swipe(true);"
     if name == "tapOn":
-        return f"await tap({_sel(arg, sels)});"
+        return f"await tap({_sel(arg, sels, pack.declared())});"
     if name == "assertVisible":
-        return f"await find({_sel(arg, sels)});"
+        return f"await find({_sel(arg, sels, pack.declared())});"
     if name == "assertNotVisible":
-        return f"await gone({_sel(arg, sels)});"
+        return f"await gone({_sel(arg, sels, pack.declared())});"
     if name == "scrollUntilVisible":
         opts = arg if isinstance(arg, dict) and "element" in arg else {"element": arg}
         up = str(opts.get("direction", "DOWN")).upper() != "UP"
-        return f"await scrollTo({_sel(opts['element'], sels)}, {'true' if up else 'false'});"
+        return f"await scrollTo({_sel(opts['element'], sels, pack.declared())}, {'true' if up else 'false'});"
     if name == "inputText":
         return f"await type({_text(pack, str(arg))});"
     if name == "eraseText":
