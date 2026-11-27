@@ -132,7 +132,7 @@ def _as_maestro_matches(cmd):
     unless the pattern turns them off with a leading (?-ims), as java.util.regex allows. Python's re has
     no global "off" group, so: with the prefix, drop it (plain matching); without, add (?ims)."""
     def one(v):
-        return v[len("(?-ims)"):] if v.startswith("(?-ims)") else "(?ims)" + v
+        return v[len("(?-ims)"):] if v.startswith("(?-ims)") else f"(?ims:{v})"
 
     def sel(a):
         if isinstance(a, str):

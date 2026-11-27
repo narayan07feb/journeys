@@ -260,7 +260,9 @@ def test_init_export_import_and_shapes_are_strict(pack_dir, tmp_path, capsys):
                  "- eraseText: -5\n- eraseText: 0\n- launchApp: {clearState: 'false'}\n- assertVisible: {id: null}\n"
                  "- tapOn: Ok\n")
     draft, notes = import_flow(f, "com.android.settings")
-    assert draft["steps"] == [{"do": [{"tap": "Ok"}]}] and len(notes) == 6, notes
+    assert draft["steps"] == [{"do": [{"tap": "Ok"}]}] and len(notes) == 7, notes
+    assert notes.count("f.yaml: Maestro matched this flow's texts and ids without case; the draft matches them "
+                       "with case: check them") == 1, notes  # one case note per flow, not one per selector
     (d / "shapes.yaml").write_text("name: shapes\nstart: {clear_state: \"no\"}\nsteps: 5\n")
     (d / "acts.yaml").write_text("name: acts\nsteps:\n  - do: [{launch: {clear_state: \"no\"}}]\n"
                                  "  - do: [{tap: {id: null}}]\n  - do: [{scroll_to: {element: x, foo: 1}}]\n")
@@ -688,3 +690,32 @@ def test_an_exported_flow_imports_back_without_the_case_flag(pack_dir, tmp_path)
     (tmp_path / "f.yaml").write_text(flow)
     draft, _ = import_flow(tmp_path / "f.yaml", pack.app)
     assert "(?-ims)" not in str(draft) and "Dark theme.*" in str(draft)
+
+
+@pytest.mark.parametrize("rx", ["a{b", "(?P<n>a)b", "x(?P=n)", "\\\\{"])
+def test_a_selector_java_cannot_read_is_refused_for_maestro(rx):
+    from journeys.actions import ActionError
+    from journeys.drivers.maestro import to_maestro
+    with pytest.raises(ActionError, match="Java regex"):  # java.util.regex: a dangling { and (?P are syntax errors
+        to_maestro({"tapOn": {"text": rx}})
+
+
+@pytest.mark.parametrize("rx", ["a{2}", "a{2,}", "a{2,3}", "\\{x\\}", "[{]x", "[^]{]x", "a\\(?P", "x}"])
+def test_a_selector_java_reads_goes_to_maestro_unchanged(rx):
+    from journeys.drivers.maestro import SAME, to_maestro
+    assert to_maestro({"tapOn": {"text": rx}}) == {"tapOn": {"text": SAME + rx}}
+
+
+def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generated_one(tmp_path):
+    from journeys.formats.maestro import import_flow
+    case = "Maestro matched this flow's texts and ids without case"
+    f = tmp_path / "f.yaml"
+    f.write_text("appId: com.android.settings\n---\n- tapOn: Ok\n- assertVisible: {id: a}\n"
+                 "- scrollUntilVisible: {element: Done}\n")
+    _, notes = import_flow(f, "com.android.settings")
+    assert [n for n in notes if case in n] == [f"f.yaml: {case}; the draft matches them with case: check them"]
+    f.write_text("appId: com.android.settings\n---\n- scrollUntilVisible: {element: Done}\n")
+    assert any(case in n for n in import_flow(f, "com.android.settings")[1])  # a scroll's element too
+    f.write_text("appId: com.android.settings\n---\n- tapOn: '(?-ims)Ok'\n- assertVisible: {id: '(?-ims)a'}\n")
+    draft, notes = import_flow(f, "com.android.settings")
+    assert not [n for n in notes if case in n] and draft["steps"] == [{"do": [{"tap": "Ok"}]}, {"see": {"id": "a"}}]

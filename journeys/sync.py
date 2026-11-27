@@ -392,12 +392,12 @@ def _import(pack: Pack, f: str, text: str, state: dict, notes: list[str], dest: 
                      "steps": draft["steps"], "start": draft["start"], "name": draft["name"]}
         if listed:
             draft = [draft]
+    notes += [f"{f}: {n}" for n in more]  # a dry run shows the same notes
     if not write:  # a dry run: every check above, nothing written
         return draft[0]["name"] if isinstance(draft, list) else draft["name"]
     comment = f"# synced from {pack.sync['dir']}/{f}: the flow is the truth; edit it, then run `journeys sync`\n" \
         if source(pack) == "framework" else f"# imported from {pack.sync['dir']}/{f}\n"
     _write(dest, comment + yaml.safe_dump(draft, sort_keys=False, allow_unicode=True))
-    notes += [f"{f}: {n}" for n in more]
     draft = draft[0] if isinstance(draft, list) else draft
     loaded = Pack.load(pack.root)
     j = loaded.journeys.get(draft["name"]) or loaded.drafts.get(draft["name"])

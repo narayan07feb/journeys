@@ -46,7 +46,14 @@ def _unsame(v):
     return v[len(SAME):] if isinstance(v, str) and v.startswith(SAME) else v
 
 
-def _neutral_sel(arg):
+_CASE = "Maestro matched this flow's texts and ids without case; the draft matches them with case: check them"
+
+
+def _neutral_sel(arg, notes=None, where=""):
+    had = [v for v in ([arg] if isinstance(arg, str) else arg.values() if isinstance(arg, dict) else [])
+           if isinstance(v, str)]
+    if notes is not None and any(not v.startswith(SAME) for v in had) and f"{where}{_CASE}" not in notes:
+        notes.append(f"{where}{_CASE}")
     arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg
     if isinstance(arg, str):
         return from_selector(_plain(arg, "selector"))
@@ -112,9 +119,9 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                     actions.append("stop" if name == "stopApp" else {"launch": {"clear_state": True}} if clear else "launch")
             elif name in ("assertVisible", "assertNotVisible"):
                 flush()
-                steps.append({"see" if name == "assertVisible" else "not_see": _neutral_sel(arg)})
+                steps.append({"see" if name == "assertVisible" else "not_see": _neutral_sel(arg, notes, f"{path.name}: ")})
             elif name == "tapOn":
-                actions.append({"tap": _neutral_sel(arg)})
+                actions.append({"tap": _neutral_sel(arg, notes, f"{path.name}: ")})
             elif name == "inputText":
                 actions.append({"type": _plain(arg, "inputText")})
                 notes.append(f"{path.name} command {i + 1}: typed text copied into the draft; if it is a password "
@@ -132,7 +139,7 @@ def import_flow(path: Path, app: str | None = None) -> tuple[dict, list[str]]:
                                       "have no neutral form")
                 el = arg.get("element") if isinstance(arg, dict) else arg
                 up = isinstance(arg, dict) and str(arg.get("direction", "DOWN")).upper() == "UP"
-                sel = _neutral_sel(el)
+                sel = _neutral_sel(el, notes, f"{path.name}: ")
                 actions.append({"scroll_to": {"element": sel, "direction": "up"} if up else sel})
             elif name in ("back", "hideKeyboard", "scroll", "waitForAnimationToEnd") and arg is None:
                 actions.append({"back": "back", "hideKeyboard": "hide_keyboard", "scroll": "scroll",

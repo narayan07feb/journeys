@@ -187,7 +187,7 @@ async function hideKeyboard() {
       await driver.execute("mobile: hideKeyboard", {});
     }
   } catch (e) {
-    if (fatal(e) || !/keyboard/i.test(e.message) || /cannot be hidden/i.test(e.message)) throw e;
+    if (fatal(e) || !/not present|no keyboard|not shown/i.test(e.message)) throw e;
   }
 }
 
