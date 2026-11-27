@@ -254,11 +254,7 @@ The Maestro export (and the maestro driver) also:
   matches what the journey matches. Import drops it again, and a flow written without it gets a
   note: Maestro matched its texts and ids without case, the draft matches them with case.
 - refuses `press: search` (Maestro has no Search key).
-- refuses patterns Maestro's Java regex cannot read: a `{` that is not a count (write `\{`), and
-  `(?P<n>...)` groups, `(?#...)` comments and `(?(1)a|b)` choices (write `(?:...)`). The check is
-  not complete: other patterns read differently in Java, for example `[a[b]]` and `[a&&b]` (union
-  and intersection), `\d` (ASCII only) and `\Z` (end before a final line break). Keep Maestro
-  patterns plain.
+- checks each pattern as Java reads it (the rules and why: "Patterns in Java and JavaScript" below).
 
 What both exports do:
 
@@ -281,12 +277,9 @@ Appium (a WebdriverIO mocha spec):
   entirely outside the window, counts an `index` in page order, and taps the centre of the visible
   part with a W3C pointer action. A selector matches the exact label, or the label as a whole-text
   regex. `{id: name}` and `{id: pkg:id/name}` both match by the name only, as in the driver.
-- Patterns run as JavaScript regexes; Journeys reads them as Python's. Most read the same. A
-  pattern JavaScript cannot read, such as `(?P<n>...)` or `(?i)`, stops the spec when it loads,
-  before it touches the device. `\A` and `\Z` are refused at export (JavaScript reads them as
-  letters). Some patterns read but match differently: in JavaScript `\w` and `\d` match only ASCII
-  letters and digits (`/\w+/` does not match "Café"), and `.` does not match `\r`. Write such
-  patterns with the letters you mean, or run those journeys with Journeys.
+- Text patterns run as JavaScript regexes; the export checks each one as JavaScript reads it ("Patterns
+  in Java and JavaScript" below). A pattern JavaScript cannot read that the check does not know still
+  stops the spec when it loads, before it touches the device.
 - Checks and taps wait 5 s for the element; `scroll_to` swipes (a slow drag) for up to 20 s until
   all of the element is on the screen; `wait_idle` waits up to 3 s for the screen to stop changing;
   `launch` (`mobile: terminateApp`, `mobile: activateApp`) waits up to 5 s for the app's elements. The test sets its own mocha timeout from the
@@ -304,6 +297,32 @@ Appium (a WebdriverIO mocha spec):
   `outputDir` in `wdio.conf`) can hold them, as with the Journeys Appium driver.
 - The spec is tested against a pretend WebdriverIO (`tests/wdio_sim.js`), not yet against a real
   WebdriverIO and Appium server. Run it once on your setup before you trust it.
+
+### Patterns in Java and JavaScript
+
+Journeys reads every pattern as Python's `re` does. Maestro (the maestro driver and a Maestro export)
+reads it as Java, and the Appium export as JavaScript. Where the two read a pattern another way,
+Journeys refuses it, with a hint, so a journey never matches one thing in Journeys and another in the
+team's tool. Each rule was run on Java 17 and node 22 (`tests/test_regex_parity.py` runs them again).
+
+Refused in both: `(?P<n>...)` and `(?P=n)` (write `(?:...)` and repeat the text), `(?#...)`,
+`(?(1)a|b)`, `\U0001F600` (write the character), and `{,3}` (Python reads it as `{0,3}`).
+
+Refused for Java only: a `{` that is not a count (write `\{`); a `[` inside a `[...]` class (a
+union in Java; write `\[`); `&&` inside a class (an intersection); `\Z` (Java also matches before a
+final line break; leave it out, a pattern always matches the whole text); an octal escape such as
+`\0101` (write `\xNN`); `\v` (any vertical space in Java; write `\x0b`); `(?a)` and `(?L)`.
+
+Refused for JavaScript only: `\A` and `\Z` (the letters A and Z there); `\N{...}` and `\a`
+(write the character); a `]` first in a class, as in `[]a]` or `[^]a]` (an empty class or "any
+character" there; write `\]`); `(?>...)` and possessive `*+`, `++`, `?+`; any inline flag group
+such as `(?i)` or `(?-i:...)`.
+
+Read, with an export note (they match the same on ASCII text, not on other text): `\d`, `\w` and
+`\s` (Java: ASCII only; JavaScript: ASCII digits and letters, and another set of space characters);
+`\b` in JavaScript (ASCII letters only); `.` (does not match `\r` in either); `(?i)` in Java (folds
+ASCII case only). The maestro driver runs such patterns without a note. Write the letters you mean
+(`[0-9]`, `[A-Za-z]`) when the app shows other text.
 
 ## Secrets
 

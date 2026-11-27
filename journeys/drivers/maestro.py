@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from ..actions import ActionError
+from ..regex_parity import JAVA, check
 from .adb import AdbDriver
 from .base import CommandResult, DriverError, Element, Screen, kind_of
 
@@ -47,16 +48,8 @@ def parse_hierarchy(data: dict) -> Screen:
 SAME = "(?-ims)"
 
 
-# Python reads these, Java (Maestro) does not: (?P<n>...) groups, (?#...) comments, (?(1)a|b) choices
-# and a "{" that is not a count.
-_NOT_JAVA = re.compile(r"\(\?[P#(]|\{(?!\d+(,\d*)?\})")
-_LITERAL = re.compile(r"\\.|\[\^?\]?(\\.|[^\]])*\]")  # escapes and [...] classes: not checked (most read the same; docs/packs.md lists the ones that do not)
-
-
 def _java(rx: str) -> str:
-    if _NOT_JAVA.search(_LITERAL.sub("_", rx)):
-        raise ActionError(f"/{rx}/: Maestro (Java regex) cannot read this pattern; escape a {{ that is not a "
-                          "count as \\{, and use (?:...) in place of a named group, comment or (?(1)...) choice")
+    check(rx, JAVA)  # refuses a pattern Java reads differently
     return SAME + rx
 
 

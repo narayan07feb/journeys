@@ -14,13 +14,16 @@ from ..actions import KEYS, ActionError, from_selector, to_command, to_selector
 from ..drivers.maestro import SAME, to_maestro
 from ..journey import Journey
 from ..pack import Pack
+from ..regex_parity import JAVA, notes_for
 from . import journey_commands
 
 
 def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     """A Maestro flow for the journey, and what could not be exported."""
     notes: list[str] = []
-    cmds = [to_maestro(c) for c in journey_commands(pack, j, "Maestro", notes)]
+    shared = journey_commands(pack, j, "Maestro", notes)
+    cmds = [to_maestro(c) for c in shared]
+    notes += notes_for(shared, JAVA)
     if "${" in yaml.safe_dump(cmds):
         notes.append("a step uses ${NAME}: Maestro reads it as its own variable; run with -e NAME=... "
                      "or replace it in the flow")

@@ -1,0 +1,150 @@
+"""Every pattern rule in journeys/regex_parity.py, checked against the real engines.
+
+CASES says, per engine, what Journeys does with a pattern and a text that shows why:
+- ("refuse", text): the engine cannot read the pattern, or matches `text` unlike Python's fullmatch.
+- ("note", text): the engine reads it, but matches `text` unlike Python (the export notes it).
+- ("same", [texts]): the engine matches every text as Python does.
+The verdict test always runs. The engine tests run each case on java (Java 11+, as Maestro: "(?-ims)" +
+pattern, Matcher.matches()) and node (as the Appium export: new RegExp(`^(?:${p})$`)) when installed.
+"""
+import base64
+import json
+import re
+import shutil
+import subprocess
+import warnings
+from pathlib import Path
+
+import pytest
+
+from journeys.actions import ActionError
+from journeys.regex_parity import JAVA, JS, check, notes_for
+
+SAME = "same"
+CASES = {
+    "a{b": {JAVA: ("refuse", "a{b"), JS: (SAME, ["a{b", "ab"])},
+    "(?P<n>a)": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
+    "(?#c)a": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
+    "(a)?(?(1)b|c)": {JAVA: ("refuse", "c"), JS: ("refuse", "c")},
+    "[a[b]]": {JAVA: ("refuse", "b"), JS: (SAME, ["b", "a]", "b]"])},
+    "[a&&b]": {JAVA: ("refuse", "a"), JS: (SAME, ["a", "&", "b"])},
+    "a\\Z\\n": {JAVA: ("refuse", "a\n"), JS: ("refuse", "aZ\n")},
+    "\\ATotal": {JAVA: (SAME, ["Total", "ATotal"]), JS: ("refuse", "Total")},
+    "a{,3}": {JAVA: ("refuse", "aa"), JS: ("refuse", "aa")},
+    "\\0101": {JAVA: ("refuse", "\x081"), JS: (SAME, ["\x081", "A"])},
+    "\\U00000041": {JAVA: ("refuse", "A"), JS: ("refuse", "A")},
+    "\\N{DIGIT ONE}": {JAVA: (SAME, ["1", "N"]), JS: ("refuse", "1")},
+    "\\v": {JAVA: ("refuse", "\n"), JS: (SAME, ["\x0b", "\n", "v"])},
+    "\\a": {JAVA: (SAME, ["\x07", "a"]), JS: ("refuse", "\x07")},
+    "[]a]": {JAVA: (SAME, ["]", "a", "b"]), JS: ("refuse", "]")},
+    "[^]a]": {JAVA: (SAME, ["b", "]"]), JS: ("refuse", "b")},
+    "(?>a)": {JAVA: (SAME, ["a"]), JS: ("refuse", "a")},
+    "a*+": {JAVA: (SAME, ["aa", ""]), JS: ("refuse", "aa")},
+    "a{2}+": {JAVA: (SAME, ["aa"]), JS: ("refuse", "aa")},
+    "(?i)é": {JAVA: ("note", "É"), JS: ("refuse", "É")},
+    "(?-i:a)b": {JAVA: (SAME, ["ab", "Ab"]), JS: ("refuse", "ab")},
+    "(?a)\\w": {JAVA: ("refuse", "a"), JS: ("refuse", "a")},
+    "\\d": {JAVA: ("note", "٣"), JS: ("note", "٣")},
+    "\\w": {JAVA: ("note", "é"), JS: ("note", "é")},
+    "\\s": {JAVA: ("note", "\x1c"), JS: ("note", "\x1c")},
+    "é\\b": {JAVA: (SAME, ["é"]), JS: ("note", "é")},
+    "a.b": {JAVA: ("note", "a\rb"), JS: ("note", "a\rb")},
+}
+for _p, _texts in {"a{2}": ["aa", "a{2}"], "\\{x\\}": ["{x}"], "[{]x": ["{x"], "x}": ["x}"], "(?:a)b": ["ab"],
+                   "(?=a)a": ["a"], "Café": ["Café", "cafe"], "[\\]]x": ["]x"], "a+?": ["aa"], "(a)\\1": ["aa"],
+                   "\\x41": ["A"], "[a-]": ["-"], "[.]": [".", "a"], "\\\\Z": ["\\Z"]}.items():
+    CASES[_p] = {JAVA: (SAME, _texts), JS: (SAME, _texts)}
+
+
+def verdict(p, engine):
+    try:
+        return "note" if check(p, engine) else SAME
+    except ActionError:
+        return "refuse"
+
+
+@pytest.mark.parametrize("engine", [JAVA, JS])
+@pytest.mark.parametrize("p", list(CASES))
+def test_journeys_refuses_notes_or_passes_each_pattern(p, engine):
+    _python(p, "")  # every case is a pattern Journeys itself accepts
+    assert verdict(p, engine) == CASES[p][engine][0]
+
+
+def _python(p, s):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)  # [a[b]]: Python warns about a future set syntax
+        return bool(re.fullmatch(p, s))
+
+
+def _runs(engine):
+    return [(p, s) for p, c in CASES.items() for s in ([c[engine][1]] if c[engine][0] != SAME else c[engine][1])]
+
+
+def _java(runs):
+    b = lambda x: base64.b64encode(x.encode()).decode()
+    out = subprocess.run([shutil.which("java"), str(Path(__file__).parent / "regex" / "Match.java")], text=True,
+                         input="".join(f"{b(p)}\t{b(s)}\n" for p, s in runs), capture_output=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    return out.stdout.split()
+
+
+def _node(runs):
+    js = ("const r = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+          "console.log(r.map(([p, s]) => { try { return String(new RegExp(`^(?:${p})$`).test(s)); }"
+          " catch (e) { return 'ERROR'; } }).join(' '));")
+    out = subprocess.run([shutil.which("node"), "-e", js], text=True, input=json.dumps(runs), capture_output=True,
+                         timeout=60)
+    assert out.returncode == 0, out.stderr
+    return out.stdout.split()
+
+
+@pytest.mark.parametrize("engine, run, tool", [(JAVA, _java, "java"), (JS, _node, "node")])
+def test_each_case_reads_on_the_real_engine_as_the_table_says(engine, run, tool):
+    if shutil.which(tool) is None:
+        pytest.skip(f"{tool} is not installed")
+    runs = _runs(engine)
+    got = run(runs)
+    assert len(got) == len(runs)
+    wrong = []
+    for (p, s), g in zip(runs, got):
+        kind, py = CASES[p][engine][0], str(_python(p, s)).lower()
+        ok = {SAME: g == py, "note": g not in (py, "ERROR"), "refuse": g != py}[kind]
+        if not ok:
+            wrong.append((p, s, kind, f"{engine} {g}, Python {py}"))
+    assert not wrong
+
+
+def test_export_notes_name_each_difference_once():
+    cmds = [{"tapOn": "\\d+ items"}, {"assertVisible": {"text": "\\d of \\d"}}, {"tapOn": {"id": "a.b"}},
+            {"scrollUntilVisible": {"element": "x\\wy"}}, {"tapOn": "Plain"}, "back"]
+    assert notes_for(cmds, JAVA) == [
+        "\\d knows only ASCII digits in Java (Python: every language): /\\d+ items/ and 1 more pattern(s)",
+        ". does not match \\r in Java (Python: it does): /a.b/",
+        "\\w knows only ASCII letters and digits in Java (Python: every language): /x\\wy/"]
+    assert [n for n in notes_for(cmds, JS, keys=("text",)) if "does not match" in n] == []  # ids left out
+
+
+def test_both_exports_carry_the_notes_and_refusals(pack_dir):
+    from journeys.formats import appium, maestro
+    from journeys.pack import Pack
+    (pack_dir / "journeys" / "n.yaml").write_text("name: n\nsteps:\n  - see: '/\\d+ items/'\n")
+    pack = Pack.load(pack_dir)
+    for fmt, engine in ((maestro, JAVA), (appium, JS)):
+        assert f"\\d knows only ASCII digits in {engine} (Python: every language): /\\d+ items/" in \
+            fmt.export(pack, pack.journeys["n"])[1], engine
+    (pack_dir / "journeys" / "n.yaml").write_text("name: n\nsteps:\n  - see: '/Total\\Z/'\n")
+    pack = Pack.load(pack_dir)
+    for fmt, engine in ((maestro, JAVA), (appium, JS)):
+        with pytest.raises(ActionError, match=f"{engine} reads .Z"):
+            fmt.export(pack, pack.journeys["n"])
+
+
+def test_an_id_is_a_pattern_in_maestro_and_a_plain_name_in_the_appium_export(pack_dir):
+    from journeys.formats import appium, maestro
+    from journeys.pack import Pack
+    (pack_dir / "journeys" / "i.yaml").write_text("name: i\nsteps:\n  - see: {id: 'a\\Z'}\n")
+    pack = Pack.load(pack_dir)
+    with pytest.raises(ActionError, match="Java reads .Z"):
+        maestro.export(pack, pack.journeys["i"])
+    spec, notes = appium.export(pack, pack.journeys["i"])
+    assert '"id": "a\\\\Z"' in spec and not [n for n in notes if "JavaScript" in n]

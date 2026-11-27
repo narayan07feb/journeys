@@ -218,7 +218,7 @@ def test_tap_all_and_a_journey_run_the_same_on_every_driver(kind, tappable_pack_
     assert [o.status for o in outs] == ["passed", "passed"], [o.message for o in outs]
 
 
-@pytest.mark.parametrize("step, says", [("{press: search}", "no Search key"), ("{tap: '/a{b/'}", "Java regex")])
+@pytest.mark.parametrize("step, says", [("{press: search}", "no Search key"), ("{tap: '/a{b/'}", "Java reads")])
 def test_a_step_maestro_cannot_run_fails_cleanly_in_a_journey(step, says, tappable_pack_dir, tmp_path):
     import yaml
     from journeys.pack import Pack

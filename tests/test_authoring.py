@@ -699,7 +699,7 @@ def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
     from journeys.drivers.maestro import to_maestro
     cmd = {"tap": {"tapOn": rx}, "tap id": {"tapOn": {"id": rx}}, "see": {"assertVisible": {"text": rx}},
            "scroll": {"scrollUntilVisible": {"element": rx}}}[shape]
-    with pytest.raises(ActionError, match="Java regex"):  # java.util.regex (Java 17) throws on each of these
+    with pytest.raises(ActionError, match="Java reads"):  # java.util.regex (Java 17) throws or reads each differently
         to_maestro(cmd)
 
 

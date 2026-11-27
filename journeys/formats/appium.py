@@ -16,6 +16,7 @@ from ..drivers.appium import KEYCODES
 from ..drivers.base import command_name, shown
 from ..journey import Journey
 from ..pack import _VAR, Pack
+from ..regex_parity import JS, notes_for
 from . import journey_commands
 
 SCROLL_MS = 20_000  # as the Appium driver: scroll_to looks for 20 s
@@ -205,18 +206,6 @@ def _no_vars(value: str, what: str) -> str:
     return value
 
 
-def _anchor(pattern: str) -> bool:
-    """Whether the pattern has a \\A or \\Z escape (a "\\\\" before the letter is an escaped backslash)."""
-    i = 0
-    while i < len(pattern) - 1:
-        if pattern[i] == "\\":
-            if pattern[i + 1] in "AZ":
-                return True
-            i += 1
-        i += 1
-    return False
-
-
 def _sel(sel, sels: list[str]) -> str:
     """A shared-form selector -> SEL[n], an S({...}) made when the spec loads, matched as
     journeys.drivers.base.find does."""
@@ -238,9 +227,6 @@ def _sel(sel, sels: list[str]) -> str:
             out["rx"] = True
         except re.error:
             pass  # Journeys then matches the exact text only
-        if out["rx"] and _anchor(out["text"]):
-            raise ActionError(f"pattern {show!r} uses \\A or \\Z, which JavaScript reads as the letters A and Z; "
-                              "leave them out (a pattern always matches the whole text)")
     sels.append(f"S({json.dumps(out)})")
     return f"SEL[{len(sels) - 1}]"
 
@@ -320,9 +306,7 @@ def export(pack: Pack, j: Journey) -> tuple[str, list[str]]:
     erased = sum(_count(command_name(c)[1]) for c in cmds if command_name(c)[0] == "eraseText")
     # mocha's own 60 s is too short for a journey; erase is one call per character
     timeout = 60_000 + 10_000 * len(cmds) + SCROLL_MS * scrolls + 200 * erased
-    notes.append("patterns run as JavaScript regexes (Journeys reads them as Python's); one JavaScript "
-                 "cannot read stops the spec when it loads; \\w and \\d match only ASCII letters and digits there "
-                 "(Python's match any language), and . does not match \\r")
+    notes += notes_for(cmds, JS, keys=("text",))  # refuses or notes; ids match by name, not as a pattern
     head = (f"// Exported from Journeys: journey {json.dumps(j.name)}, pack {json.dumps(pack.name)}.\n"
             "// Runs with WebdriverIO (mocha) and Appium UiAutomator2; your wdio.conf picks the server and "
             "the device.\n"
