@@ -16,7 +16,7 @@ _COUNT = re.compile(r"\{\d+(,\d*)?\}")
 _PY_ONLY_COUNT = re.compile(r"\{,\d*\}")  # Python reads {,3} as {0,3}
 _NAMED = re.compile(r"\\N\{[^}]*\}")
 # Python reads \0101 as \010 then "1" (Java: \0101 is "A"), and \101 as "A" (Java: group 1, then "01")
-_OCTAL3 = re.compile(r"\\(0[0-7]{3}|[1-3][0-7]{2})")
+_OCTAL3 = re.compile(r"\\(0[0-3][0-7]{2}|[1-3][0-7]{2})")
 _FLAGS = re.compile(r"\(\?([aiLmsux]*)(-[imsx]*)?[:)]")  # (?i) (?s:...) (?-i:...)
 
 
@@ -28,11 +28,11 @@ def check(rx: str, engine: str) -> list[str]:
     notes: set[str] = set()
     i, n, quant, cls = 0, len(rx), False, None  # cls: index where the open [...] class started
     groups, behind = [], False  # open groups (True = a lookbehind); `behind`: a lookbehind just closed
-    if engine == JS and any(ord(ch) > 0xFFFF for ch in rx):
-        notes.add("a character above U+FFFF (an emoji) is two units in JavaScript: a class or a quantifier on it "
-                  "does not match it (Python: one character)")
     while i < n:
         c = rx[i]
+        if ord(c) > 0xFFFF and engine == JS and (cls is not None or rx[i + 1:i + 2] in tuple("*+?{")):
+            notes.add("a character above U+FFFF (an emoji) is two units in JavaScript: a class or a quantifier on it "
+                      "does not match it (Python: one character)")
         if behind and engine == JS and (c in "*+?" or _COUNT.match(rx, i)):
             refuse("a quantifier on a lookbehind (an error in JavaScript)", "leave the quantifier out")
         behind = False
@@ -44,7 +44,16 @@ def check(rx: str, engine: str) -> list[str]:
                 refuse("an octal escape such as \\0 or \\101", "write the character as \\xNN")
             if e == "b" and cls is not None and engine == JAVA:
                 refuse("[\\b] (an error in Java; a backspace in Python)", "write \\x08")
-            if e == "U" or (e == "N" and engine == JS) or (e == "a" and engine == JS):
+            if e in "123456789" and cls is not None and engine == JAVA:
+                refuse("a digit escape inside a [...] class (an error in Java)", "write the character as \\xNN")
+            if e in "123456789" and cls is None and engine == JS and not _OCTAL3.match(rx, i) and \
+                    re.search(r"[?*|]|\{0", rx):  # only an optional group can be left out
+                notes.add("a back-reference to a group that did not take part matches an empty text in JavaScript "
+                          "(Python: it fails)")
+            if e == "u" and re.match(r"\\u[dD][89a-fA-F]", rx[i:i + 4]):
+                refuse("a \\uD800-\\uDFFF half of a character (Java and JavaScript join two into one emoji)",
+                       "write the character itself")
+            if e in "UN" or (e == "a" and engine == JS):
                 refuse(f"\\{e}", "write the character itself, or \\xNN / \\uNNNN")
             if e == "v" and engine == JAVA:
                 refuse("\\v (any vertical space in Java, the vertical tab in Python)", "write \\x0b")
@@ -79,9 +88,11 @@ def check(rx: str, engine: str) -> list[str]:
             groups.append(rx.startswith(("(?<=", "(?<!"), i))
         elif c == ")":
             behind = bool(groups) and groups.pop()
-        elif c == "$" and engine == JS and rx[i + 1:].strip(")"):
+        elif c == "$" and rx[i + 1:].strip(")") and (engine == JS or not rx.startswith(("\\n", "\n"), i + 1)):
             notes.add("a $ before more of the pattern matches only at the very end in JavaScript "
-                      "(Python: also before a final line break)")
+                      "(Python: also before a final line break)" if engine == JS else
+                      "a $ before more of the pattern also matches before a final \\r, \\x85, \\u2028 or \\u2029 "
+                      "in Java (Python: only before \\n)")
         if c == "(" and rx.startswith("(?", i):
             k, flags = rx[i + 2:i + 3], _FLAGS.match(rx, i)
             if k and k in "P(#":
@@ -148,6 +159,8 @@ def notes_for(cmds: list, engine: str, keys=("text", "id")) -> list[str]:
                 continue  # not a pattern: matched as exact text
             if k in keys:
                 for n in check(v, engine):
+                    if k == "id" and n.startswith(". "):
+                        continue  # a dot in an id is the package's, and an id never holds a line break
                     ps = seen.setdefault(n, [])
                     if v not in ps:
                         ps.append(v)

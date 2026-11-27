@@ -33,7 +33,8 @@ CASES = {
     "a{,3}": {JAVA: ("refuse", "aa"), JS: ("refuse", "aa")},
     "\\0101": {JAVA: ("refuse", "\x081"), JS: (SAME, ["\x081", "A"])},
     "\\U00000041": {JAVA: ("refuse", "A"), JS: ("refuse", "A")},
-    "\\N{DIGIT ONE}": {JAVA: (SAME, ["1", "N"]), JS: ("refuse", "1")},
+    "\\N{DIGIT ONE}": {JAVA: ("refuse", "1"), JS: ("refuse", "1")},  # Java knows this name: STRICT
+    "\\N{LF}": {JAVA: ("refuse", "\n"), JS: ("refuse", "\n")},
     "\\v": {JAVA: ("refuse", "\n"), JS: (SAME, ["\x0b", "\n", "v"])},
     "\\a": {JAVA: (SAME, ["\x07", "a"]), JS: ("refuse", "\x07")},
     "[]a]": {JAVA: (SAME, ["]", "a", "b"]), JS: ("refuse", "]")},
@@ -60,11 +61,23 @@ CASES = {
     "(?m)a$\r?b": {JAVA: ("note", "a\rb"), JS: ("refuse", "a\rb")},
     "[^a]": {JAVA: (SAME, ["\U0001F600", "b"]), JS: ("note", "\U0001F600")},
     "\U0001F600+": {JAVA: (SAME, ["\U0001F600\U0001F600"]), JS: ("note", "\U0001F600\U0001F600")},
+    "[\U0001F600]": {JAVA: (SAME, ["\U0001F600"]), JS: ("note", "\U0001F600")},
+    "\U0001F600 hi": {JAVA: (SAME, ["\U0001F600 hi"]), JS: (SAME, ["\U0001F600 hi"])},
+    "\\ud83d\\ude00": {JAVA: ("refuse", "\U0001F600"), JS: ("refuse", "\U0001F600")},
+    "(a)?\\1": {JAVA: (SAME, ["", "a", "aa"]), JS: ("note", "")},
+    "(a)?\\101": {JAVA: ("refuse", "A"), JS: (SAME, ["A", "aA"])},  # octal in Python and JS: no back-reference note
+    "a$\\s": {JAVA: ("note", "a\r"), JS: ("note", "a\n")},
+    "[\\1]": {JAVA: ("refuse", "\x01"), JS: (SAME, ["\x01"])},
+    "\\0377": {JAVA: ("refuse", "\x1f7"), JS: (SAME, ["\x1f7"])},
     "x.y": {JAVA: ("note", "x\x85y"), JS: ("note", "x\U0001F600y")},
     "a.b": {JAVA: ("note", "a\rb"), JS: ("note", "a\rb")},
 }
-VARIES = {("é\\b", JAVA)}  # the engine test accepts both results; the note is shown either way
-for _p, _texts in {"\\012": ["\n"], "\\00": ["\x00"], "(?<=a)b?": ["", "b"], "a$": ["a", "a\n"],
+# The engine test accepts both results for these. VARIES: the engine version decides (Java 19+ reads \b as
+# ASCII; node 23+ reads (?-i:...)), and Journeys keeps the stricter verdict. STRICT: refused on purpose
+# although this case reads the same (Java knows some \N{...} names, not all).
+VARIES = {("é\\b", JAVA), ("(?-i:a)b", JS)}
+STRICT = {("\\N{DIGIT ONE}", JAVA)}
+for _p, _texts in {"\\0777": ["?7"], "\\012": ["\n"], "\\00": ["\x00"], "(?<=a)b?": ["", "b"], "a$": ["a", "a\n"],
                    "(a$)": ["a", "a\n"], "a{2}": ["aa", "a{2}"], "\\{x\\}": ["{x}"], "[{]x": ["{x"], "x}": ["x}"], "(?:a)b": ["ab"],
                    "(?=a)a": ["a"], "Café": ["Café", "cafe"], "[\\]]x": ["]x"], "a+?": ["aa"], "(a)\\1": ["aa"],
                    "\\x41": ["A"], "[a-]": ["-"], "[.]": [".", "a"], "\\\\Z": ["\\Z"]}.items():
@@ -124,20 +137,22 @@ def test_each_case_reads_on_the_real_engine_as_the_table_says(engine, run, tool)
     for (p, s), g in zip(runs, got):
         kind, py = CASES[p][engine][0], str(_python(p, s)).lower()
         ok = {SAME: g == py, "note": g not in (py, "ERROR"), "refuse": g != py}[kind] or \
-            ((p, engine) in VARIES and g == py)
+            ((p, engine) in VARIES | STRICT and g == py)
         if not ok:
             wrong.append((p, s, kind, f"{engine} {g}, Python {py}"))
     assert not wrong
 
 
 def test_export_notes_name_each_difference_once():
-    cmds = [{"tapOn": "\\d+ items"}, {"assertVisible": {"text": "\\d of \\d"}}, {"tapOn": {"id": "a.b"}},
+    cmds = [{"tapOn": "\\d+ items"}, {"assertVisible": {"text": "\\d of \\d"}}, {"tapOn": {"text": "a.b"}},
+            {"tapOn": {"id": "com.x:id/c.d"}},
             {"scrollUntilVisible": {"element": "x\\wy"}}, {"tapOn": "Plain"}, "back"]
     assert notes_for(cmds, JAVA) == [
         "\\d knows only ASCII digits in Java (Python: every language): /\\d+ items/ and 1 more pattern(s)",
         ". does not match \\r, \\x85, \\u2028 or \\u2029 in Java (Python: it does): /a.b/",
         "\\w knows only ASCII letters and digits in Java (Python: every language): /x\\wy/"]
-    assert [n for n in notes_for(cmds, JS, keys=("text",)) if "does not match" in n] == []  # ids left out
+    assert notes_for([{"tapOn": {"id": "com.x:id/c.d"}}], JAVA) == []  # a dot in an id is the package's
+    assert notes_for([{"tapOn": {"id": "x\\d"}}], JS, keys=("text",)) == []  # the Appium export leaves ids out
 
 
 def test_both_exports_carry_the_notes_and_refusals(pack_dir):
@@ -166,7 +181,7 @@ def test_an_id_is_a_pattern_in_maestro_and_a_plain_name_in_the_appium_export(pac
     assert '"id": "a\\\\Z"' in spec and not [n for n in notes if "JavaScript" in n]
 
 
-def test_python_3_14_end_of_text_is_refused_for_javascript():
+def test_python_3_14_end_of_text_is_refused_for_javascript_and_read_by_java():
     """Python 3.14 reads \\z as the end (3.12 refuses it, so it is not in the table); JavaScript reads the letter z."""
     with pytest.raises(ActionError, match="JavaScript reads .z"):
         check("a\\z", JS)
@@ -177,3 +192,9 @@ def test_the_b_notes_name_what_differs():
     assert check("x\\B", JS) == [
         "\\B knows only ASCII letters and digits in JavaScript (Python: every language), and \\B matches an empty text"]
     assert check("\\bx", JAVA) == ["\\b knows only ASCII letters and digits in Java 19 and later (Python: every language)"]
+
+
+def test_a_dollar_before_more_of_the_pattern_is_noted_for_java_unless_a_line_feed_follows():
+    assert check("a$\\r", JAVA) == ["a $ before more of the pattern also matches before a final \\r, \\x85, \\u2028 "
+                                    "or \\u2029 in Java (Python: only before \\n)"]
+    assert check("a$\\n", JAVA) == check("a$", JAVA) == []

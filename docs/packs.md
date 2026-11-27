@@ -302,13 +302,14 @@ Appium (a WebdriverIO mocha spec):
 
 Journeys reads every pattern as Python's `re` does. Maestro (the maestro driver and a Maestro export)
 reads it as Java, and the Appium export as JavaScript. Where the two read a pattern another way,
-Journeys refuses it, with a hint, so a journey never matches one thing in Journeys and another in the
-team's tool. Each rule was run on Java 11, 17 and 25 and node 22 (`tests/test_regex_parity.py` runs
-them again on the `java` and `node` it finds).
+Journeys refuses it, with a hint, or notes it in the export. That covers the differences listed here,
+not every one there is. Each rule was run on Java 11, 17 and 25 and node 22 and 23
+(`tests/test_regex_parity.py` runs them again on the `java` and `node` it finds).
 
 Refused in both: `(?P<n>...)` and `(?P=n)` (write `(?:...)` and repeat the text), `(?#...)`,
-`(?(1)a|b)`, `\U0001F600` (write the character), `{,3}` (Python reads it as `{0,3}`) and `(?x)`
-(Java also skips spaces and `#` inside a `[...]` class).
+`(?(1)a|b)`, `\U0001F600` and `\N{...}` (write the character; Java knows only some names),
+`\uD800`-`\uDFFF` halves of a character (Java and JavaScript join two into one emoji), `{,3}`
+(Python reads it as `{0,3}`) and `(?x)` (Java also skips spaces and `#` inside a `[...]` class).
 
 Refused for Java only:
 - a `{` that is not a count (write `\{`);
@@ -316,14 +317,15 @@ Refused for Java only:
 - `\Z` (Java also matches before a final line break; leave it out, a pattern always matches the whole
   text);
 - octal escapes that Java reads another way: a bare `\0` or `\0` before 8 or 9 (an error), `\0101`
-  (Python: `\010` then "1") and `\101` (Java: group 1, then "01"); write `\xNN`. `\012` and `\00`
-  read the same and pass;
-- `[\b]` (an error in Java; write `\x08`), `\v` (any vertical space in Java; write `\x0b`) and `(?a)`.
+  (Python: `\010` then "1") and `\101` (Java: group 1, then "01"); write `\xNN`. `\012`, `\00`
+  and `\0777` read the same and pass;
+- `[\b]` and a digit escape inside a class such as `[\1]` (errors in Java; write `\xNN`), `\v` (any
+  vertical space in Java; write `\x0b`) and `(?a)`.
 
-Refused for JavaScript only: `\A`, `\Z` and `\z` (letters there); `\N{...}` and `\a` (write the
-character); a `]` first in a class, as in `[]a]` or `[^]a]` (an empty class or "any character" there;
+Refused for JavaScript only: `\A`, `\Z` and `\z` (letters there); `\a` (write the character); a `]` first in a class, as in `[]a]` or `[^]a]` (an empty class or "any character" there;
 write `\]`); `(?>...)` and possessive `*+`, `++`, `?+`; a quantifier on a lookbehind, as in
-`(?<=a)?`; and any inline flag group, such as `(?i)` or `(?-i:...)`.
+`(?<=a)?`; and any inline flag group, such as `(?i)` or `(?-i:...)` (node 23 and later read the
+scoped `(?-i:...)` form; it stays refused so the spec also loads on older node).
 
 Read, with an export note (they match the same on plain ASCII text, not on other text):
 - `\d`, `\w` and `\s` (Java: ASCII only; JavaScript: ASCII digits and letters, and another set of
@@ -331,11 +333,16 @@ Read, with an export note (they match the same on plain ASCII text, not on other
   also matches an empty text);
 - `.` (does not match `\r`, `\u2028` or `\u2029` in either, nor `\x85` in Java, nor a whole emoji
   in JavaScript);
+- a `$` before more of the pattern (JavaScript: only the very end; Python also before a final `\n`;
+  Java also before a final `\r`, `\x85`, `\u2028` or `\u2029`);
 - in Java: `(?i)` without `u` (folds ASCII case only) and `(?m)` (`^` and `$` also break lines at
   `\r`, `\x85`, `\u2028`, `\u2029`);
-- in JavaScript: a `$` before more of the pattern (only the very end; Python also before a final line
-  break), a `[^...]` class and any character above U+FFFF such as an emoji (JavaScript reads it as two
-  units).
+- in JavaScript: a back-reference such as `\1` in a pattern with an optional part (a group that did
+  not take part matches an empty text there; Python fails), a `[^...]` class, and a character above
+  U+FFFF such as an emoji inside a class or before a quantifier (JavaScript reads it as two units).
+
+A dot in an id (`com.example:id/title`) gets no note: it is the package's dot, and an id never holds a
+line break.
 
 The maestro driver runs noted patterns without a note. Write the letters you mean (`[0-9]`,
 `[A-Za-z]`) when the app shows other text.
