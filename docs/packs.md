@@ -247,15 +247,20 @@ one journey (or draft) as the team's own test, to run with its own tool. Without
 stdout; `-o` never writes over a file. Each line about a part that could not be exported starts with
 `NOTE` on stderr.
 
-What both exports do:
+The Maestro export (and the maestro driver) also:
 
-- Maestro only: each text and id selector starts with `(?-ims)`. Maestro matches selectors without
-  case, with `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so
-  the flow matches what the journey matches. Import drops it again, and a flow written without it
-  gets a note: Maestro matched its texts and ids without case, the draft matches them with case.
-  `press: search` is refused (Maestro has no Search key). A pattern Maestro's Java regex cannot
-  read is refused too: a `{` that is not a count (write `\{`) and a named group `(?P<n>...)`
-  (write `(?:...)`).
+- starts each text and id selector with `(?-ims)`. Maestro matches selectors without case, with
+  `.` across lines and `^`/`$` at each line by default; the prefix turns that off, so the flow
+  matches what the journey matches. Import drops it again, and a flow written without it gets a
+  note: Maestro matched its texts and ids without case, the draft matches them with case.
+- refuses `press: search` (Maestro has no Search key).
+- refuses patterns Maestro's Java regex cannot read: a `{` that is not a count (write `\{`), and
+  `(?P<n>...)` groups, `(?#...)` comments and `(?(1)a|b)` choices (write `(?:...)`). The check is
+  not complete: other patterns read differently in Java, for example `[a[b]]` and `[a&&b]` (union
+  and intersection), `\d` (ASCII only) and `\Z` (end before a final line break). Keep Maestro
+  patterns plain.
+
+What both exports do:
 
 - The whole journey runs at once, as one test. There are no detours, no explore and no proposals:
   those need Journeys.

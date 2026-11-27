@@ -47,15 +47,16 @@ def parse_hierarchy(data: dict) -> Screen:
 SAME = "(?-ims)"
 
 
-# Python reads these, Java (Maestro) does not: a named group (?P<n>...) and a "{" that is not a count.
-_NOT_JAVA = re.compile(r"\(\?P|\{(?!\d+(,\d*)?\})")
+# Python reads these, Java (Maestro) does not: (?P<n>...) groups, (?#...) comments, (?(1)a|b) choices
+# and a "{" that is not a count.
+_NOT_JAVA = re.compile(r"\(\?[P#(]|\{(?!\d+(,\d*)?\})")
 _LITERAL = re.compile(r"\\.|\[\^?\]?(\\.|[^\]])*\]")  # escapes and [...] classes: the same in both
 
 
 def _java(rx: str) -> str:
-    if _NOT_JAVA.search(_LITERAL.sub("", rx)):
+    if _NOT_JAVA.search(_LITERAL.sub("_", rx)):
         raise ActionError(f"/{rx}/: Maestro (Java regex) cannot read this pattern; escape a {{ that is not a "
-                          "count as \\{, and use (?:...) in place of a named group")
+                          "count as \\{, and use (?:...) in place of a named group, comment or (?(1)...) choice")
     return SAME + rx
 
 

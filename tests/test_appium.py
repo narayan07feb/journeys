@@ -301,6 +301,9 @@ def test_round_2_an_expired_session_is_never_hidden():
     d._http = lambda m, p, b=None: http(m, p, b, "500 keyboard is locked by the app")
     with pytest.raises(AppiumError, match="locked"):
         d.do(["hideKeyboard"])  # a keyboard error that is not "no keyboard" still fails
+    d._http = lambda m, p, b=None: http(m, p, b, "500 An element could not be located: not present")
+    with pytest.raises(AppiumError, match="could not be located"):
+        d.do(["hideKeyboard"])  # "not present" about something else is not "no keyboard"
     d._http = lambda m, p, b=None: http(m, p, b, "404 invalid session id: keyboard not present")
     with pytest.raises(AppiumError):
         d.do(["hideKeyboard"])  # a dead session is fatal even when its text says "not present"

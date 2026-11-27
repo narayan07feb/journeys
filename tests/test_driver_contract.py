@@ -19,7 +19,7 @@ APP = {
             {"kind": "Button", "text": "Next", "id": "com.example.app:id/next", "to": "SECOND"},
             {"kind": "Button", "text": "Help, FAQ, contact", "to": "HELP"},
         ]},
-        "SECOND": {"elements": [{"kind": "Text", "text": "Second page"}]},
+        "SECOND": {"elements": [{"kind": "Text", "text": "Second page"}, {"kind": "Text", "text": "Line one\nLine two"}]},
         "HELP": {"elements": [{"kind": "Text", "text": "Help"}]},
     },
 }
@@ -63,6 +63,15 @@ def test_text_and_ids_match_with_case_on_every_driver(drv):
     assert not drv.do([{"tapOn": {"id": "NEXT"}}]).ok
     assert not drv.do([{"assertVisible": "welcome"}]).ok
     assert drv.do([{"assertNotVisible": "WELCOME"}]).ok
+
+
+def test_dot_and_anchors_do_not_cross_lines_on_every_driver(drv):
+    """Maestro alone reads . across lines and ^/$ at each line by default; the driver turns both off."""
+    assert drv.do([{"tapOn": "Next"}, {"assertVisible": "Line one\nLine two"}]).ok
+    assert not drv.do([{"assertVisible": "Line one.Line two"}]).ok  # no DOTALL
+    assert not drv.do([{"assertVisible": "Line two"}]).ok  # whole text, not one line
+    assert not drv.do([{"assertVisible": "Line one$\n^Line two"}]).ok  # no MULTILINE
+    assert drv.do([{"assertVisible": "(?s)Line one.Line two"}]).ok  # a team can still turn it on
 
 
 def test_a_missing_element_fails_the_command(drv):
@@ -207,3 +216,19 @@ def test_tap_all_and_a_journey_run_the_same_on_every_driver(kind, tappable_pack_
         "SETTINGS-HOME", "SETTINGS-SEARCH", "SETTINGS-DISPLAY", "SETTINGS-ABOUT"}, kind
     outs = Runner(pack, d, store, store.new_run(), heal=False).run_all(pack.select("smoke"))
     assert [o.status for o in outs] == ["passed", "passed"], [o.message for o in outs]
+
+
+@pytest.mark.parametrize("step, says", [("{press: search}", "no Search key"), ("{tap: '/a{b/'}", "Java regex")])
+def test_a_step_maestro_cannot_run_fails_cleanly_in_a_journey(step, says, tappable_pack_dir, tmp_path):
+    import yaml
+    from journeys.pack import Pack
+    from journeys.results import Store
+    from journeys.runner import Runner
+    (tappable_pack_dir / "journeys" / "nope.yaml").write_text(f"name: nope\nsteps:\n  - do: [{step}]\n")
+    pack = Pack.load(tappable_pack_dir)
+    app = yaml.safe_load((tappable_pack_dir / "fake" / "app.yaml").read_text())
+    d = hooked("maestro", Phone(app), tmp_path)
+    d.start(pack.app, "emulator-5554")
+    store = Store(tmp_path / "state")
+    out, = Runner(pack, d, store, store.new_run(), heal=False).run_all([pack.journeys["nope"]])
+    assert out.status == "failed" and says in out.message, out.message

@@ -294,7 +294,7 @@ class AppiumDriver(AdbDriver):
                     self._mobile("hideKeyboard")
             except AppiumError as e:  # an older Appium says no keyboard is up: nothing to hide
                 d = e.detail.lower()  # the server's words, not the route's
-                if e.fatal or not re.search(r"not present|no keyboard|not shown", d):  # "cannot be hidden": still up
+                if e.fatal or not re.search(r"keyboard.*(not present|not shown)|no keyboard", d):
                     raise  # a dead session, a keyboard that stays up, or any other error still fails
         elif name == "scroll":
             self._swipe(up=True)

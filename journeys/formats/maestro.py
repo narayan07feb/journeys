@@ -50,8 +50,8 @@ _CASE = "Maestro matched this flow's texts and ids without case; the draft match
 
 
 def _neutral_sel(arg, notes=None, where=""):
-    had = [v for v in ([arg] if isinstance(arg, str) else arg.values() if isinstance(arg, dict) else [])
-           if isinstance(v, str)]
+    had = [v for v in ([arg] if isinstance(arg, str) else [arg.get("text"), arg.get("id")] if isinstance(arg, dict)
+                       else []) if isinstance(v, str)]
     if notes is not None and any(not v.startswith(SAME) for v in had) and f"{where}{_CASE}" not in notes:
         notes.append(f"{where}{_CASE}")
     arg = _unsame(arg) if isinstance(arg, str) else {k: _unsame(v) for k, v in arg.items()} if isinstance(arg, dict) else arg

@@ -20,8 +20,9 @@ only, never taken as the answer. The driver tests run each driver against a simu
 they check how Journeys calls the tool, not that your installed version accepts every key; check
 those on your device. Maestro has no `Search` key: `press: search` is refused with the maestro driver
 and in a Maestro export. Maestro matches selectors without case by default; Journeys' maestro driver
-and export add `(?-ims)` in front of each text and id, so they match exactly as with the other drivers. Maestro flows import into drafts, and a journey exports
-as a Maestro flow or a WebdriverIO spec for Appium, so a team keeps its tools (docs/packs.md, Export).
+and export add `(?-ims)` in front of each text and id, so they match exactly as with the other drivers.
+Maestro flows import into drafts, and a journey exports as a Maestro flow or a WebdriverIO spec
+for Appium, so a team keeps its tools (docs/packs.md, Export).
 
 - **App map**: screens known by what is on them (texts, ids), and edges (which tap leads where).
 - **Journeys**: named paths through the map with checks (`expect` a screen, `see` a text, an

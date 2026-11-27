@@ -692,12 +692,15 @@ def test_an_exported_flow_imports_back_without_the_case_flag(pack_dir, tmp_path)
     assert "(?-ims)" not in str(draft) and "Dark theme.*" in str(draft)
 
 
-@pytest.mark.parametrize("rx", ["a{b", "(?P<n>a)b", "x(?P=n)", "\\\\{"])
-def test_a_selector_java_cannot_read_is_refused_for_maestro(rx):
+@pytest.mark.parametrize("rx", ["a{b", "(?P<n>a)b", "x(?P=n)", "\\\\{", "(?#c)a", "(a)?(?(1)b|c)", "a{2[x]}"])
+@pytest.mark.parametrize("shape", ["tap", "tap id", "see", "scroll"])
+def test_a_selector_java_cannot_read_is_refused_for_maestro(rx, shape):
     from journeys.actions import ActionError
     from journeys.drivers.maestro import to_maestro
-    with pytest.raises(ActionError, match="Java regex"):  # java.util.regex: a dangling { and (?P are syntax errors
-        to_maestro({"tapOn": {"text": rx}})
+    cmd = {"tap": {"tapOn": rx}, "tap id": {"tapOn": {"id": rx}}, "see": {"assertVisible": {"text": rx}},
+           "scroll": {"scrollUntilVisible": {"element": rx}}}[shape]
+    with pytest.raises(ActionError, match="Java regex"):  # java.util.regex (Java 17) throws on each of these
+        to_maestro(cmd)
 
 
 @pytest.mark.parametrize("rx", ["a{2}", "a{2,}", "a{2,3}", "\\{x\\}", "[{]x", "[^]{]x", "a\\(?P", "x}"])
@@ -714,6 +717,8 @@ def test_import_notes_case_once_for_a_hand_written_flow_and_never_for_a_generate
                  "- scrollUntilVisible: {element: Done}\n")
     _, notes = import_flow(f, "com.android.settings")
     assert [n for n in notes if case in n] == [f"f.yaml: {case}; the draft matches them with case: check them"]
+    f.write_text("appId: com.android.settings\n---\n- tapOn: {index: '1'}\n")
+    assert not [n for n in import_flow(f, "com.android.settings")[1] if case in n]  # no text or id: no note
     f.write_text("appId: com.android.settings\n---\n- scrollUntilVisible: {element: Done}\n")
     assert any(case in n for n in import_flow(f, "com.android.settings")[1])  # a scroll's element too
     f.write_text("appId: com.android.settings\n---\n- tapOn: '(?-ims)Ok'\n- assertVisible: {id: '(?-ims)a'}\n")
