@@ -50,7 +50,7 @@ SAME = "(?-ims)"
 # Python reads these, Java (Maestro) does not: (?P<n>...) groups, (?#...) comments, (?(1)a|b) choices
 # and a "{" that is not a count.
 _NOT_JAVA = re.compile(r"\(\?[P#(]|\{(?!\d+(,\d*)?\})")
-_LITERAL = re.compile(r"\\.|\[\^?\]?(\\.|[^\]])*\]")  # escapes and [...] classes: the same in both
+_LITERAL = re.compile(r"\\.|\[\^?\]?(\\.|[^\]])*\]")  # escapes and [...] classes: not checked (most read the same; docs/packs.md lists the ones that do not)
 
 
 def _java(rx: str) -> str:
